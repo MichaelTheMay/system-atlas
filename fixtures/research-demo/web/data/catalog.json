@@ -1,0 +1,10 @@
+{
+  "sources": [
+    { "id": "s1", "title": "Grid-scale solar storage economics", "url": "https://example.invalid/s1", "tags": ["solar", "storage", "grid"] },
+    { "id": "s2", "title": "Lithium iron phosphate cells for home storage", "url": "https://example.invalid/s2", "tags": ["battery", "storage"] },
+    { "id": "s3", "title": "Solar forecasting with satellite imagery", "url": "https://example.invalid/s3", "tags": ["solar", "forecasting"] },
+    { "id": "s4", "title": "Pumped hydro as long-duration storage", "url": "https://example.invalid/s4", "tags": ["hydro", "storage"] },
+    { "id": "s5", "title": "Rooftop solar adoption survey", "url": "https://example.invalid/s5", "tags": ["solar", "policy"] },
+    { "id": "s6", "title": "Wind and solar curtailment trends", "url": "https://example.invalid/s6", "tags": ["wind", "solar", "grid"] }
+  ]
+}

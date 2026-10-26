@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Research demo</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 40px; max-width: 720px; color: #1c2330; }
+      input { font: inherit; padding: 8px; width: 60%; }
+      button { font: inherit; padding: 8px 14px; }
+      li { margin: 6px 0; }
+      .empty { color: #8a5a00; }
+    </style>
+  </head>
+  <body>
+    <h1>Research demo</h1>
+    <form id="search">
+      <label for="topic">Topic</label>
+      <input id="topic" name="topic" placeholder="e.g. solar storage" />
+      <button type="submit">Search</button>
+    </form>
+    <section id="results" aria-live="polite"></section>
+    <script src="app.js"></script>
+  </body>
+</html>

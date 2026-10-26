@@ -44,6 +44,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@atlas/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
       '@atlas/analyzers':
         specifier: workspace:*
         version: link:../../packages/analyzers
@@ -56,6 +59,13 @@ importers:
       commander:
         specifier: 15.0.0
         version: 15.0.0
+    devDependencies:
+      '@atlas/evidence':
+        specifier: workspace:*
+        version: link:../../packages/evidence
+      '@atlas/store':
+        specifier: workspace:*
+        version: link:../../packages/store
 
   apps/daemon:
     dependencies:
