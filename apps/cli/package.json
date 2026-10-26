@@ -1,0 +1,23 @@
+{
+  "name": "@atlas/cli",
+  "private": true,
+  "version": "0.0.0",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@atlas/schema": "workspace:*",
+    "commander": "15.0.0",
+    "@atlas/daemon": "workspace:*",
+    "@atlas/analyzers": "workspace:*"
+  },
+  "bin": {
+    "atlas": "./src/main.ts"
+  }
+}

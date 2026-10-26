@@ -1,0 +1,12 @@
+[project]
+name = "notekeeper"
+version = "1.0.0"
+requires-python = ">=3.11"
+dependencies = ["fastapi>=0.110", "uvicorn>=0.29"]
+
+[project.scripts]
+notekeeper = "notekeeper.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -1,0 +1,6 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Native build scripts are not needed: SQLite is node:sqlite, parsers are wasm.
+onlyBuiltDependencies: []

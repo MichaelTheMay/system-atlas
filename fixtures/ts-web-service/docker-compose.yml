@@ -1,0 +1,22 @@
+services:
+  api:
+    build: { context: ., dockerfile: packages/api/Dockerfile }
+    ports: ["8080:8080"]
+    environment:
+      DATABASE_URL: postgres://reports@db:5432/reports
+      REDIS_URL: redis://queue:6379
+    depends_on: [db, queue]
+  worker:
+    build: { context: ., dockerfile: packages/worker/Dockerfile }
+    environment:
+      DATABASE_URL: postgres://reports@db:5432/reports
+      REDIS_URL: redis://queue:6379
+    depends_on: [db, queue]
+  web:
+    build: { context: ., dockerfile: packages/web/Dockerfile }
+    ports: ["3000:3000"]
+    depends_on: [api]
+  db:
+    image: postgres:17
+  queue:
+    image: redis:7

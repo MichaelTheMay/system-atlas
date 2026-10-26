@@ -1,0 +1,6 @@
+{
+  "name": "@reports/worker",
+  "version": "1.0.0",
+  "main": "src/main.ts",
+  "dependencies": { "@reports/shared": "workspace:*", "pg": "^8.0.0", "bullmq": "^5.0.0" }
+}

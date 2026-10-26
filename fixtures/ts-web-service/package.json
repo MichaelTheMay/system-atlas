@@ -1,0 +1,6 @@
+{
+  "name": "report-service",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": { "build": "tsc -b" }
+}
