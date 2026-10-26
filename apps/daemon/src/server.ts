@@ -144,7 +144,53 @@ export function buildServer(opts: ServerOptions): AtlasServer {
           .all<{ kind: string; n: number }>(sid)
           .map((r) => [r.kind, r.n]),
       );
-      return { ...latest, counts: { entitiesByKind, relationsByKind } };
+      const summary = opts.db
+        .prepare('SELECT change_summary FROM snapshots WHERE id = ?')
+        .get<{ change_summary: string | null }>(sid);
+      const openIssues = opts.db
+        .prepare("SELECT count(*) AS n FROM issues WHERE snapshot_id = ? AND status = 'open'")
+        .get<{ n: number }>(sid)!.n;
+      return {
+        ...latest,
+        counts: { entitiesByKind, relationsByKind },
+        changes: summary?.change_summary ? JSON.parse(summary.change_summary) : null,
+        openIssues,
+      };
+    },
+  );
+
+  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
+    `${API_PREFIX}/snapshots/:id/changes`,
+    async (req, reply) => {
+      const snap = opts.db
+        .prepare('SELECT id, change_summary FROM snapshots WHERE id = ?')
+        .get<{ id: string; change_summary: string | null }>(req.params.id);
+      if (!snap) return reply.code(404).send({ error: 'unknown_snapshot' });
+      const limit = Math.min(Math.max(Number(req.query.limit ?? 200) || 200, 1), 2000);
+      const changes = opts.db
+        .prepare(
+          'SELECT target, id, change, previous_id AS previousId, detail FROM snapshot_changes WHERE snapshot_id = ? ORDER BY target, change, id LIMIT ?',
+        )
+        .all<{
+          target: string;
+          id: string;
+          change: string;
+          previousId: string | null;
+          detail: string;
+        }>(snap.id, limit)
+        .map((c) => ({ ...c, detail: JSON.parse(c.detail) }));
+      const issues = opts.db
+        .prepare(
+          'SELECT id, kind, status, body, created_at AS createdAt FROM issues WHERE snapshot_id = ? ORDER BY created_at',
+        )
+        .all<{ id: string; kind: string; status: string; body: string; createdAt: string }>(snap.id)
+        .map((i) => ({ ...i, body: JSON.parse(i.body) }));
+      return {
+        snapshotId: snap.id,
+        summary: snap.change_summary ? JSON.parse(snap.change_summary) : null,
+        changes,
+        issues,
+      };
     },
   );
 

@@ -230,6 +230,36 @@ describe('scan API', () => {
     expect(snap.coverage.totals.files).toBe(21);
   });
 
+  it('serves the change summary of a rescan', async () => {
+    const rootPath = new URL('../../../fixtures/py-cli-api', import.meta.url).pathname.replace(
+      /\/$/,
+      '',
+    );
+    const reg = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      headers: auth,
+      payload: { rootPath },
+    });
+    const wt = reg.json().worktree.id as string;
+    for (let i = 0; i < 2; i++) {
+      await app.inject({ method: 'POST', url: `/api/v1/worktrees/${wt}/scans`, headers: auth });
+      await lastServer.jobs.idle();
+    }
+    const snap = (
+      await app.inject({ url: `/api/v1/worktrees/${wt}/snapshot`, headers: auth })
+    ).json();
+    expect(snap.changes.previousSnapshotId).toBeTruthy();
+    const ch = (
+      await app.inject({ url: `/api/v1/snapshots/${snap.snapshot.id}/changes`, headers: auth })
+    ).json();
+    expect(ch).toMatchObject({ changes: [], issues: [] });
+    expect(ch.summary.entities.added).toBe(0);
+    expect(
+      (await app.inject({ url: '/api/v1/snapshots/snap_x/changes', headers: auth })).statusCode,
+    ).toBe(404);
+  });
+
   it('404s for unknown worktrees and jobs', async () => {
     expect(
       (

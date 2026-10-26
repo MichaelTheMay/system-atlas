@@ -6,7 +6,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**A05 — Semantic identity and snapshot reconciler** on branch `feat/A05-reconciler`.
+**A06 — View planner and canvas navigation** on branch `feat/A06-view-planner`.
 
 ## Tickets (plan §17)
 
@@ -47,8 +47,8 @@ Phase 0 complete 2026-10-26 (tag `phase-0`).
 - [ ] TS web/service fixture and Python CLI/API fixture generate different relevant views
 - [ ] Every supported edge opens evidence
 - [ ] Unsupported features appear as gaps
-- [ ] Second identical scan causes no semantic/view churn
-- [ ] Single-file change updates affected state
+- [~] Second identical scan causes no semantic/view churn. Semantic: zero changes on both fixtures (`reconcile.test.ts`) and via `atlas scan`. View churn is checked in A06.
+- [~] Single-file change updates affected state. Semantic: only entities citing the edited file change (`reconcile.test.ts`), and the CLI shows +1 endpoint. Views are checked in A06/A07.
 - [ ] Manual pin survives refresh
 - [ ] Branch/worktree contexts stay separate
 
@@ -116,6 +116,22 @@ Phases 3–5: see plan §15; checklists added when Phase 2 completes.
   - The target repo's `git status` was unchanged before and after.
 - Fixed from real-repo findings: `.d.ts` and TS files outside source roles no longer appear as unsupported; style/asset imports are not reported as unresolved; `CREATE VIRTUAL TABLE` is recognized.
 - Known limits: see `docs/capabilities.md`. No call graph, no OpenAPI/CI modeling yet, Python has no type inference.
+
+### A05 (2026-10-26)
+
+- `reconcile()` computes added, removed (tombstones), changed, renamed, stale and restored changes, plus accepted aliases and open issues. These are persisted atomically with the snapshot (migration 0003).
+- Human and model claims carry forward and turn stale on evidence change. `checkSnapshotIntegrity()` and `resolveAlias()` were added.
+- API: `GET /snapshots/:id/changes`, and the snapshot response now includes the change summary and open issue count. CLI `scan` prints "since previous". The UI card shows "Last changed" and open issues.
+- Tests: 92 Vitest tests in 14 files.
+  - No-op rescans of both fixtures produce zero changes and pass integrity.
+  - A single-file edit changes only entities citing that file.
+  - Deletion produces tombstones and unresolved-import gaps.
+  - An exact-content move gives content-hash and parent-rename aliases.
+  - Ambiguous and possible renames become issues, not merges.
+  - A human claim stays supported, then turns stale after an edit.
+  - An analyzer failure makes rows stale, and recovery restores the same count.
+  - The integrity check catches corruption.
+- Manual: `atlas scan` on a scratch copy showed first snapshot, then no changes, then after a one-line edit: 1 entity added, 2 changed; 1 relation added, 3 changed.
 
 ## Environment record (2026-10-26)
 

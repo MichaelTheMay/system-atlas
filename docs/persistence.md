@@ -72,3 +72,20 @@ See `apps/daemon/openapi.yaml`. All `/api/v1/*` routes need `Authorization: Bear
 
 A cancelled or crashed scan leaves the previous snapshot current and marks its own row `failed`.
 Migration `0002_producers.sql` adds `producer` to `entities` and `relations`, recording which analyzer made each row.
+
+## Reconciliation (A05)
+
+Migration `0003_reconciliation.sql` adds three things:
+
+- **`snapshot_changes`**: one row per entity or relation that was added, removed, changed, renamed, went stale or was restored since the previous snapshot. Removed rows keep the entity's last known kind, name and owner as a tombstone.
+- **`entity_aliases`**: accepted identity continuations, from an old ID to a new ID.
+- **`snapshots.change_summary`**: the counts.
+
+Rules (`packages/graph/src/reconcile.ts`):
+
+- Stable keys make most entities keep their ID with no matching at all.
+- A module whose exact file content moved, with exactly one candidate, is accepted as a rename. Its child symbols with the same name and kind follow it.
+- Several identical-content candidates create an `ambiguous-rename` issue. The same file name with different content creates a `possible-rename` issue. Neither is merged.
+- A change counts as `changed` when the semantic fields differ, or when the cited evidence differs (for example, a line shift in the same file).
+- Human and model claims carry forward with their subject following aliases. They become `stale` when an evidence file hash no longer matches the new manifest or the subject is gone.
+- `checkSnapshotIntegrity()` verifies that supported relations cite existing evidence from the snapshot's own manifest, owners exist, and ownership is acyclic.

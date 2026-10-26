@@ -79,11 +79,24 @@ paths:
         '404': { description: Unknown job }
   /api/v1/worktrees/{id}/snapshot:
     get:
-      summary: Latest published snapshot (ready or partial) with coverage report and entity/relation counts
+      summary: Latest published snapshot (ready or partial) with coverage report, entity/relation counts, change summary and open issue count
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
       responses:
         '200': { description: OK }
         '404': { description: No published snapshot }
+  /api/v1/snapshots/{id}/changes:
+    get:
+      summary: Changes since the previous snapshot (added, removed tombstones, changed, renamed, stale, restored) and reconciliation issues
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 2000, default: 200 },
+          }
+      responses:
+        '200': { description: OK }
+        '404': { description: Unknown snapshot }
   /api/v1/stream:
     get:
       summary: Server-sent events (hello, heartbeats, project.registered, scan.started, snapshot.published, scan.failed, scan.cancelled)
