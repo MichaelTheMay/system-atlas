@@ -40,10 +40,8 @@ interface Props {
   onProjection(p: ProjectionDto | null, overlay: OverlayDto | null): void;
   overlayRef: React.MutableRefObject<OverlayDto | null>;
   persist(mutate: (o: OverlayDto) => OverlayDto): void;
+  overlayDirty(): boolean;
 }
-
-const reducedMotion =
-  typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 function edgeLabel(kinds: Record<string, number>): string {
   return Object.entries(kinds)
@@ -70,6 +68,7 @@ export function CanvasView(props: Props) {
     onProjection,
     overlayRef,
     persist,
+    overlayDirty,
   } = props;
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<AtlasNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -88,7 +87,8 @@ export function CanvasView(props: Props) {
     const target = pendingViewport.current;
     pendingViewport.current = null;
     if (target.viewport) void flow.setViewport(target.viewport, { duration: 0 });
-    else void flow.fitView({ padding: 0.06, maxZoom: 1.1, duration: reducedMotion ? 0 : 200 });
+    // instant fit: an animated fit races with the user's first drag
+    else void flow.fitView({ padding: 0.06, maxZoom: 1.1, duration: 0 });
   }, [nodesInitialized, nodes, flow]);
 
   // Load projection + overlay, lay out, render.
@@ -101,10 +101,13 @@ export function CanvasView(props: Props) {
         `/snapshots/${snapshotId}/canvases/${location.canvasId}/projection${qs}`,
         token,
       );
-      const overlay = await api<OverlayDto>(
+      const stored = await api<OverlayDto>(
         `/views/${p.viewId}/overlay?project=${projectId}&snapshot=${snapshotId}`,
         token,
       );
+      // a re-projection while edits are still being saved must not drop them
+      const local = overlayRef.current;
+      const overlay = local && local.viewId === p.viewId && overlayDirty() ? local : stored;
       if (cancelled) return;
       projectionRef.current = p;
       overlayRef.current = overlay;

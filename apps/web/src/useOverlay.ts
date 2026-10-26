@@ -10,6 +10,7 @@ export function useOverlay(token: string | null) {
   const [overlay, setOverlay] = useState<OverlayDto | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const queued = useRef<((o: OverlayDto) => OverlayDto)[]>([]);
+  const saving = useRef(false);
 
   const persist = useCallback(
     (mutate: (o: OverlayDto) => OverlayDto) => {
@@ -21,6 +22,7 @@ export function useOverlay(token: string | null) {
       queued.current.push(mutate);
       clearTimeout(timer.current);
       timer.current = setTimeout(async () => {
+        saving.current = true;
         const edits = queued.current.splice(0);
         let r = await saveOverlay(token, overlayRef.current!);
         if (!r.ok) {
@@ -29,6 +31,7 @@ export function useOverlay(token: string | null) {
         }
         overlayRef.current = r.overlay;
         setOverlay(r.overlay);
+        saving.current = false;
       }, 350);
     },
     [token],
@@ -39,5 +42,8 @@ export function useOverlay(token: string | null) {
     setOverlay(o);
   }, []);
 
-  return { overlayRef, overlay, persist, reset };
+  /** True while edits are queued or being saved: the local overlay is newer than the stored one. */
+  const isDirty = useCallback(() => saving.current || queued.current.length > 0, []);
+
+  return { overlayRef, overlay, persist, reset, isDirty };
 }

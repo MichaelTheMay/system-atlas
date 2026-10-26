@@ -105,12 +105,17 @@ test('a manual pin survives reload and rescan', async ({ page, request }) => {
   const web = node(page, '@reports/web');
   await expect(web).toBeVisible();
   const box = (await web.boundingBox())!;
+  // wait for the save that actually carries the pin (viewport-only saves don't count)
   const saved = page.waitForResponse(
-    (r) => r.url().includes('/overlay') && r.request().method() === 'PUT' && r.ok(),
+    (r) =>
+      r.url().includes('/overlay') &&
+      r.request().method() === 'PUT' &&
+      r.ok() &&
+      /"pinnedIds":\["ent_/.test(r.request().postData() ?? ''),
   );
   await page.mouse.move(box.x + 40, box.y + 15);
   await page.mouse.down();
-  await page.mouse.move(box.x + 140, box.y + 175, { steps: 8 });
+  await page.mouse.move(box.x + 100, box.y + 65, { steps: 8 });
   await page.mouse.up();
   await saved;
   // flow-space position from the node transform; stored pins are rounded to whole pixels

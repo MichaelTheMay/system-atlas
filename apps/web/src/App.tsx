@@ -65,7 +65,7 @@ export function App() {
   const [projection, setProjection] = useState<ProjectionDto | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [listMode, setListMode] = useState(false);
-  const { overlayRef, overlay, persist, reset } = useOverlay(token);
+  const { overlayRef, overlay, persist, reset, isDirty } = useOverlay(token);
 
   const location = history.index >= 0 ? history.stack[history.index] : undefined;
   const worktree = projects
@@ -373,6 +373,7 @@ export function App() {
                 onProjection={onProjection}
                 overlayRef={overlayRef}
                 persist={persist}
+                overlayDirty={isDirty}
               />
             </ReactFlowProvider>
             {listMode && projection && (
