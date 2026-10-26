@@ -12,7 +12,7 @@ const ELK: ElkCtor =
  * graph always produces the same positions; LAYOUT_VERSION is recorded with results so a
  * change of engine/options is detectable rather than silently reshuffling user canvases.
  */
-export const LAYOUT_VERSION = 'elkjs-0.12.0/layered/v1';
+export const LAYOUT_VERSION = 'elkjs-0.12.0/layered/v3';
 
 export interface LayoutNodeInput {
   id: string;
@@ -48,8 +48,12 @@ export interface LayoutEngine {
 
 const byId = <T extends { id: string }>(a: T, b: T) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-export function createElkLayoutEngine(): LayoutEngine {
-  const elk = new ELK();
+/**
+ * @param injected An ELK API instance. Browsers pass `new ElkApi({ workerUrl })` (elk-api + ELK's own
+ * worker script) so layout runs off the UI thread; Node uses the bundled synchronous build.
+ */
+export function createElkLayoutEngine(injected?: ElkApi): LayoutEngine {
+  const elk = injected ?? new ELK();
   return {
     async layout(input) {
       const nodes = [...input.nodes].sort(byId);
@@ -67,8 +71,8 @@ export function createElkLayoutEngine(): LayoutEngine {
           'elk.algorithm': 'layered',
           'elk.direction': input.direction ?? 'RIGHT',
           'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
-          'elk.layered.spacing.nodeNodeBetweenLayers': '80',
-          'elk.spacing.nodeNode': '40',
+          'elk.layered.spacing.nodeNodeBetweenLayers': '56',
+          'elk.spacing.nodeNode': '28',
           'elk.padding': '[top=40,left=20,bottom=20,right=20]',
           'elk.randomSeed': '1',
         },
@@ -82,6 +86,11 @@ export function createElkLayoutEngine(): LayoutEngine {
       for (const n of nodes) {
         const parent = n.parentId && elkNodes.get(n.parentId);
         (parent ? parent.children! : root.children!).push(elkNodes.get(n.id)!);
+      }
+      // compound nodes reserve a header band for their label
+      for (const n of elkNodes.values()) {
+        if (n.children?.length)
+          n.layoutOptions = { 'elk.padding': '[top=36,left=14,bottom=14,right=14]' };
       }
 
       const out = await elk.layout(root);

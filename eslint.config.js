@@ -29,5 +29,17 @@ export default tseslint.config(
   {
     files: ['apps/web/src/**/*.{ts,tsx}'],
     languageOptions: { globals: { ...globals.browser } },
+    rules: {
+      // An expression body returns its value to React as the effect cleanup. Newer browsers return
+      // Promises from scroll methods, which crashed the app on unmount; require a block body.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            'CallExpression[callee.name=/^use(Layout)?Effect$/] > ArrowFunctionExpression[expression=true]',
+          message: 'Effects must use a block body so they never return a non-function cleanup.',
+        },
+      ],
+    },
   },
 );

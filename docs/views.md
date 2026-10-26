@@ -76,3 +76,28 @@ Measured on `~/Dev/dsh` (9,175 files) on the development machine described in `I
 - `GET /api/v1/worktrees/:id/canvases` returns the catalog of the latest snapshot.
 
 Projections are snapshot-scoped, so runs (E04) can be shown against the snapshot that existed when they ran. The CLI command `atlas views list [path]` prints the navigation tree.
+
+## UI (A07)
+
+`apps/web` renders projections with React Flow:
+
+- **Layout.** ELK runs in its own Web Worker through `elk-api` and ELK's `elk-worker.min.js`, wrapped by `@atlas/layout` for deterministic input order and pinned positions. Compound nodes, such as package groups and services with containers, get a label band.
+- **Nodes.** Shapes and icons differ per kind: entities, clusters, aggregates, ports, gaps and groups. Stale, removed and change states carry text tags, not color alone. Secondary labels hide below 60% zoom.
+- **Edges.** Supported edges are solid, inferred edges dashed, stale edges dotted, and mixed edges dash-dot. Labels sit near the target end, and non-supported labels name their status.
+- **Navigation.** Double-click (or Enter) on a node opens its child canvas or expands a cluster. The catalog tree shows `child` links, with search across all canvases. Breadcrumbs, back/forward and the lens switcher (siblings) complete it.
+- **Inspector.**
+  - Canvas: "Why this canvas?", "What is missing?" and "Last changed".
+  - Entity: ownership chain, relations with status and confidence, evidence with freshness (current, changed or deleted relative to the latest snapshot), claims and last change.
+  - Edge: "Why this edge?", with each relation and its evidence.
+  - Source: the cited lines highlighted. Source is only shown when the file still matches the snapshot hash.
+- **Overlays.** Per view and local profile, stored in `view_overlays`, saved after a 350 ms debounce with optimistic revisions; a conflict re-applies the edit on top of the stored version.
+  - Dragging pins a node. Entity positions are keyed by entity ID and follow accepted rename aliases, so pins survive rescans and file moves.
+  - Notes are presentation only and never become facts. The viewport is remembered only after user moves.
+- **List view.** A table alternative to the canvas (nodes, relations, inspect and open actions) for keyboard and screen-reader use.
+
+### Overlay and inspector API
+
+- `GET/PUT /api/v1/views/:viewId/overlay` (`?project=` to follow aliases). PUT returns 409 with the current overlay on a stale revision.
+- `GET /api/v1/snapshots/:id/entities/:eid` returns entity details.
+- `GET /api/v1/snapshots/:id/relations?ids=` returns relation details with evidence.
+- `GET /api/v1/snapshots/:id/source?path=` returns manifest files only. It rejects paths with `..` or a leading `/` and paths escaping the root, and it never returns bytes that differ from the snapshot.
