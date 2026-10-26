@@ -20,7 +20,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 | A05 | Semantic identity and snapshot reconciler         | A04         | not started |                            |
 | A06 | View planner and canvas navigation                | A05         | done        | PR #6; see A06 evidence    |
 | A07 | React Flow, layout worker, overlays and inspector | A06         | done        | PR #7; see A07 evidence    |
-| E01 | Run/event/artifact store and ingestion            | A02         | not started |                            |
+| E01 | Run/event/artifact store and ingestion            | A02         | done        | PR #8; see E01 evidence    |
 | E02 | Process wrapper and output registration           | E01         | not started |                            |
 | E03 | Playwright capture helper                         | E01         | not started |                            |
 | E04 | Output canvases and isolated preview renderer     | E02,E03,A07 | not started |                            |
@@ -178,6 +178,28 @@ Phases 3–5: see plan §15; checklists added when Phase 2 completes.
   - Group nodes lacked edge handles.
 - Tests: 109 Vitest tests in 17 files, 10 Playwright tests. The Playwright tests fail on any uncaught page error. The walkthrough covers open, nested component, evidence and highlighted source, plus back/forward, edge explanation, pin survival across reload and rescan, list view, root switching and the coverage gap.
 - Visual checks were done with agent-browser screenshots: system context, structure, `@reports/api`, source, API, Deployables, Data, Coverage, and dsh's structure (21 nodes, clusters and aggregated libraries).
+
+### E01 (2026-10-26)
+
+- `packages/evidence` provides:
+  - Runs with a per-run ingestion token (hash stored).
+  - Validated, redacted, deduplicated append-only events, with assertion extraction and explicit entity correlations.
+  - Reserve, then upload, then verify for artifacts, with a content-addressed `ObjectStore` (atomic rename, size limit) and magic-byte MIME sniffing. Failures and declared gaps are kept as `missing`.
+  - Process and task outcome reported separately, interrupted-run recovery, and snapshot binding by exact tree digest.
+- Migration `0004_evidence.sql`.
+- Daemon:
+  - Run routes, where the run token is accepted only for that run's ingestion endpoints.
+  - Runs bind on publish, and runs are recovered at startup.
+  - The **isolated preview server** on a second loopback port serves only HMAC-signed, expiring URLs, with sandboxed CSP, no network, `frame-ancestors` set to the app, and nosniff.
+  - The UI CSP allows frames and images only from the preview origin. The discovery record includes `previewPort`.
+- Redaction moved to `@atlas/schema` and gained `redactValue` and `redactUrl`. Docs are in `docs/evidence.md`.
+- Tests: 123 Vitest tests in 19 files.
+  - Store: token scoping, dedupe, ordering, missing parents, redaction, correlations, task-versus-process outcome, recovery and late finish, digest binding, verified upload and dedupe, hash mismatch and oversize kept missing, sniffing.
+  - Daemon: scan-then-bind and immediate bind; cross-run token rejected and run token not valid for other APIs.
+  - Upload, 422 on mismatch, missing marker, finish, detail and list.
+  - Preview: signed and expiring links, tamper and host checks, sandbox CSP without same-origin, and the app origin never serving bytes.
+  - UI CSP includes the preview origin.
+- e2e: 10 tests passed.
 
 ## Environment record (2026-10-26)
 

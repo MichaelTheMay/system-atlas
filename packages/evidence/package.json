@@ -12,6 +12,8 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@atlas/schema": "workspace:*"
+    "@atlas/schema": "workspace:*",
+    "@atlas/store": "workspace:*",
+    "zod": "4.6.7"
   }
 }

@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   getLatestSnapshot,
+  getSnapshot,
   getWorktree,
   listProjects,
   loadCatalog,
@@ -14,6 +15,8 @@ import { defaultAnalyzers, type Analyzer } from '@atlas/analyzers';
 import { JobRunner } from './jobs.ts';
 import { entityDetails, readSource, relationDetails } from './routes/inspect.ts';
 import { getOverlay, putOverlay } from './routes/overlays.ts';
+import { registerRunRoutes, runScopedTarget } from './routes/runs.ts';
+import { ObjectStore } from '@atlas/evidence';
 import type { Db } from '@atlas/store';
 import { EventBus } from './events.ts';
 import { isAllowedHost, isAllowedOrigin, tokenMatches } from './security.ts';
@@ -34,6 +37,11 @@ export interface ServerOptions {
   port: () => number;
   heartbeatMs?: number;
   analyzers?: () => Analyzer[];
+  objects?: ObjectStore;
+  /** Origin of the isolated preview server (e.g. http://127.0.0.1:43123). */
+  previewOrigin?: () => string | undefined;
+  /** Signs a preview path for an artifact (provided by the preview server). */
+  signPreview?: (artifactId: string) => { path: string; expiresAt: string };
 }
 
 export interface AtlasServer {
@@ -43,23 +51,52 @@ export interface AtlasServer {
   startedAt: string;
 }
 
-const UI_CSP = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "connect-src 'self'",
-  "frame-src 'none'",
-  "object-src 'none'",
-  "base-uri 'none'",
-  "frame-ancestors 'none'",
-].join('; ');
+/** UI CSP: artifact bytes may only come from the isolated preview origin, never this origin. */
+function uiCsp(previewOrigin?: string): string {
+  const p = previewOrigin ? ` ${previewOrigin}` : '';
+  return [
+    "default-src 'self'",
+    "script-src 'self'",
+    "worker-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    `img-src 'self' data: blob:${p}`,
+    `media-src${p || " 'none'"}`,
+    "connect-src 'self'",
+    `frame-src${p || " 'none'"}`,
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+  ].join('; ');
+}
 
 export function buildServer(opts: ServerOptions): AtlasServer {
   // Logger disabled: request logs would include Authorization headers and local paths.
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
   const bus = new EventBus();
   const jobs = new JobRunner(opts.db, bus, opts.analyzers ?? defaultAnalyzers);
+  const runs = registerRunRoutes(app, {
+    db: opts.db,
+    objects: opts.objects ?? new ObjectStore(`${opts.dataDir}/objects`),
+    bus,
+    jobs,
+    token: opts.token,
+    previewUrl(artifactId) {
+      const origin = opts.previewOrigin?.();
+      const signed = opts.signPreview?.(artifactId);
+      if (!origin || !signed) throw new Error('preview server not running');
+      return { url: `${origin}${signed.path}`, expiresAt: signed.expiresAt };
+    },
+  });
+  bus.subscribe((m) => {
+    if (m.type !== 'snapshot.published') return;
+    const snap = getSnapshot(opts.db, String(m.data.snapshotId));
+    if (snap)
+      runs.onSnapshotPublished({
+        id: snap.id,
+        worktreeId: snap.worktreeId,
+        dirtyTreeDigest: snap.dirtyTreeDigest,
+      });
+  });
   const startedAt = new Date().toISOString();
   const devOrigins = (opts.devOrigins ?? []).filter((o) =>
     /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(o),
@@ -73,7 +110,13 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     if (!isAllowedOrigin(req.headers.origin, port, devOrigins)) {
       return reply.code(403).send({ error: 'origin_not_allowed' });
     }
-    if (req.url.startsWith(API_PREFIX) && !tokenMatches(req.headers.authorization, opts.token)) {
+    // run-scoped ingestion may authenticate with the run's own token; the route checks it
+    const scoped = req.headers['x-atlas-run-token'] && runScopedTarget(req.url);
+    if (
+      req.url.startsWith(API_PREFIX) &&
+      !scoped &&
+      !tokenMatches(req.headers.authorization, opts.token)
+    ) {
       return reply.code(401).send({ error: 'unauthorized' });
     }
   });
@@ -345,7 +388,7 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     if (!hit) return reply.code(404).send({ error: 'not_found' });
     reply.header('Content-Type', hit.type);
     if (hit.type.startsWith('text/html')) {
-      reply.header('Content-Security-Policy', UI_CSP);
+      reply.header('Content-Security-Policy', uiCsp(opts.previewOrigin?.()));
       reply.header('X-Frame-Options', 'DENY');
     }
     return reply.send(await readStatic(hit.file));
