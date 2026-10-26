@@ -4,3 +4,4 @@ export * from './manifest.ts';
 export * from './registry.ts';
 export * from './coverage.ts';
 export * from './scan.ts';
+export * from './reconcile.ts';

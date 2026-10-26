@@ -22,6 +22,23 @@ interface SnapshotSummary {
     gaps: { kind: string; path?: string; detail: string }[];
   };
   counts: { entitiesByKind: Record<string, number>; relationsByKind: Record<string, number> };
+  changes: {
+    entities: Record<string, number>;
+    relations: Record<string, number>;
+    issues: number;
+    previousSnapshotId?: string;
+  } | null;
+  openIssues: number;
+}
+
+function describeChanges(c: SnapshotSummary['changes']): string {
+  if (!c?.previousSnapshotId) return 'first snapshot';
+  const part = (r: Record<string, number>) =>
+    Object.entries(r)
+      .filter(([, n]) => n > 0)
+      .map(([k, n]) => `${n} ${k}`)
+      .join(', ') || 'no changes';
+  return `entities: ${part(c.entities)}; relations: ${part(c.relations)}`;
 }
 
 interface Registration {
@@ -202,6 +219,8 @@ program
     console.log(
       `  analyzers: ${c.analyzers.map((a) => `${a.id} ${a.status} (${a.filesAnalyzed} files)`).join(', ')}`,
     );
+    console.log(`  since previous: ${describeChanges(snap.changes)}`);
+    if (snap.openIssues) console.log(`  open reconciliation issues: ${snap.openIssues}`);
     console.log(`  coverage gaps: ${c.gaps.length}`);
     for (const g of c.gaps.slice(0, 15))
       console.log(`    - ${g.kind}${g.path ? ` ${g.path}` : ''}: ${g.detail}`);

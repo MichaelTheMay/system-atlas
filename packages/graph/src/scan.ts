@@ -29,6 +29,7 @@ import { json, type Db } from '@atlas/store';
 import { buildCoverage, type AnalyzerRunRecord } from './coverage.ts';
 import { stableId } from './ids.ts';
 import { manifestDigest } from './manifest.ts';
+import { reconcile, type EntityRow, type ReconcileResult, type RelationRow } from './reconcile.ts';
 
 export const CORE_PRODUCER = 'atlas-core';
 export const SYSTEM_KEY = 'system';
@@ -45,6 +46,7 @@ export interface ScanOptions {
 export interface ScanResult {
   snapshot: Snapshot;
   coverage: CoverageReport;
+  changes: ReconcileResult['summary'];
   counts: {
     files: number;
     entities: number;
@@ -238,6 +240,31 @@ export async function scanWorktree(
       runs.some((r) => r.status === 'failed' || r.status === 'partial');
     const state = partial ? 'partial' : 'ready';
 
+    const reconciled = reconcile({
+      previousSnapshotId: previous?.id,
+      ...(previous
+        ? loadGraph(db, previous.id)
+        : { prevEntities: [], prevRelations: [], prevFiles: new Map<string, string>() }),
+      nextEntities: [...built.entities.values()].map(({ entity: e }) => ({
+        id: e.id,
+        kind: e.kind,
+        canonicalName: e.canonicalName,
+        displayName: e.displayName,
+        ownerEntityId: e.ownerEntityId,
+        lifecycle: e.lifecycle,
+        attributes: e.attributes as Record<string, unknown>,
+      })),
+      nextRelations: [...built.relations.values()].map(({ relation: r }) => ({
+        id: r.id,
+        kind: r.kind,
+        fromId: r.fromId,
+        toId: r.toId,
+        status: r.status,
+        evidenceIds: r.evidenceIds,
+      })),
+      nextFiles: new Map(inventory.files.map((f) => [f.path, f.sha256])),
+    });
+
     signal.throwIfAborted();
     opts.onProgress?.({ phase: 'publish' });
     const publishedAt = now().toISOString();
@@ -322,6 +349,42 @@ export async function scanWorktree(
         snapshotId,
         json(coverage),
       );
+      const insChange = db.prepare(
+        'INSERT OR IGNORE INTO snapshot_changes (snapshot_id, target, id, change, previous_id, detail) VALUES (?, ?, ?, ?, ?, ?)',
+      );
+      for (const c of reconciled.changes)
+        insChange.run(snapshotId, c.target, c.id, c.change, c.previousId ?? null, json(c.detail));
+      const insAlias = db.prepare(
+        'INSERT OR REPLACE INTO entity_aliases (project_id, old_id, new_id, method, snapshot_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      );
+      for (const a of reconciled.aliases)
+        insAlias.run(worktree.projectId, a.oldId, a.newId, a.method, snapshotId, publishedAt);
+      const insIssue = db.prepare(
+        "INSERT INTO issues (id, project_id, snapshot_id, kind, status, body, created_at) VALUES (?, ?, ?, ?, 'open', ?, ?)",
+      );
+      for (const i of reconciled.issues)
+        insIssue.run(
+          newId('issue'),
+          worktree.projectId,
+          snapshotId,
+          i.kind,
+          json(i.detail),
+          publishedAt,
+        );
+      if (previous) {
+        carryClaims(
+          db,
+          worktree.projectId,
+          previous.id,
+          snapshotId,
+          new Set(built.entities.keys()),
+          new Map(inventory.files.map((f) => [f.path, f.sha256])),
+        );
+      }
+      db.prepare('UPDATE snapshots SET change_summary = ? WHERE id = ?').run(
+        json(reconciled.summary),
+        snapshotId,
+      );
       db.prepare(
         `UPDATE snapshots SET state = 'superseded' WHERE worktree_id = ? AND id != ? AND state IN ('ready','partial')`,
       ).run(worktree.id, snapshotId);
@@ -334,6 +397,7 @@ export async function scanWorktree(
     return {
       snapshot,
       coverage,
+      changes: reconciled.summary,
       counts: {
         files: inventory.files.length,
         entities: built.entities.size,
@@ -719,4 +783,170 @@ export function getLatestSnapshot(
     snapshot: getSnapshot(db, r.id)!,
     coverage: cov ? (JSON.parse(cov.body) as CoverageReport) : undefined,
   };
+}
+
+function loadGraph(
+  db: Db,
+  snapshotId: string,
+): { prevEntities: EntityRow[]; prevRelations: RelationRow[]; prevFiles: Map<string, string> } {
+  const prevEntities = db
+    .prepare(
+      'SELECT id, kind, canonical_name, display_name, owner_entity_id, lifecycle, attributes FROM entities WHERE snapshot_id = ?',
+    )
+    .all<Record<string, string | null>>(snapshotId)
+    .map((r) => ({
+      id: r.id!,
+      kind: r.kind!,
+      canonicalName: r.canonical_name!,
+      displayName: r.display_name!,
+      ownerEntityId: r.owner_entity_id ?? undefined,
+      lifecycle: r.lifecycle!,
+      attributes: JSON.parse(r.attributes!) as Record<string, unknown>,
+    }));
+  const prevRelations = db
+    .prepare(
+      'SELECT id, kind, from_id, to_id, status, evidence_ids FROM relations WHERE snapshot_id = ?',
+    )
+    .all<Record<string, string>>(snapshotId)
+    .map((r) => ({
+      id: r.id!,
+      kind: r.kind!,
+      fromId: r.from_id!,
+      toId: r.to_id!,
+      status: r.status!,
+      evidenceIds: JSON.parse(r.evidence_ids!) as string[],
+    }));
+  const prevFiles = new Map(
+    db
+      .prepare('SELECT path, sha256 FROM snapshot_files WHERE snapshot_id = ?')
+      .all<{ path: string; sha256: string }>(snapshotId)
+      .map((r) => [r.path, r.sha256]),
+  );
+  return { prevEntities, prevRelations, prevFiles };
+}
+
+/**
+ * Human and model claims are not regenerated by analyzers, so they are carried forward (plan §9):
+ * subjects follow accepted aliases, and a claim whose evidence file changed or whose subject is gone
+ * becomes stale. Analyzer-origin claims are regenerated, never carried.
+ */
+function carryClaims(
+  db: Db,
+  projectId: string,
+  prevId: string,
+  nextId: string,
+  entityIds: Set<string>,
+  files: Map<string, string>,
+) {
+  const claims = db
+    .prepare(
+      "SELECT id, subject_id, predicate, origin, status, body FROM claims WHERE snapshot_id = ? AND origin IN ('human','model')",
+    )
+    .all<{
+      id: string;
+      subject_id: string;
+      predicate: string;
+      origin: string;
+      status: string;
+      body: string;
+    }>(prevId);
+  if (claims.length === 0) return;
+  const alias = db.prepare('SELECT new_id FROM entity_aliases WHERE project_id = ? AND old_id = ?');
+  const evidence = db.prepare('SELECT path, content_hash FROM evidence WHERE id = ?');
+  const ins = db.prepare(
+    'INSERT INTO claims (snapshot_id, id, subject_id, predicate, origin, status, body) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  );
+  for (const c of claims) {
+    const body = JSON.parse(c.body) as {
+      subjectId: string;
+      status: string;
+      evidenceIds: string[];
+      snapshotId: string;
+    };
+    let subject = c.subject_id;
+    for (let i = 0; i < 10; i++) {
+      const a = alias.get<{ new_id: string }>(projectId, subject);
+      if (!a) break;
+      subject = a.new_id;
+    }
+    const evidenceValid = body.evidenceIds.every((id) => {
+      const ev = evidence.get<{ path: string | null; content_hash: string | null }>(id);
+      return ev && (!ev.path || files.get(ev.path) === ev.content_hash);
+    });
+    const subjectExists = subject.startsWith('ent_') ? entityIds.has(subject) : true;
+    const status =
+      c.status === 'rejected' ? 'rejected' : evidenceValid && subjectExists ? c.status : 'stale';
+    ins.run(
+      nextId,
+      c.id,
+      subject,
+      c.predicate,
+      c.origin,
+      status,
+      json({ ...body, subjectId: subject, status, snapshotId: nextId }),
+    );
+  }
+}
+
+/**
+ * Integrity of a published snapshot (plan §16): supported relations cite evidence that exists and
+ * matches this snapshot's manifest; owners exist; ownership is acyclic. Returns problems found.
+ */
+export function checkSnapshotIntegrity(db: Db, snapshotId: string): string[] {
+  const problems: string[] = [];
+  const files = new Map(
+    db
+      .prepare('SELECT path, sha256 FROM snapshot_files WHERE snapshot_id = ?')
+      .all<{ path: string; sha256: string }>(snapshotId)
+      .map((r) => [r.path, r.sha256]),
+  );
+  const ev = db.prepare('SELECT path, content_hash FROM evidence WHERE id = ?');
+  for (const r of db
+    .prepare(
+      "SELECT id, evidence_ids FROM relations WHERE snapshot_id = ? AND status = 'supported'",
+    )
+    .all<{ id: string; evidence_ids: string }>(snapshotId)) {
+    const ids = JSON.parse(r.evidence_ids) as string[];
+    if (ids.length === 0) problems.push(`relation ${r.id} is supported without evidence`);
+    for (const id of ids) {
+      const e = ev.get<{ path: string | null; content_hash: string | null }>(id);
+      if (!e) problems.push(`relation ${r.id} cites missing evidence ${id}`);
+      else if (e.path && files.get(e.path) !== e.content_hash)
+        problems.push(
+          `relation ${r.id} cites evidence ${id} not in the snapshot manifest (${e.path})`,
+        );
+    }
+  }
+  const owners = new Map(
+    db
+      .prepare('SELECT id, owner_entity_id FROM entities WHERE snapshot_id = ?')
+      .all<{ id: string; owner_entity_id: string | null }>(snapshotId)
+      .map((r) => [r.id, r.owner_entity_id]),
+  );
+  for (const [id, owner] of owners) {
+    if (owner && !owners.has(owner)) problems.push(`entity ${id} has missing owner ${owner}`);
+    const seen = new Set([id]);
+    let cur = owner;
+    while (cur) {
+      if (seen.has(cur)) {
+        problems.push(`ownership cycle through ${id}`);
+        break;
+      }
+      seen.add(cur);
+      cur = owners.get(cur) ?? null;
+    }
+  }
+  return problems;
+}
+
+/** Follow accepted aliases from an old entity id to its current id. */
+export function resolveAlias(db: Db, projectId: string, entityId: string): string {
+  let cur = entityId;
+  const q = db.prepare('SELECT new_id FROM entity_aliases WHERE project_id = ? AND old_id = ?');
+  for (let i = 0; i < 20; i++) {
+    const a = q.get<{ new_id: string }>(projectId, cur);
+    if (!a || a.new_id === cur) break;
+    cur = a.new_id;
+  }
+  return cur;
 }

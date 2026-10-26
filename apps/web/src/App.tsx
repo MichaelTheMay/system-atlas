@@ -268,9 +268,31 @@ function SnapshotCard({ s }: { s: SnapshotSummary }) {
         <dd>{rels.map(([k, n]) => `${n} ${k}`).join(', ') || 'none'}</dd>
         <dt>Coverage gaps</dt>
         <dd>{s.coverage.gaps.length}</dd>
+        <dt>Last changed</dt>
+        <dd>{changeText(s.changes)}</dd>
+        {s.openIssues > 0 && (
+          <>
+            <dt>Open issues</dt>
+            <dd>{s.openIssues} reconciliation issue(s)</dd>
+          </>
+        )}
       </dl>
     </>
   );
+}
+
+function changeText(c: SnapshotSummary['changes']): string {
+  if (!c?.previousSnapshotId) return 'first snapshot';
+  const fmt = (r: Record<string, number>) =>
+    Object.entries(r)
+      .filter(([, n]) => n > 0)
+      .map(([k, n]) => `${n} ${k}`)
+      .join(', ');
+  const parts = [
+    fmt(c.entities) && `entities ${fmt(c.entities)}`,
+    fmt(c.relations) && `relations ${fmt(c.relations)}`,
+  ].filter(Boolean);
+  return parts.length ? parts.join('; ') : 'no changes since previous scan';
 }
 
 function Coverage({ s }: { s: SnapshotSummary }) {

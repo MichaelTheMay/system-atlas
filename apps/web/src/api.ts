@@ -87,6 +87,13 @@ export interface SnapshotSummary {
     gaps: CoverageGap[];
   };
   counts: { entitiesByKind: Record<string, number>; relationsByKind: Record<string, number> };
+  changes: {
+    entities: Record<string, number>;
+    relations: Record<string, number>;
+    issues: number;
+    previousSnapshotId?: string;
+  } | null;
+  openIssues: number;
 }
 
 export interface ScanJob {
