@@ -21,6 +21,7 @@
     "@atlas/store": "workspace:*",
     "@atlas/graph": "workspace:*",
     "zod": "4.6.7",
-    "@atlas/analyzers": "workspace:*"
+    "@atlas/analyzers": "workspace:*",
+    "@atlas/planner": "workspace:*"
   }
 }
