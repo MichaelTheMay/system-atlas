@@ -1,0 +1,9 @@
+{
+  "name": "research-demo",
+  "private": true,
+  "type": "module",
+  "workspaces": ["api", "worker"],
+  "scripts": {
+    "report": "node worker/generate-report.mjs --out out"
+  }
+}

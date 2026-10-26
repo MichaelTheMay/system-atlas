@@ -15,9 +15,14 @@
     "@atlas/schema": "workspace:*",
     "commander": "15.0.0",
     "@atlas/daemon": "workspace:*",
-    "@atlas/analyzers": "workspace:*"
+    "@atlas/analyzers": "workspace:*",
+    "@atlas/adapters": "workspace:*"
   },
   "bin": {
     "atlas": "./src/main.ts"
+  },
+  "devDependencies": {
+    "@atlas/evidence": "workspace:*",
+    "@atlas/store": "workspace:*"
   }
 }

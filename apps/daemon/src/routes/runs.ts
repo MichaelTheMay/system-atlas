@@ -48,6 +48,8 @@ const CreateRunBody = z.object({
     .array(z.object({ kind: z.string(), detail: z.string() }))
     .max(100)
     .optional(),
+  /** Snapshot the current tree before returning, so the run binds before the command changes it. */
+  waitForSnapshot: z.boolean().optional(),
 });
 
 export function registerRunRoutes(
@@ -85,8 +87,23 @@ export function registerRunRoutes(
     // Bind the run to the snapshot of exactly the tree it runs against; otherwise scan that tree and
     // bind when a snapshot with the same digest is published (never to a different dirty tree).
     const digest = await currentTreeDigest(worktree.rootPath);
-    const latest = getLatestSnapshot(db, worktree.id);
-    const matches = latest?.snapshot.dirtyTreeDigest === digest;
+    let latest = getLatestSnapshot(db, worktree.id);
+    let matches = latest?.snapshot.dirtyTreeDigest === digest;
+    const gaps = [...(b.captureGaps ?? [])];
+    if (!matches && b.waitForSnapshot) {
+      // the command may write into the tree (outputs), so snapshot it *before* the run starts
+      const job = jobs.enqueueScan(worktree);
+      await jobs.wait(job.id);
+      latest = getLatestSnapshot(db, worktree.id);
+      matches = latest?.snapshot.dirtyTreeDigest === digest;
+      if (!matches) {
+        gaps.push({
+          kind: 'source-not-snapshotted',
+          detail:
+            'the tree changed while it was being snapshotted; this run is not bound to a snapshot',
+        });
+      }
+    }
     const { run, ingestToken } = createRun(db, {
       projectId: worktree.projectId,
       worktreeId: worktree.id,
@@ -96,9 +113,9 @@ export function registerRunRoutes(
       commandSummary: b.commandSummary,
       environmentSummary: (b.environmentSummary ?? {}) as never,
       instrumentationCapabilities: b.instrumentationCapabilities,
-      captureGaps: b.captureGaps,
+      captureGaps: gaps,
     });
-    if (!matches) jobs.enqueueScan(worktree);
+    if (!matches && !b.waitForSnapshot) jobs.enqueueScan(worktree);
     bus.publish({
       type: 'run.started',
       data: { runId: run.id, projectId: run.projectId, worktreeId: worktree.id },

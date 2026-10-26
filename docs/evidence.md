@@ -63,3 +63,31 @@ On daemon start, runs still `running` become `interrupted` with a capture gap. A
 | Artifact         | 100 MiB                                     |
 
 Payload strings, URLs, the environment summary and artifact metadata are pattern-redacted, and keys that name secrets are withheld. Redaction is best effort.
+
+## `atlas run` (E02)
+
+```bash
+atlas run [-o <output>]... [--name <label>] [--root <path>] [--json] -- <command> [args...]
+```
+
+`atlas run` follows these steps:
+
+1. It resolves the project from the deepest registered worktree containing the current directory, or from `--root`.
+2. It creates the run with `waitForSnapshot`. When the tree has no matching snapshot, it is scanned **before** the command starts, because the command may write into the tree. If the tree changes during that scan, the run stays unbound with a `source-not-snapshotted` gap.
+3. It spawns the command with an argv array and no shell, and mirrors its output to the terminal.
+4. It records the output and exit:
+   - stdout and stderr go to `command.stdout`/`command.stderr` events in chunks of up to 16 KiB, with an inline total of up to 10 MiB. Past that cap, a `capture.gap` `log-truncated` event is recorded.
+   - The complete `stdout.log` and `stderr.log` are always uploaded as `log` artifacts.
+   - `command.exit` records exit code, signal and duration. Ctrl-C is forwarded to the child, and the run is recorded as `cancelled`.
+5. It handles declared outputs (files or directories, up to 200 files):
+   - Files that exist are uploaded with `file.produced` events. Files not modified during the run are flagged with `producedDuringRun: false`, because a file existing does not prove this run produced it.
+   - Declared outputs that do not exist are recorded as **missing** artifacts.
+6. It records the process outcome: `succeeded` (exit 0), `failed`, or `cancelled`. Task outcome comes from assertions, so the two can differ.
+
+The child receives `ATLAS_INGEST_URL`, `ATLAS_RUN_ID` and `ATLAS_RUN_TOKEN`, which hold a run-scoped token only.
+
+## SDK for instrumented programs
+
+`@atlas/adapters` exports `recorderFromEnv()`, which provides `step(name, fn)`, `assert(description, ok)`, `recordArtifact(path)` and `event(type, payload)`. Without the environment variables every call is a no-op.
+
+Programs in other languages can use the HTTP protocol directly. `fixtures/research-demo/worker/generate-report.mjs` does this in about ten lines.

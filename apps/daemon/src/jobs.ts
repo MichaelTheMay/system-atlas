@@ -61,6 +61,16 @@ export class JobRunner {
     return job;
   }
 
+  /** Resolves when the job reaches a final state (or the timeout passes). */
+  async wait(jobId: string, timeoutMs = 120_000): Promise<Job | undefined> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const j = this.jobs.get(jobId);
+      if (!j || (j.state !== 'queued' && j.state !== 'running') || Date.now() > deadline) return j;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+
   /** Waits for the queue to drain (tests, shutdown). */
   async idle(): Promise<void> {
     while (this.running || this.queue.length) await new Promise((r) => setTimeout(r, 10));

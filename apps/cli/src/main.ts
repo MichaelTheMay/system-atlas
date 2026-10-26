@@ -292,9 +292,100 @@ program
   });
 program
   .command('run')
-  .argument('<command...>')
-  .description('Run a command and record evidence')
-  .action(notYet('run', 'E02'));
+  .description(
+    'Run a command (no shell) and record its logs, exit, declared outputs and assertions as evidence',
+  )
+  .argument('<command...>', 'command and arguments, after --')
+  .option(
+    '-o, --output <path>',
+    'declared output file or directory (repeatable)',
+    (v: string, acc: string[]) => [...acc, v],
+    [] as string[],
+  )
+  .option('--name <label>', 'label for this run')
+  .option(
+    '--root <path>',
+    'project root (default: the registered project containing the current directory)',
+  )
+  .option('--json', 'print the run summary as JSON')
+  .action(
+    async (
+      command: string[],
+      opts: { output: string[]; name?: string; root?: string; json?: boolean },
+    ) => {
+      const { runProcess } = await import('@atlas/adapters');
+      const { daemon } = await ensureDaemon(paths);
+      const cwd = process.cwd();
+      let root = opts.root ? resolve(opts.root) : undefined;
+      if (!root) {
+        const { projects } = await daemon.api<{
+          projects: { worktrees: { rootPath: string }[] }[];
+        }>('/projects');
+        root =
+          projects
+            .flatMap((p) => p.worktrees.map((w) => w.rootPath))
+            .filter((r) => cwd === r || cwd.startsWith(`${r}/`))
+            .sort((a, b) => b.length - a.length)[0] ?? cwd;
+      }
+      const ctrl = new AbortController();
+      const onSigint = () => ctrl.abort();
+      process.once('SIGINT', onSigint);
+      const result = await runProcess({
+        daemon: { baseUrl: daemon.baseUrl, token: daemon.rec.token },
+        rootPath: root,
+        cwd,
+        command: command[0]!,
+        args: command.slice(1),
+        outputs: opts.output,
+        name: opts.name,
+        echo: !opts.json,
+        signal: ctrl.signal,
+      });
+      process.off('SIGINT', onSigint);
+      const detail = await daemon.api<{
+        outcome: {
+          process: string;
+          task: string;
+          assertions: { pass: number; fail: number; unknown: number };
+        };
+        counts: Record<string, number>;
+        run: { snapshotId?: string };
+      }>(`/runs/${result.runId}`);
+      if (opts.json) {
+        console.log(
+          JSON.stringify(
+            {
+              ...result,
+              outcome: detail.outcome,
+              counts: detail.counts,
+              snapshotId: detail.run.snapshotId ?? null,
+            },
+            null,
+            2,
+          ),
+        );
+      } else {
+        console.error(
+          `\natlas run ${result.runId}: process ${detail.outcome.process}${result.exitCode !== null ? ` (exit ${result.exitCode})` : ''}, task ${detail.outcome.task}`,
+        );
+        const a = detail.outcome.assertions;
+        if (a.pass + a.fail + a.unknown)
+          console.error(`  assertions: ${a.pass} passed, ${a.fail} failed, ${a.unknown} unknown`);
+        for (const out of result.outputs)
+          console.error(
+            `  output ${out.path}: ${out.state}${out.producedDuringRun === false ? ' (not modified during this run)' : ''}`,
+          );
+        console.error(
+          `  source: ${detail.run.snapshotId ? `snapshot ${detail.run.snapshotId}` : 'tree not yet snapshotted; it will bind when the scan publishes'}`,
+        );
+        if (result.ingestionErrors.length)
+          console.error(
+            `  ingestion problems: ${result.ingestionErrors.length} (recorded as capture gaps)`,
+          );
+      }
+      process.exitCode = result.exitCode ?? (result.status === 'cancelled' ? 130 : 1);
+    },
+  );
 program
   .command('import')
   .argument('<bundle>')

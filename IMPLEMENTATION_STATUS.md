@@ -21,7 +21,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 | A06 | View planner and canvas navigation                | A05         | done        | PR #6; see A06 evidence    |
 | A07 | React Flow, layout worker, overlays and inspector | A06         | done        | PR #7; see A07 evidence    |
 | E01 | Run/event/artifact store and ingestion            | A02         | done        | PR #8; see E01 evidence    |
-| E02 | Process wrapper and output registration           | E01         | not started |                            |
+| E02 | Process wrapper and output registration           | E01         | done        | PR #9; see E02 evidence    |
 | E03 | Playwright capture helper                         | E01         | not started |                            |
 | E04 | Output canvases and isolated preview renderer     | E02,E03,A07 | not started |                            |
 | M01 | Watcher and incremental invalidation              | A05,A07     | not started |                            |
@@ -200,6 +200,24 @@ Phases 3–5: see plan §15; checklists added when Phase 2 completes.
   - Preview: signed and expiring links, tamper and host checks, sandbox CSP without same-origin, and the app origin never serving bytes.
   - UI CSP includes the preview origin.
 - e2e: 10 tests passed.
+
+### E02 (2026-10-26)
+
+- `@atlas/adapters` provides:
+  - `IngestClient`: sequenced and batched events, hashed and streamed artifact uploads with dedupe, declared-missing artifacts, and finish with ingestion errors reported as gaps.
+  - `runProcess`, the `atlas run` command.
+  - `recorderFromEnv`, the SDK, which is a no-op outside Atlas.
+- Run creation with `waitForSnapshot` snapshots the tree **before** the command runs. This removes a race found on the first real run: the command writes outputs into the tree, so a scan running concurrently could produce a digest different from the run's start digest.
+- New fixture `fixtures/research-demo` (plan §18):
+  - A local search page.
+  - API plus queue code for analysis.
+  - A dependency-free worker with two tools that writes `report.json`, a real PNG chart and `report.html`, and records tool events and an assertion via raw HTTP.
+- Tests: 4 integration tests against a real in-process daemon over HTTP.
+  - The demo run binds to its snapshot, captures stdout, stderr and tool events, and records a failed assertion with exit 0 as process succeeded and task failed. Outputs keep their sniffed types and an undeclared output is missing.
+  - Non-zero exit, spawn failure as a gap, cancellation, and an inline cap with the full log attached.
+  - A child using the SDK records steps, artifact and assertion.
+- Manual: `atlas run` on a copy of the demo printed process succeeded, task failed, 3 outputs uploaded and 1 missing.
+- Phase 2 checklist: "Real CLI run records stdout/stderr and produces a JSON file and an image" and "Failed assertion remains failed despite exit code 0" are exercised at the API level. UI display is E04.
 
 ## Environment record (2026-10-26)
 
