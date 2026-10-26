@@ -28,7 +28,31 @@ Persistent contracts are the Zod schemas in `packages/schema/src` (plan §6), ea
 | Presentation | `ViewOverlay`                                          |
 | Execution    | `Run`, `Event`, `Artifact`, `Correlation`, `Assertion` |
 
-The SQLite table layout and migrations are added in A02 and documented here.
+## SQLite layout (`packages/store/migrations`)
+
+Migrations are numbered SQL files applied in order by `migrate()` (`packages/store/src/migrate.ts`).
+Each runs in one transaction and is recorded with a checksum in `schema_migrations`. Editing an
+applied migration is refused. Before applying new migrations to a database that has data,
+`VACUUM INTO` writes a consistent copy to `backups/`.
+
+| Group        | Tables                                                                          | Notes                                                                                                                                                                                                         |
+| ------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Registry     | `projects`, `worktrees`, `snapshots`, `snapshot_files`, `coverage_reports`      | `snapshot_files` is the exact input manifest                                                                                                                                                                  |
+| Semantic     | `entities`, `relations`, `claims`, `evidence`, `entity_search` (FTS5), `issues` | Graph rows are keyed by `(snapshot_id, id)`; each published snapshot is a complete graph. Evidence is immutable and content-identified, so it can be shared across snapshots while its file hash is unchanged |
+| View         | `canvases`, `canvas_links`, `view_overrides`                                    | Overrides (pin/suppress/promote) are not snapshot-scoped and survive regeneration                                                                                                                             |
+| Presentation | `view_overlays`                                                                 | Keyed by `(view_id, profile_id)`, so overlays survive regeneration                                                                                                                                            |
+| Execution    | `runs`, `events`, `artifacts`, `correlations`, `assertions`                     | `events` is append-only (UPDATE/DELETE triggers abort) and unique on `(producer_id, producer_event_id)`                                                                                                       |
+
+Pragmas: `journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`, `busy_timeout=5000`.
+Writes go through the daemon, the single writer.
+
+## Project and worktree identity
+
+- A **project** has a generated ID (`proj_` + UUIDv7) created on first registration.
+- A **worktree** is one registered root on disk, an analysis context. Its ID is derived from the project ID and the root's real path.
+- The registered root is the analysis boundary. Git metadata (top level, common dir, sub-path, branch, HEAD) is recorded but never widens it.
+- Another `git worktree` of the same repository at the same sub-path joins the existing project as a new worktree. Separate clones and different sub-paths become separate projects.
+- Git is read with `rev-parse`, `symbolic-ref` and `config --get` only, with fsmonitor and hooks disabled and `GIT_*` variables dropped. Remote URLs are stored with credentials and query strings removed.
 
 ## Daemon API
 

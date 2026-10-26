@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { migrate, openDb } from '@atlas/store';
 import { buildServer } from '../src/server.ts';
 import { readDiscovery, writeDiscovery } from '../src/discovery.ts';
 
@@ -18,8 +19,11 @@ beforeAll(async () => {
 });
 
 function server() {
+  const db = openDb(':memory:');
+  migrate(db);
   return buildServer({
     token,
+    db,
     dataDir: '/tmp/x',
     webRoot,
     port: () => port,
@@ -121,5 +125,52 @@ describe('discovery record', () => {
     expect((await stat(file)).mode & 0o777).toBe(0o600);
     expect((await stat(join(dir, 'sub'))).mode & 0o777).toBe(0o700);
     expect((await readDiscovery(file))?.port).toBe(2);
+  });
+});
+
+describe('project registration API', () => {
+  const auth = { host, authorization: `Bearer ${token}` };
+  let app: ReturnType<typeof server>;
+  beforeAll(() => {
+    app = server();
+  });
+  afterAll(() => app.close());
+
+  it('registers a directory once and lists it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'atlas-proj-'));
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      headers: auth,
+      payload: { rootPath: dir },
+    });
+    expect(first.statusCode).toBe(201);
+    const again = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      headers: auth,
+      payload: { rootPath: dir },
+    });
+    expect(again.statusCode).toBe(200);
+    expect(again.json().worktree.id).toBe(first.json().worktree.id);
+    const list = await app.inject({ url: '/api/v1/projects', headers: auth });
+    expect(list.json().projects).toHaveLength(1);
+  });
+
+  it('rejects relative or missing paths', async () => {
+    const rel = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      headers: auth,
+      payload: { rootPath: 'relative/dir' },
+    });
+    expect(rel.statusCode).toBe(400);
+    const missing = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      headers: auth,
+      payload: { rootPath: '/definitely/not/here' },
+    });
+    expect(missing.statusCode).toBe(400);
   });
 });

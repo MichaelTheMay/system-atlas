@@ -31,7 +31,7 @@ System Atlas is a local architecture and execution-evidence workspace. It builds
 
 ```
 apps/web  apps/daemon  apps/cli
-packages/{schema,graph,analyzers,planner,layout,evidence,adapters,agent-api,export}
+packages/{schema,store,graph,analyzers,planner,layout,evidence,adapters,agent-api,export}
 extensions/{vscode,skena}   fixtures/   docs/{plan,adr}
 ```
 

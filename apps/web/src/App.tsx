@@ -7,7 +7,7 @@ import {
   ReactFlowProvider,
 } from '@xyflow/react';
 import type { Workspace } from '@atlas/schema';
-import { api, captureToken, subscribe, type DaemonStatus } from './api.ts';
+import { api, captureToken, subscribe, type DaemonStatus, type ProjectSummary } from './api.ts';
 
 type Conn =
   | { state: 'no-token' }
@@ -33,18 +33,27 @@ export function App() {
   const [conn, setConn] = useState<Conn>(token ? { state: 'connecting' } : { state: 'no-token' });
   const [root, setRoot] = useState<Workspace>('architecture');
   const [query, setQuery] = useState('');
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [worktreeId, setWorktreeId] = useState<string>('');
 
   useEffect(() => {
     if (!token) return;
     const ctrl = new AbortController();
+    const loadProjects = () =>
+      api<{ projects: ProjectSummary[] }>('/projects', token).then(({ projects }) => {
+        setProjects(projects);
+        setWorktreeId((cur) => cur || projects[0]?.worktrees[0]?.id || '');
+      });
     api<DaemonStatus>('/status', token)
-      .then((status) => {
+      .then(async (status) => {
         setConn({ state: 'connected', status, live: false });
+        await loadProjects();
         return subscribe(
           token,
           (type) => {
             if (type === 'hello')
               setConn((c) => (c.state === 'connected' ? { ...c, live: true } : c));
+            if (type === 'project.registered') void loadProjects();
           },
           ctrl.signal,
         );
@@ -69,8 +78,23 @@ export function App() {
         </div>
         <label className="field">
           <span className="field-label">Project</span>
-          <select disabled aria-label="Project">
-            <option>No projects registered</option>
+          <select
+            aria-label="Project"
+            disabled={projects.length === 0}
+            value={worktreeId}
+            onChange={(e) => setWorktreeId(e.target.value)}
+          >
+            {projects.length === 0 && <option value="">No projects registered</option>}
+            {projects.map((p) => (
+              <optgroup key={p.project.id} label={p.project.displayName}>
+                {p.worktrees.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {p.project.displayName}
+                    {w.git?.branch ? ` · ${w.git.branch}` : ''}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
           </select>
         </label>
         <nav className="roots" aria-label="Workspace roots">

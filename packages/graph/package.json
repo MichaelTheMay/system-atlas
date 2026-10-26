@@ -12,6 +12,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@atlas/schema": "workspace:*"
+    "@atlas/schema": "workspace:*",
+    "@atlas/store": "workspace:*"
   }
 }

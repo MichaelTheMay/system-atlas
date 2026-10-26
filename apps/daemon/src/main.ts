@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolveAtlasPaths } from '@atlas/schema/node';
+import { migrate, openDb } from '@atlas/store';
 import { isProcessAlive, readDiscovery, removeDiscovery, writeDiscovery } from './discovery.ts';
 import { buildServer, DAEMON_VERSION } from './server.ts';
 
@@ -21,11 +22,20 @@ async function main() {
     process.exit(3);
   }
 
+  const db = openDb(paths.dbFile);
+  const migration = migrate(db, { backupsDir: paths.backupsDir });
+  if (migration.applied.length) {
+    console.log(
+      `applied migrations ${migration.applied.join(', ')}${migration.backupFile ? ` (backup: ${migration.backupFile})` : ''}`,
+    );
+  }
+
   const token = process.env.ATLAS_TOKEN ?? randomBytes(32).toString('hex');
   const webRoot = fileURLToPath(new URL('../../web/dist', import.meta.url));
   let port = Number(process.env.ATLAS_PORT ?? 0);
   const { app, startedAt } = buildServer({
     token,
+    db,
     dataDir: paths.dataDir,
     webRoot: existsSync(webRoot) ? webRoot : undefined,
     devOrigins: (process.env.ATLAS_DEV_ORIGINS ?? '').split(',').filter(Boolean),
@@ -52,6 +62,7 @@ async function main() {
   const shutdown = async () => {
     await removeDiscovery(paths.discoveryFile, process.pid);
     await app.close();
+    db.close();
     process.exit(0);
   };
   process.on('SIGTERM', shutdown);

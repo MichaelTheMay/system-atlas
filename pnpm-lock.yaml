@@ -59,12 +59,21 @@ importers:
 
   apps/daemon:
     dependencies:
+      '@atlas/graph':
+        specifier: workspace:*
+        version: link:../../packages/graph
       '@atlas/schema':
         specifier: workspace:*
         version: link:../../packages/schema
+      '@atlas/store':
+        specifier: workspace:*
+        version: link:../../packages/store
       fastify:
         specifier: 5.12.7
         version: 5.12.7
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
 
   apps/web:
     dependencies:
@@ -150,6 +159,9 @@ importers:
       '@atlas/schema':
         specifier: workspace:*
         version: link:../schema
+      '@atlas/store':
+        specifier: workspace:*
+        version: link:../store
 
   packages/layout:
     dependencies:
@@ -171,6 +183,12 @@ importers:
       zod:
         specifier: 4.6.7
         version: 4.6.7
+
+  packages/store:
+    dependencies:
+      '@atlas/schema':
+        specifier: workspace:*
+        version: link:../schema
 
 packages:
 
