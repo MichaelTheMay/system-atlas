@@ -15,7 +15,8 @@ concurrency:
 jobs:
   ci:
     name: ci
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest is migrating to Ubuntu 26 (Oct 2026) and stalled apt installs.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -30,7 +31,22 @@ jobs:
       - run: pnpm format:check
       - run: pnpm test
       - run: pnpm build
-      - run: pnpm exec playwright install --with-deps chromium
+      - name: Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - name: Install Chromium
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 6
+        run: pnpm exec playwright install chromium
+      - name: Install Chromium system dependencies
+        timeout-minutes: 6
+        run: pnpm exec playwright install-deps chromium
       - run: pnpm e2e
       - run: node apps/cli/src/main.ts doctor
       - if: failure()
