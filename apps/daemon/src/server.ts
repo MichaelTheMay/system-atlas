@@ -13,7 +13,7 @@ import {
 import { projectView, type Catalog, type PlannerGraph } from '@atlas/planner';
 import { defaultAnalyzers, type Analyzer } from '@atlas/analyzers';
 import { JobRunner } from './jobs.ts';
-import { entityDetails, readSource, relationDetails } from './routes/inspect.ts';
+import { canvasForEntity, entityDetails, readSource, relationDetails } from './routes/inspect.ts';
 import { getOverlay, putOverlay } from './routes/overlays.ts';
 import { registerRunRoutes, runScopedTarget } from './routes/runs.ts';
 import { ObjectStore } from '@atlas/evidence';
@@ -41,7 +41,7 @@ export interface ServerOptions {
   /** Origin of the isolated preview server (e.g. http://127.0.0.1:43123). */
   previewOrigin?: () => string | undefined;
   /** Signs a preview path for an artifact (provided by the preview server). */
-  signPreview?: (artifactId: string) => { path: string; expiresAt: string };
+  signPreview?: (artifactId: string, kind: 'a' | 'v') => { path: string; expiresAt: string };
 }
 
 export interface AtlasServer {
@@ -80,9 +80,9 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     bus,
     jobs,
     token: opts.token,
-    previewUrl(artifactId) {
+    previewUrl(artifactId, kind) {
       const origin = opts.previewOrigin?.();
-      const signed = opts.signPreview?.(artifactId);
+      const signed = opts.signPreview?.(artifactId, kind);
       if (!origin || !signed) throw new Error('preview server not running');
       return { url: `${origin}${signed.path}`, expiresAt: signed.expiresAt };
     },
@@ -357,6 +357,14 @@ export function buildServer(opts: ServerOptions): AtlasServer {
       const r = putOverlay(opts.db, req.params.viewId, req.body);
       if (!r.ok) return reply.code(r.status).send({ error: r.error, current: r.current });
       return r.overlay;
+    },
+  );
+
+  app.get<{ Params: { id: string; eid: string } }>(
+    `${API_PREFIX}/snapshots/:id/entities/:eid/canvas`,
+    async (req, reply) => {
+      const c = canvasForEntity(opts.db, req.params.id, req.params.eid);
+      return c ?? reply.code(404).send({ error: 'no_canvas' });
     },
   );
 

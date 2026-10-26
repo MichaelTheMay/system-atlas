@@ -35,6 +35,25 @@ pnpm atlas daemon stop
 
 The printed URL carries a one-time token in its `#fragment`. The daemon listens on 127.0.0.1 only.
 
+## Demo
+
+```bash
+pnpm demo
+```
+
+The demo is local only and uses fake data. It does the following:
+
+1. Copies `fixtures/research-demo` into the Atlas data directory and scans it.
+2. Runs its report worker twice through `atlas run`. One run fails an assertion despite exit code 0.
+3. Captures a browser journey with real screenshots, including a failing step and a missing screenshot.
+4. Prints the UI link. Open it, choose **research-demo**, and explore **Architecture** and **Outputs & Audit**.
+
+## Record your own runs
+
+```bash
+atlas run -o out/report.json -- node scripts/build-report.js   # logs, exit, outputs, assertions via the SDK
+```
+
 ## Develop
 
 ```bash

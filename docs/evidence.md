@@ -108,3 +108,39 @@ Programs in other languages can use the HTTP protocol directly. `fixtures/resear
 - **Proof.** A post-action screenshot proves a captured state, not that asynchronous work finished. The wait policy is recorded with each screenshot for that reason.
 
 `scripts/research-journey.ts` is the reference journey. `pnpm demo` runs the full local demo: scan, two `atlas run`s and the browser journey.
+
+## Outputs & Audit UI and correlation (E04)
+
+The **Outputs & Audit** root has two parts:
+
+- **Overview.** Recent runs, filterable to failures, browser runs or commands. Process and task outcome are shown as separate labeled chips, with screenshot and artifact counts, missing counts, and whether the run executed on the current snapshot, an earlier one, or an un-snapshotted tree.
+- **Run detail.** A header with outcome, source snapshot, capture gaps and linked components, plus five tabs:
+  - Steps: hierarchy, tool calls and assertions.
+  - Browser journey: a filmstrip in capture order. Missing screenshots are placeholders with their reason.
+  - Code execution: command, working directory, exit, produced files, and stdout/stderr with stderr marked.
+  - Artifacts: a gallery.
+  - Audit trail: the append-only event table, gaps highlighted and missing parents reported.
+
+**Previews** always come from the isolated origin:
+
+| Content               | How it is shown                                                                                                                   |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Images                | `<img>`                                                                                                                           |
+| Video                 | `<video>`                                                                                                                         |
+| Text, JSON, CSV, logs | The preview server's escaped, script-free viewer page in an `<iframe sandbox="">`                                                 |
+| HTML and SVG          | `<iframe sandbox="allow-scripts">`, never `allow-same-origin`. The server's sandbox CSP makes it an opaque origin with no network |
+| Anything else         | An "open in isolated tab" link                                                                                                    |
+
+An e2e test uploads HTML disguised as PNG that tries to write the parent DOM, read the UI token, use storage and cookies, and call the API. Every attempt fails.
+
+**Correlation** (`packages/evidence/src/correlate.ts`) runs after a run finishes, and again when it binds to its snapshot. It uses entities of the run's own snapshot.
+
+| Method               | Status    | When                                                                                                |
+| -------------------- | --------- | --------------------------------------------------------------------------------------------------- |
+| `explicit-entity-id` | supported | Events name entity IDs                                                                              |
+| `command-mapping`    | supported | The run's argv names a source file of the snapshot. Outputs of that command link to the same module |
+| `route-signature`    | inferred  | A screenshot URL path matches exactly one declared UI route                                         |
+
+Anything else is shown as "unknown". Nothing is inferred from file names or timing.
+
+**Cross-navigation.** Entity details list associated runs ("Outputs"). A run's linked components open the architecture **at the run's own snapshot**, with a visible "viewing an earlier snapshot, back to latest" badge, and select the entity so its evidence and source are one click away.

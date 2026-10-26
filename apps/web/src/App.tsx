@@ -20,6 +20,7 @@ import { CatalogNav } from './components/CatalogNav.tsx';
 import { Inspector } from './components/Inspector.tsx';
 import { ListView } from './components/ListView.tsx';
 import { useOverlay } from './useOverlay.ts';
+import { OutputsView } from './components/outputs/OutputsView.tsx';
 
 type Conn =
   | { state: 'no-token' }
@@ -66,6 +67,10 @@ export function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [listMode, setListMode] = useState(false);
   const { overlayRef, overlay, persist, reset, isDirty } = useOverlay(token);
+  const [runId, setRunId] = useState<string>();
+  const [outputsRefresh, setOutputsRefresh] = useState(0);
+  /** When set, the architecture shows this (earlier) snapshot instead of the latest. */
+  const [viewSnapshotId, setViewSnapshotId] = useState<string>();
 
   const location = history.index >= 0 ? history.stack[history.index] : undefined;
   const worktree = projects
@@ -118,9 +123,8 @@ export function App() {
     if (!token || !worktreeId) return;
     const s = await latestSnapshot(token, worktreeId);
     setSummary(s);
-    const cat = s
-      ? await apiOptional<CatalogDto>(`/snapshots/${s.snapshot.id}/canvases`, token)
-      : null;
+    const shown = viewSnapshotId ?? s?.snapshot.id;
+    const cat = shown ? await apiOptional<CatalogDto>(`/snapshots/${shown}/canvases`, token) : null;
     setCatalog(cat);
     setHistory((h) => {
       const cur = h.stack[h.index];
@@ -129,18 +133,25 @@ export function App() {
       return home ? { stack: [{ canvasId: home.id }], index: 0 } : { stack: [], index: -1 };
     });
     setRefreshKey((k) => k + 1);
-  }, [token, worktreeId]);
+  }, [token, worktreeId, viewSnapshotId]);
 
+  // a different worktree starts fresh; a different snapshot of the same worktree keeps navigation
   useEffect(() => {
     setSummary(undefined);
     setCatalog(null);
     setHistory({ stack: [], index: -1 });
+    setViewSnapshotId(undefined);
+    setRunId(undefined);
+  }, [worktreeId]);
+
+  useEffect(() => {
     void refreshSnapshot();
   }, [refreshSnapshot]);
 
   useEffect(() => {
     if (!lastEvent) return;
     if (lastEvent.type === 'project.registered') void loadProjects();
+    if (lastEvent.type.startsWith('run.')) setOutputsRefresh((k) => k + 1);
     if (lastEvent.data.worktreeId !== worktreeId) return;
     if (lastEvent.type === 'scan.started') setScan({ state: 'running' });
     if (lastEvent.type === 'snapshot.published') {
@@ -178,11 +189,37 @@ export function App() {
     [persist],
   );
 
+  /** Jump from an output to the component that produced it, in the run's own snapshot. */
+  const openEntity = useCallback(
+    async (snapshotId: string, entityId: string) => {
+      if (!token) return;
+      setRoot('architecture');
+      setViewSnapshotId(snapshotId === summary?.snapshot.id ? undefined : snapshotId);
+      const target = await apiOptional<{ canvasId: string }>(
+        `/snapshots/${snapshotId}/entities/${entityId}/canvas`,
+        token,
+      );
+      if (!target) return;
+      navigate({ canvasId: target.canvasId });
+      setSelection({
+        type: 'node',
+        node: { id: `n:${entityId}`, kind: 'entity', entityId, label: '' },
+      });
+    },
+    [token, summary?.snapshot.id, navigate],
+  );
+
+  const openRun = useCallback((id: string | undefined) => {
+    setRoot('outputs');
+    setRunId(id);
+  }, []);
+
   const spec = catalog?.canvases.find((c) => c.id === location?.canvasId);
   const coverageCanvasId = catalog?.canvases.find(
     (c) => c.lens === 'coverage' && !c.ownerCanvasId,
   )?.id;
-  const snapshotId = summary?.snapshot.id;
+  const latestSnapshotId = summary?.snapshot.id;
+  const snapshotId = viewSnapshotId ?? latestSnapshotId;
 
   return (
     <div className="shell">
@@ -246,7 +283,9 @@ export function App() {
           />
         ) : (
           <p className="empty-note">
-            Run evidence arrives with the Outputs & Audit tickets (E01-E04).
+            Runs recorded with <code>atlas run</code>, the Playwright capture helper or the SDK.
+            Select a run to see its steps, screenshots, output and audit trail; linked components
+            open in the architecture at the run's own snapshot.
           </p>
         )}
       </aside>
@@ -332,6 +371,14 @@ export function App() {
                 {listMode ? 'Canvas' : 'List'}
               </button>
             )}
+            {viewSnapshotId && root === 'architecture' && (
+              <span className="badge historical" title={viewSnapshotId}>
+                viewing an earlier snapshot ({viewSnapshotId.slice(5, 13)}){' '}
+                <button type="button" className="link" onClick={() => setViewSnapshotId(undefined)}>
+                  back to latest
+                </button>
+              </span>
+            )}
             {summary && (
               <span className={`badge ${summary.snapshot.state}`} title={summary.snapshot.id}>
                 snapshot {summary.snapshot.state} ·{' '}
@@ -343,11 +390,22 @@ export function App() {
           </div>
         </header>
         {root === 'outputs' ? (
-          <EmptyState
-            title="No runs recorded yet"
-            text="Runs captured with atlas run or the Playwright capture helper appear here."
-            code="atlas run -- npm test"
-          />
+          worktree && token ? (
+            <OutputsView
+              token={token}
+              projectId={worktree.project.id}
+              latestSnapshotId={latestSnapshotId}
+              runId={runId}
+              refreshKey={outputsRefresh}
+              onOpenRun={openRun}
+              onOpenEntity={(sid, eid) => void openEntity(sid, eid)}
+            />
+          ) : (
+            <EmptyState
+              title="No projects registered"
+              text="Run atlas open /path/to/repo to register one."
+            />
+          )
         ) : summary === null ? (
           <EmptyState
             title="No snapshot yet"
@@ -405,6 +463,7 @@ export function App() {
           overlay={overlay}
           onEditOverlay={editOverlay}
           onNavigate={navigate}
+          onOpenRun={openRun}
         />
       ) : (
         <aside className="inspector" aria-label="Inspector">

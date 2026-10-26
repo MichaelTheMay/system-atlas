@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createWriteStream, existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 import { redactValue } from '@atlas/schema';
 import { childEnv } from './client.ts';
 import { startRun } from './run.ts';
@@ -43,7 +43,9 @@ export async function runProcess(o: RunProcessOptions): Promise<RunProcessResult
     daemon: o.daemon,
     rootPath: o.rootPath,
     adapter: 'process',
-    commandSummary: (o.name ? `${o.name}: ` : '') + argv.join(' ').slice(0, 1500),
+    // the program's base name: absolute interpreter paths are noise and leak local layout
+    commandSummary:
+      (o.name ? `${o.name}: ` : '') + [basename(o.command), ...o.args].join(' ').slice(0, 1500),
     environmentSummary: {
       platform: process.platform,
       node: process.version,
