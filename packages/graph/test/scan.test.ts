@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -112,28 +112,45 @@ describe('scanWorktree on fixtures', () => {
     }
   });
 
-  it('rescans with stable ids and supersedes the previous snapshot', async () => {
+  it('returns the same snapshot for an identical rescan (no-op, nothing published)', async () => {
     const { db, worktree, result: first } = await scanFixture('ts-web-service');
     const second = await scanWorktree(db, worktree, { analyzers: [createManifestAnalyzer()] });
+    expect(second.noop).toBe(true);
+    expect(second.snapshot.id).toBe(first.snapshot.id);
+    expect(
+      rows(db, 'SELECT count(*) AS n FROM snapshots WHERE worktree_id = ?', worktree.id),
+    ).toEqual([{ n: 1 }]);
+  });
+
+  it('rescans a changed tree with stable ids and supersedes the previous snapshot', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'atlas-rescan-'));
+    cpSync(fixture('ts-web-service'), root, { recursive: true });
+    const db = freshDb();
+    const { worktree } = await registerRoot(db, root);
+    const first = await scanWorktree(db, worktree, { analyzers: [createManifestAnalyzer()] });
+    writeFileSync(join(root, 'NOTES.md'), 'unrelated change\n');
+    const second = await scanWorktree(db, worktree, { analyzers: [createManifestAnalyzer()] });
+    expect(second.noop).toBeUndefined();
     const ids = (s: string) =>
       rows(db, 'SELECT id FROM entities WHERE snapshot_id = ? ORDER BY id', s).map((r) => r.id);
     const relIds = (s: string) =>
       rows(db, 'SELECT id FROM relations WHERE snapshot_id = ? ORDER BY id', s).map((r) => r.id);
     expect(ids(second.snapshot.id)).toEqual(ids(first.snapshot.id));
     expect(relIds(second.snapshot.id)).toEqual(relIds(first.snapshot.id));
-    expect(second.snapshot.dirtyTreeDigest).toBe(first.snapshot.dirtyTreeDigest);
+    expect(second.snapshot.dirtyTreeDigest).not.toBe(first.snapshot.dirtyTreeDigest);
     expect(
       db
         .prepare('SELECT state FROM snapshots WHERE id = ?')
         .get<{ state: string }>(first.snapshot.id)!.state,
     ).toBe('superseded');
     expect(getLatestSnapshot(db, worktree.id)?.snapshot.id).toBe(second.snapshot.id);
-    const firstSeen = rows(
-      db,
-      'SELECT DISTINCT first_seen_snapshot AS f FROM entities WHERE snapshot_id = ?',
-      second.snapshot.id,
-    );
-    expect(firstSeen).toEqual([{ f: first.snapshot.id }]);
+    expect(
+      rows(
+        db,
+        'SELECT DISTINCT first_seen_snapshot AS f FROM entities WHERE snapshot_id = ?',
+        second.snapshot.id,
+      ),
+    ).toEqual([{ f: first.snapshot.id }]);
   });
 });
 
@@ -179,10 +196,12 @@ describe('TS declaration files and non-source roles', () => {
 describe('scan failure handling', () => {
   it('carries a failing analyzer’s previous facts forward as stale instead of erasing them', async () => {
     const db = freshDb();
-    const { worktree } = await registerRoot(db, tempProject(pkgFiles));
+    const root = tempProject(pkgFiles);
+    const { worktree } = await registerRoot(db, root);
     const good = createManifestAnalyzer();
     const first = await scanWorktree(db, worktree, { analyzers: [good] });
     const broken: Analyzer = { ...good, extract: async () => Promise.reject(new Error('boom')) };
+    writeFileSync(join(root, 'notes.txt'), 'a change, so the rescan is not a no-op');
     const second = await scanWorktree(db, worktree, { analyzers: [broken] });
     expect(second.snapshot.state).toBe('partial');
     expect(second.counts.carriedForward).toBeGreaterThan(0);
@@ -254,8 +273,10 @@ describe('scan failure handling', () => {
 
   it('leaves the previous snapshot current when a scan is cancelled', async () => {
     const db = freshDb();
-    const { worktree } = await registerRoot(db, tempProject(pkgFiles));
+    const root = tempProject(pkgFiles);
+    const { worktree } = await registerRoot(db, root);
     const first = await scanWorktree(db, worktree, { analyzers: [createManifestAnalyzer()] });
+    writeFileSync(join(root, 'notes.txt'), 'changed');
     const ctrl = new AbortController();
     const slow: Analyzer = {
       ...createManifestAnalyzer(),

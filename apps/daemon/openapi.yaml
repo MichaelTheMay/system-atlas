@@ -104,6 +104,7 @@ paths:
       responses:
         '200': { description: OK }
         '404': { description: Unknown snapshot }
+        '410': { description: Superseded snapshot was compacted (see docs/persistence.md) }
   /api/v1/snapshots/{id}/canvases/{cid}/projection:
     get:
       summary: Lazily computed nodes, edges, ports, breadcrumbs, siblings and children of one canvas

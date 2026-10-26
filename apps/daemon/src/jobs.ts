@@ -1,6 +1,6 @@
 import { uuidv7Hex, type Worktree } from '@atlas/schema';
 import type { Analyzer } from '@atlas/analyzers';
-import { scanWorktree } from '@atlas/graph';
+import { compactSnapshots, scanWorktree } from '@atlas/graph';
 import type { Db } from '@atlas/store';
 import type { EventBus } from './events.ts';
 
@@ -18,6 +18,9 @@ export interface Job {
   snapshotId?: string;
   snapshotState?: string;
   counts?: Record<string, number>;
+  /** The tree was unchanged: the existing snapshot was returned and nothing was published. */
+  noop?: boolean;
+  compacted?: number;
   error?: string;
 }
 
@@ -103,6 +106,9 @@ export class JobRunner {
       job.snapshotId = r.snapshot.id;
       job.snapshotState = r.snapshot.state;
       job.counts = r.counts;
+      job.noop = r.noop ?? false;
+      // retention: superseded snapshots no run references lose their graph rows
+      if (!r.noop) job.compacted = compactSnapshots(this.db, worktree.id).length;
       this.bus.publish({
         type: 'snapshot.published',
         data: {

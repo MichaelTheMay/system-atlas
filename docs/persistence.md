@@ -89,3 +89,31 @@ Rules (`packages/graph/src/reconcile.ts`):
 - A change counts as `changed` when the semantic fields differ, or when the cited evidence differs (for example, a line shift in the same file).
 - Human and model claims carry forward with their subject following aliases. They become `stale` when an evidence file hash no longer matches the new manifest or the subject is gone.
 - `checkSnapshotIntegrity()` verifies that supported relations cite existing evidence from the snapshot's own manifest, owners exist, and ownership is acyclic.
+
+## No-op rescans and compaction (M01a)
+
+**No-op rescans.** A rescan publishes nothing when four things all match the latest `ready` snapshot:
+
+- the manifest digest;
+- the configuration digest (analyzer versions and limits);
+- the HEAD commit;
+- dirtiness.
+
+The rescan returns that snapshot with `noop: true`. The change view keeps showing the last real change. A `partial` latest snapshot is always rescanned, so a failing analyzer gets retried.
+
+**Compaction.** Migration `0005_compaction.sql` adds `snapshots.compacted_at`. After every publishing scan, `compactSnapshots()` drops the per-snapshot graph rows of superseded or failed snapshots. The dropped tables are entities, relations, claims, files, canvases, canvas links and search.
+
+These snapshots are always kept whole:
+
+- the latest published snapshot;
+- its predecessor, needed to review changes;
+- every snapshot that a run references, because runs are always shown against the tree they ran on.
+
+A compacted snapshot keeps its metadata, coverage report, change rows and issues. Graph endpoints answer `410 compacted` for it.
+
+Measured on the dsh repository, about 8,900 files, over 20 consecutive edited rescans:
+
+|                                | Before          | After         |
+| ------------------------------ | --------------- | ------------- |
+| Database size after 20 rescans | 607 MB, growing | 168 MB, level |
+| Growth per rescan              | 26 MB           | 0.3 MB        |

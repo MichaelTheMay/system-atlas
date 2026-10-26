@@ -6,31 +6,31 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**A06 — View planner and canvas navigation** on branch `feat/A06-view-planner`.
+**M01 — Watcher and incremental invalidation** (Phase 3). The storage part, M01a, is in PR #13. Incremental analysis and the watcher are next.
 
 ## Tickets (plan §17)
 
-| ID  | Ticket                                            | Depends on  | Status      | PR / evidence              |
-| --- | ------------------------------------------------- | ----------- | ----------- | -------------------------- |
-| A00 | Repository bootstrap, GitHub remote, branch rules | —           | done        | bootstrap commit on `main` |
-| A01 | Bootstrap workspace, contracts and ADRs           | —           | not started |                            |
-| A02 | Project/worktree identity and SQLite migrations   | A01         | not started |                            |
-| A03 | Inventory and coverage report                     | A02         | not started |                            |
-| A04 | TS/JS and Python analyzers                        | A03         | not started |                            |
-| A05 | Semantic identity and snapshot reconciler         | A04         | not started |                            |
-| A06 | View planner and canvas navigation                | A05         | done        | PR #6; see A06 evidence    |
-| A07 | React Flow, layout worker, overlays and inspector | A06         | done        | PR #7; see A07 evidence    |
-| E01 | Run/event/artifact store and ingestion            | A02         | done        | PR #8; see E01 evidence    |
-| E02 | Process wrapper and output registration           | E01         | done        | PR #9; see E02 evidence    |
-| E03 | Playwright capture helper                         | E01         | done        | PR #10; see E03 evidence   |
-| E04 | Output canvases and isolated preview renderer     | E02,E03,A07 | done        | PR #11; see E04 evidence   |
-| M01 | Watcher and incremental invalidation              | A05,A07     | not started |                            |
-| M02 | Model proposal validation, cache and budget       | M01         | not started |                            |
-| I01 | MCP and generic event SDK                         | E01,A06     | not started |                            |
-| I02 | VS Code integration                               | I01         | not started |                            |
-| I03 | OTLP subset and bundle importer                   | E04         | not started |                            |
-| I04 | Skena/JSON Canvas bridge                          | I01,A07     | not started |                            |
-| H01 | Retention, recovery, export and performance       | E04,M01     | not started |                            |
+| ID  | Ticket                                            | Depends on  | Status      | PR / evidence                           |
+| --- | ------------------------------------------------- | ----------- | ----------- | --------------------------------------- |
+| A00 | Repository bootstrap, GitHub remote, branch rules | —           | done        | bootstrap commit on `main`              |
+| A01 | Bootstrap workspace, contracts and ADRs           | —           | not started |                                         |
+| A02 | Project/worktree identity and SQLite migrations   | A01         | not started |                                         |
+| A03 | Inventory and coverage report                     | A02         | not started |                                         |
+| A04 | TS/JS and Python analyzers                        | A03         | not started |                                         |
+| A05 | Semantic identity and snapshot reconciler         | A04         | not started |                                         |
+| A06 | View planner and canvas navigation                | A05         | done        | PR #6; see A06 evidence                 |
+| A07 | React Flow, layout worker, overlays and inspector | A06         | done        | PR #7; see A07 evidence                 |
+| E01 | Run/event/artifact store and ingestion            | A02         | done        | PR #8; see E01 evidence                 |
+| E02 | Process wrapper and output registration           | E01         | done        | PR #9; see E02 evidence                 |
+| E03 | Playwright capture helper                         | E01         | done        | PR #10; see E03 evidence                |
+| E04 | Output canvases and isolated preview renderer     | E02,E03,A07 | done        | PR #11; see E04 evidence                |
+| M01 | Watcher and incremental invalidation              | A05,A07     | in progress | M01a PR #13 (no-op rescans, compaction) |
+| M02 | Model proposal validation, cache and budget       | M01         | not started |                                         |
+| I01 | MCP and generic event SDK                         | E01,A06     | not started |                                         |
+| I02 | VS Code integration                               | I01         | not started |                                         |
+| I03 | OTLP subset and bundle importer                   | E04         | not started |                                         |
+| I04 | Skena/JSON Canvas bridge                          | I01,A07     | not started |                                         |
+| H01 | Retention, recovery, export and performance       | E04,M01     | not started |                                         |
 
 ## Phase acceptance checklists (plan §15)
 
@@ -68,7 +68,18 @@ Phase 1 complete 2026-10-26 (tag `phase-1`).
 
 Phase 2 complete 2026-10-26 (tag `phase-2`).
 
-Phases 3–5: see plan §15; checklists added when Phase 2 completes.
+### Phase 3 — continuous reconciliation and richer view planning
+
+- [ ] Rapid edits coalesce (M01 watcher).
+- [ ] Stale inference is invalidated (M01/M02).
+- [x] Failed extraction does not erase good state. Covered by `scan.test.ts` "carries a failing analyzer's previous facts forward" and `reconcile.test.ts` "reports stale changes…".
+- [ ] Overlays survive renames where identity is supported.
+- [ ] Ambiguous renames surface as issues **in the UI**. Today they show only in the API and CLI (`reconcile.test.ts`).
+- [ ] Model output with invented evidence is rejected (M02).
+- [ ] Cross-view selection uses a single entity identity.
+- [ ] Edit-to-publish latency is at most 3 s on dsh. M01a measured about 5.3 s, nearly all of it full TS/JS analysis.
+
+Phases 4–5: see plan §15.
 
 ## Ticket evidence
 
@@ -255,6 +266,23 @@ Phases 3–5: see plan §15; checklists added when Phase 2 completes.
   - The full walkthrough: component, outputs, run, artifact, component, source.
   - Malicious-HTML isolation.
 - Screenshots were inspected for the overview, journey filmstrip, code execution and artifact gallery (JSON viewer, PNG chart, sandboxed HTML report).
+
+### M01a (2026-10-26): no-op rescans and snapshot compaction
+
+These were measured first, on a copy of dsh with about 8,900 files, as the advisor recommended:
+
+| Measure                   | Value                                              |
+| ------------------------- | -------------------------------------------------- |
+| Storage growth per rescan | 26 MB                                              |
+| Edit-to-publish           | about 5.3 s (TS/JS analysis 3.6 s, publish 1 s)    |
+| Daemon resident memory    | 1.34 GB rising to 1.66 GB over 20 scans, then flat |
+
+Changes:
+
+- An identical tree and configuration returns the existing snapshot (`noop: true`). A no-op rescan of dsh takes about 0.3 s.
+- `compactSnapshots()` runs after each publish. It keeps the latest snapshot, its predecessor and run-bound snapshots, and drops the graph rows of the others. Graph routes answer 410 for compacted snapshots.
+- After the change, dsh measures 168 MB after 20 edited rescans and is level, growing about 0.3 MB per scan from change rows and coverage. Before the change it was 607 MB and growing.
+- Tests: 131 Vitest tests, 14 Playwright tests. Tests that rescanned an unchanged tree now edit it first, or assert the no-op.
 
 ## Environment record (2026-10-26)
 

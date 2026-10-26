@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   getLatestSnapshot,
   getSnapshot,
+  isCompacted,
   getWorktree,
   listProjects,
   loadCatalog,
@@ -268,12 +269,18 @@ export function buildServer(opts: ServerOptions): AtlasServer {
         "SELECT 1 AS ok FROM snapshots WHERE id = ? AND state IN ('ready','partial','superseded')",
       )
       .get(id);
+  const compacted = (id: string) => isCompacted(opts.db, id);
 
   app.get<{ Params: { id: string } }>(
     `${API_PREFIX}/snapshots/:id/canvases`,
     async (req, reply) => {
       if (!snapshotExists(req.params.id))
         return reply.code(404).send({ error: 'unknown_snapshot' });
+      if (compacted(req.params.id))
+        return reply.code(410).send({
+          error: 'compacted',
+          detail: 'this superseded snapshot was compacted; its graph is no longer stored',
+        });
       return { snapshotId: req.params.id, ...views(req.params.id).catalog };
     },
   );
@@ -283,6 +290,11 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     async (req, reply) => {
       if (!snapshotExists(req.params.id))
         return reply.code(404).send({ error: 'unknown_snapshot' });
+      if (compacted(req.params.id))
+        return reply.code(410).send({
+          error: 'compacted',
+          detail: 'this superseded snapshot was compacted; its graph is no longer stored',
+        });
       const v = views(req.params.id);
       if (!v.catalog.canvases.some((c) => c.id === req.params.cid))
         return reply.code(404).send({ error: 'unknown_canvas' });
@@ -306,6 +318,7 @@ export function buildServer(opts: ServerOptions): AtlasServer {
   app.get<{ Params: { id: string; eid: string } }>(
     `${API_PREFIX}/snapshots/:id/entities/:eid`,
     async (req, reply) => {
+      if (compacted(req.params.id)) return reply.code(410).send({ error: 'compacted' });
       const d = entityDetails(opts.db, req.params.id, req.params.eid);
       return d ?? reply.code(404).send({ error: 'unknown_entity' });
     },
