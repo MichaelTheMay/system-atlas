@@ -20,7 +20,8 @@
     "test:watch": "vitest",
     "build": "pnpm -r build",
     "e2e": "playwright test",
-    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build"
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build",
+    "demo": "node scripts/demo.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -33,6 +34,7 @@
     "typescript-eslint": "8.72.1",
     "vitest": "5.0.5",
     "@atlas/schema": "workspace:*",
-    "@atlas/daemon": "workspace:*"
+    "@atlas/daemon": "workspace:*",
+    "@atlas/adapters": "workspace:*"
   }
 }

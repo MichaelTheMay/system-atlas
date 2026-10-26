@@ -22,7 +22,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 | A07 | React Flow, layout worker, overlays and inspector | A06         | done        | PR #7; see A07 evidence    |
 | E01 | Run/event/artifact store and ingestion            | A02         | done        | PR #8; see E01 evidence    |
 | E02 | Process wrapper and output registration           | E01         | done        | PR #9; see E02 evidence    |
-| E03 | Playwright capture helper                         | E01         | not started |                            |
+| E03 | Playwright capture helper                         | E01         | done        | PR #10; see E03 evidence   |
 | E04 | Output canvases and isolated preview renderer     | E02,E03,A07 | not started |                            |
 | M01 | Watcher and incremental invalidation              | A05,A07     | not started |                            |
 | M02 | Model proposal validation, cache and budget       | M01         | not started |                            |
@@ -56,11 +56,11 @@ Phase 1 complete 2026-10-26 (tag `phase-1`).
 
 ### Phase 2 — real outputs vertical slice
 
-- [ ] Real fixture browser journey captures screenshots of three steps and a failure
+- [~] Real fixture browser journey captures screenshots of three steps and a failure. Captured and verified via the API: 3 post-action screenshots, 1 failure-state, final, trace (e2e `journey.spec.ts`). UI display is E04.
 - [ ] Real CLI run records stdout/stderr and produces a JSON file and an image
 - [ ] Both appear in Outputs & Audit and link to the correct snapshot
 - [ ] Failed assertion remains failed despite exit code 0
-- [ ] Missing screenshot appears as missing
+- [~] Missing screenshot appears as missing. A screenshot of a closed tab is a missing artifact with its reason plus a capture gap (e2e `journey.spec.ts`). UI display is E04.
 - [ ] Malicious HTML cannot read app storage or execute with app privileges
 
 Phases 3–5: see plan §15; checklists added when Phase 2 completes.
@@ -218,6 +218,22 @@ Phases 3–5: see plan §15; checklists added when Phase 2 completes.
   - A child using the SDK records steps, artifact and assertion.
 - Manual: `atlas run` on a copy of the demo printed process succeeded, task failed, 3 outputs uploaded and 1 missing.
 - Phase 2 checklist: "Real CLI run records stdout/stderr and produces a JSON file and an image" and "Failed assertion remains failed despite exit code 0" are exercised at the API level. UI display is E04.
+
+### E03 (2026-10-26)
+
+- `BrowserCapture` (`@atlas/adapters`):
+  - Steps with post-action and failure-state screenshots, with tab, redacted URL, viewport and wait-policy provenance.
+  - Bounded screenshot count. Missing captures are recorded as missing artifacts plus gaps.
+  - Network and console summaries, and the Playwright trace attached (or a gap when the caller owns tracing).
+- `startRun` is shared by the process wrapper and the journey.
+- `scripts/research-journey.ts` is the §18 journey over the fixture page, served by a local static server with traversal guard. `pnpm demo` runs the full local demo.
+- e2e `journey.spec.ts` (real Chromium) checks:
+  - The run binds to its snapshot.
+  - 3 post-action screenshots, 1 failure-state and the final are captured as PNGs with tab, viewport and URL.
+  - One screenshot is missing with reason "page is closed".
+  - 3 completed steps and 1 failed step, in sequence order, plus the assertion and summaries.
+  - The trace zip is attached.
+- Manual: `pnpm demo` against a scratch data dir produced the two worker runs and the journey. The post-search screenshot was inspected; it shows the 6 results. Identical failure and final bytes are deduplicated in the object store.
 
 ## Environment record (2026-10-26)
 

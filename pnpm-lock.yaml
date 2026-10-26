@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@atlas/adapters':
+        specifier: workspace:*
+        version: link:packages/adapters
       '@atlas/daemon':
         specifier: workspace:*
         version: link:apps/daemon
@@ -133,6 +136,10 @@ importers:
       '@atlas/schema':
         specifier: workspace:*
         version: link:../schema
+    devDependencies:
+      '@playwright/test':
+        specifier: 1.64.1
+        version: 1.64.1
 
   packages/agent-api:
     dependencies:
