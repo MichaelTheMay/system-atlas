@@ -6,7 +6,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**A04 — TS/JS and Python analyzers** on branch `feat/A04-analyzers`.
+**A05 — Semantic identity and snapshot reconciler** on branch `feat/A05-reconciler`.
 
 ## Tickets (plan §17)
 
@@ -101,6 +101,21 @@ Phases 3–5: see plan §15; checklists added when Phase 2 completes.
   - Redaction patterns.
 - Manual: `atlas scan` on ts-web-service, elixir-unsupported and Atlas itself (158 files, 155 ms). The UI was screenshotted after the self-scan.
 - Known limits: TS/JS and Python source analysis is A04. The canvas still shows a summary card until A06/A07. `.npmrc` is always treated as secret-like (conservative).
+
+### A04 (2026-10-26)
+
+- Analyzers: `ts-js` and `python` (worker threads), `generic-sql` (migrations), `generic-docker` (Compose and Dockerfiles), plus the A03 `generic-manifests`. Defaults are in `defaultAnalyzers()`.
+- Hand-authored expected graphs are in `fixtures/expected/`, written before the analyzers ran. `expected-graphs.test.ts` reports per-analyzer, per-relation-kind precision and recall:
+  - ts-web-service: 46 relations across 11 analyzer and kind rows. 47 entities. All rows are precision 1.00 and recall 1.00, with no missing or extra entities.
+  - py-cli-api: 13 relations across 5 rows. 26 entities. All rows are precision 1.00 and recall 1.00.
+  - These fixtures are small and were written alongside the analyzers, so 1.00 shows the documented patterns work. It is not a claim about arbitrary code.
+- Tests: 83 Vitest tests in 13 files.
+- Real-repo checks (read-only, scratch data dir):
+  - Atlas self-scan: 178 files in 458 ms.
+  - `~/Dev/dsh`: 9,175 files and 11,641 entities. Scans took 4.9-5.3 s; `ts-js` was 3.9 s of that. Peak heap was 182 MB and 25 MB after GC. RSS stayed at about 1.4 GB because worker memory is not returned to the OS; this is tracked for H01.
+  - The target repo's `git status` was unchanged before and after.
+- Fixed from real-repo findings: `.d.ts` and TS files outside source roles no longer appear as unsupported; style/asset imports are not reported as unresolved; `CREATE VIRTUAL TABLE` is recognized.
+- Known limits: see `docs/capabilities.md`. No call graph, no OpenAPI/CI modeling yet, Python has no type inference.
 
 ## Environment record (2026-10-26)
 
