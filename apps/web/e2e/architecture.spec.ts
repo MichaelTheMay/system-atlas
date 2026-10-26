@@ -129,6 +129,13 @@ test('a manual pin survives reload and rescan', async ({ page, request }) => {
   await page.getByRole('button', { name: 'Project structure component', exact: true }).click();
   await expect(web).toBeVisible();
   near(await transform(), pinned);
+  // the reopened view fits the canvas (a pin-only save must not restore a default viewport)
+  const pane = (await page.locator('.react-flow').boundingBox())!;
+  const after = (await web.boundingBox())!;
+  expect(after.x).toBeGreaterThanOrEqual(pane.x);
+  expect(after.y).toBeGreaterThanOrEqual(pane.y);
+  expect(after.x + after.width).toBeLessThanOrEqual(pane.x + pane.width);
+  expect(after.y + after.height).toBeLessThanOrEqual(pane.y + pane.height);
 
   await scanFixture(request);
   await page.waitForTimeout(500);
@@ -150,4 +157,43 @@ test('list view is a readable alternative to the canvas', async ({ page, request
     'Project structure',
   );
   await expect(page.getByRole('table', { name: 'Relations' })).toContainText('depends-on');
+});
+
+test('the Python fixture renders its own views: merged root, API, and module detail', async ({
+  page,
+  request,
+}) => {
+  const root = new URL('../../../fixtures/py-cli-api', import.meta.url).pathname.replace(/\/$/, '');
+  const reg = await (
+    await request.post('/api/v1/projects', { headers: auth, data: { rootPath: root } })
+  ).json();
+  let job = await (
+    await request.post(`/api/v1/worktrees/${reg.worktree.id}/scans`, { headers: auth })
+  ).json();
+  for (let i = 0; i < 100 && (job.state === 'queued' || job.state === 'running'); i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    job = await (await request.get(`/api/v1/jobs/${job.id}`, { headers: auth })).json();
+  }
+  await openProject(page, reg.worktree.id);
+  await expect(node(page, 'py-cli-api')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Deployables deploy', exact: true })).toHaveCount(
+    0,
+  );
+  await node(page, 'py-cli-api').dblclick();
+  await expect(page.getByRole('navigation', { name: 'Breadcrumbs' })).toHaveText(
+    'Project structure',
+  );
+  // the root package (notekeeper) is merged into the system, so modules are the first level
+  await expect(node(page, 'api')).toBeVisible();
+  await expect(node(page, 'cli')).toBeVisible();
+  await node(page, 'api').dblclick();
+  await expect(page.getByRole('navigation', { name: 'Breadcrumbs' })).toHaveText(
+    'Project structure / api (module)',
+  );
+  await expect(node(page, 'GET /notes/{note_id}')).toBeVisible();
+  await page.getByRole('button', { name: 'API api', exact: true }).click();
+  await expect(page.getByRole('navigation', { name: 'Breadcrumbs' })).toHaveText('API');
+  await expect(page.getByRole('status')).toHaveCount(0);
+  await expect(node(page, 'POST /notes')).toBeVisible();
+  await page.screenshot({ path: 'test-results/python-api.png' });
 });

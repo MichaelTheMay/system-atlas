@@ -12,7 +12,7 @@ const ELK: ElkCtor =
  * graph always produces the same positions; LAYOUT_VERSION is recorded with results so a
  * change of engine/options is detectable rather than silently reshuffling user canvases.
  */
-export const LAYOUT_VERSION = 'elkjs-0.12.0/layered/v3';
+export const LAYOUT_VERSION = 'elkjs-0.12.0/layered-or-rectpacking/v4';
 
 export interface LayoutNodeInput {
   id: string;
@@ -68,7 +68,8 @@ export function createElkLayoutEngine(injected?: ElkApi): LayoutEngine {
       const root: ElkNode = {
         id: '__root__',
         layoutOptions: {
-          'elk.algorithm': 'layered',
+          // edgeless canvases (module details, coverage) pack into a grid instead of one long column
+          'elk.algorithm': edges.length === 0 ? 'rectpacking' : 'layered',
           'elk.direction': input.direction ?? 'RIGHT',
           'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
           'elk.layered.spacing.nodeNodeBetweenLayers': '56',

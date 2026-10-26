@@ -150,9 +150,9 @@ describe('overlay API', () => {
     });
   });
 
-  it('follows accepted rename aliases when reading', async () => {
-    const oldId = `ent_${'1'.repeat(32)}`;
-    const newId = `ent_${'2'.repeat(32)}`;
+  it('follows accepted rename aliases only relative to the viewed snapshot', async () => {
+    const goneId = `ent_${'1'.repeat(32)}`; // not in this snapshot (e.g. a file that moved)
+    const liveId = stableId('entity', projectId, 'ts:module:packages/api/src/db.ts'); // in this snapshot
     const v2 = `cvs_${'9'.repeat(32)}`;
     await srv.app.inject({
       method: 'PUT',
@@ -161,8 +161,8 @@ describe('overlay API', () => {
       payload: {
         ...base,
         viewId: v2,
-        entityPositions: { [oldId]: { x: 5, y: 6 } },
-        pinnedIds: [oldId],
+        entityPositions: { [goneId]: { x: 5, y: 6 } },
+        pinnedIds: [goneId],
         revision: 0,
       },
     });
@@ -171,13 +171,15 @@ describe('overlay API', () => {
       .prepare(
         'INSERT INTO entity_aliases (project_id, old_id, new_id, method, snapshot_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
       )
-      .run(projectId, oldId, newId, 'content-hash', snap, 'now');
-    const remapped = (await get(`/api/v1/views/${v2}/overlay?project=${projectId}`)).json();
-    expect(remapped.entityPositions).toEqual({ [newId]: { x: 5, y: 6 } });
-    expect(remapped.pinnedIds).toEqual([newId]);
-    // without project context the stored ids are returned unchanged
-    expect((await get(`/api/v1/views/${v2}/overlay`)).json().entityPositions).toEqual({
-      [oldId]: { x: 5, y: 6 },
-    });
+      .run(projectId, goneId, liveId, 'content-hash', snap, 'now');
+    const remapped = (
+      await get(`/api/v1/views/${v2}/overlay?project=${projectId}&snapshot=${snap}`)
+    ).json();
+    expect(remapped.entityPositions).toEqual({ [liveId]: { x: 5, y: 6 } });
+    expect(remapped.pinnedIds).toEqual([liveId]);
+    // without a snapshot context nothing is remapped
+    expect(
+      (await get(`/api/v1/views/${v2}/overlay?project=${projectId}`)).json().entityPositions,
+    ).toEqual({ [goneId]: { x: 5, y: 6 } });
   });
 });

@@ -880,7 +880,6 @@ function carryClaims(
       body: string;
     }>(prevId);
   if (claims.length === 0) return;
-  const alias = db.prepare('SELECT new_id FROM entity_aliases WHERE project_id = ? AND old_id = ?');
   const evidence = db.prepare('SELECT path, content_hash FROM evidence WHERE id = ?');
   const ins = db.prepare(
     'INSERT INTO claims (snapshot_id, id, subject_id, predicate, origin, status, body) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -892,12 +891,8 @@ function carryClaims(
       evidenceIds: string[];
       snapshotId: string;
     };
-    let subject = c.subject_id;
-    for (let i = 0; i < 10; i++) {
-      const a = alias.get<{ new_id: string }>(projectId, subject);
-      if (!a) break;
-      subject = a.new_id;
-    }
+    // follow a rename only if this snapshot lacks the old id and has the new one (worktree isolation)
+    const subject = resolveAlias(db, projectId, c.subject_id, (id) => entityIds.has(id));
     const evidenceValid = body.evidenceIds.every((id) => {
       const ev = evidence.get<{ path: string | null; content_hash: string | null }>(id);
       return ev && (!ev.path || files.get(ev.path) === ev.content_hash);
@@ -969,7 +964,20 @@ export function checkSnapshotIntegrity(db: Db, snapshotId: string): string[] {
 }
 
 /** Follow accepted aliases from an old entity id to its current id. */
-export function resolveAlias(db: Db, projectId: string, entityId: string): string {
+/**
+ * Follow accepted aliases from an old entity id to its current id.
+ *
+ * Aliases are project-wide, but worktrees are separate contexts: a file moved on a feature branch
+ * must not move pins or claims on main. With `exists` (membership in the snapshot being read), an
+ * alias is only followed when the old id is absent there and the resolved id is present.
+ */
+export function resolveAlias(
+  db: Db,
+  projectId: string,
+  entityId: string,
+  exists?: (id: string) => boolean,
+): string {
+  if (exists?.(entityId)) return entityId;
   let cur = entityId;
   const q = db.prepare('SELECT new_id FROM entity_aliases WHERE project_id = ? AND old_id = ?');
   for (let i = 0; i < 20; i++) {
@@ -977,7 +985,14 @@ export function resolveAlias(db: Db, projectId: string, entityId: string): strin
     if (!a || a.new_id === cur) break;
     cur = a.new_id;
   }
+  if (exists && !exists(cur)) return entityId;
   return cur;
+}
+
+/** Membership test for alias resolution within one snapshot. */
+export function snapshotEntityExists(db: Db, snapshotId: string): (id: string) => boolean {
+  const q = db.prepare('SELECT 1 AS ok FROM entities WHERE snapshot_id = ? AND id = ?');
+  return (id) => !!q.get(snapshotId, id);
 }
 
 function persistCatalog(db: Db, snapshotId: string, catalog: Catalog) {

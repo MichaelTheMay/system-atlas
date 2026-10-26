@@ -80,14 +80,16 @@ export function CanvasView(props: Props) {
   const nodesInitialized = useNodesInitialized();
   const pendingViewport = useRef<{ viewport?: Viewport } | null>(null);
 
-  // Fit (or restore the saved viewport) only once React Flow has measured the new nodes.
+  // Fit (or restore the saved viewport) only once React Flow has measured every node of this canvas.
+  // `useNodesInitialized` can stay true across canvas switches, so check measurements directly.
   useEffect(() => {
-    if (!nodesInitialized || !pendingViewport.current) return;
+    if (!pendingViewport.current || !nodesInitialized || nodes.length === 0) return;
+    if (!nodes.every((n) => n.measured?.width && n.measured?.height)) return;
     const target = pendingViewport.current;
     pendingViewport.current = null;
     if (target.viewport) void flow.setViewport(target.viewport, { duration: 0 });
     else void flow.fitView({ padding: 0.06, maxZoom: 1.1, duration: reducedMotion ? 0 : 200 });
-  }, [nodesInitialized, flow]);
+  }, [nodesInitialized, nodes, flow]);
 
   // Load projection + overlay, lay out, render.
   useEffect(() => {
@@ -100,7 +102,7 @@ export function CanvasView(props: Props) {
         token,
       );
       const overlay = await api<OverlayDto>(
-        `/views/${p.viewId}/overlay?project=${projectId}`,
+        `/views/${p.viewId}/overlay?project=${projectId}&snapshot=${snapshotId}`,
         token,
       );
       if (cancelled) return;
@@ -178,9 +180,10 @@ export function CanvasView(props: Props) {
       );
       onProjection(p, overlay);
       setStatus('ready');
-      pendingViewport.current = {
-        viewport: overlay.revision > 0 && overlay.viewport.zoom > 0 ? overlay.viewport : undefined,
-      };
+      // the default viewport means "never set by the user" (e.g. only pins were saved): fit instead
+      const v = overlay.viewport;
+      const userViewport = v.zoom > 0 && !(v.x === 0 && v.y === 0 && v.zoom === 1);
+      pendingViewport.current = { viewport: userViewport ? v : undefined };
     })().catch((e: unknown) => {
       if (cancelled) return;
       setError(e instanceof Error ? e.message : String(e));
@@ -267,6 +270,9 @@ export function CanvasView(props: Props) {
           })
         }
         onPaneClick={() => onSelect(null)}
+        // double-click means "open" here; React Flow's default double-click zoom would also move
+        // (and persist) the viewport of the canvas being left
+        zoomOnDoubleClick={false}
         minZoom={0.1}
         maxZoom={2.5}
         nodesFocusable

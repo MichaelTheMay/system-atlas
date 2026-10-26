@@ -1,5 +1,5 @@
 import { ViewOverlay } from '@atlas/schema';
-import { resolveAlias } from '@atlas/graph';
+import { resolveAlias, snapshotEntityExists } from '@atlas/graph';
 import type { Db } from '@atlas/store';
 
 export const LOCAL_PROFILE = 'local';
@@ -23,14 +23,21 @@ export function emptyOverlay(viewId: string): ViewOverlay {
  * Overlays are presentation only (plan §4) and survive regeneration. Entity positions, pins and
  * notes follow accepted rename aliases when read, so a moved file keeps its place on the canvas.
  */
-export function getOverlay(db: Db, viewId: string, projectId?: string): ViewOverlay {
+export function getOverlay(
+  db: Db,
+  viewId: string,
+  context?: { projectId: string; snapshotId: string },
+): ViewOverlay {
   const row = db
     .prepare('SELECT body FROM view_overlays WHERE view_id = ? AND profile_id = ?')
     .get<{ body: string }>(viewId, LOCAL_PROFILE);
   if (!row) return emptyOverlay(viewId);
   const o = ViewOverlay.parse(JSON.parse(row.body));
-  if (!projectId) return o;
-  const remap = (id: string) => resolveAlias(db, projectId, id);
+  if (!context) return o;
+  // follow a rename only when the snapshot being viewed lacks the old id and has the new one, so a
+  // file moved on another worktree never moves this worktree's pins or notes
+  const exists = snapshotEntityExists(db, context.snapshotId);
+  const remap = (id: string) => resolveAlias(db, context.projectId, id, exists);
   return {
     ...o,
     entityPositions: Object.fromEntries(

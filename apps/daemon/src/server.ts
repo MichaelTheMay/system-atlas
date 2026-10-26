@@ -290,16 +290,21 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     },
   );
 
-  app.get<{ Params: { viewId: string }; Querystring: { project?: string } }>(
+  app.get<{ Params: { viewId: string }; Querystring: { project?: string; snapshot?: string } }>(
     `${API_PREFIX}/views/:viewId/overlay`,
     async (req, reply) => {
       if (!/^cvs_[0-9a-f]{16,64}$/.test(req.params.viewId))
         return reply.code(400).send({ error: 'invalid_view' });
-      const project =
-        req.query.project && /^proj_[0-9a-f]{16,64}$/.test(req.query.project)
-          ? req.query.project
+      const { project, snapshot } = req.query;
+      // aliases are followed only relative to the snapshot being viewed (worktree isolation)
+      const context =
+        project &&
+        snapshot &&
+        /^proj_[0-9a-f]{16,64}$/.test(project) &&
+        /^snap_[0-9a-f]{16,64}$/.test(snapshot)
+          ? { projectId: project, snapshotId: snapshot }
           : undefined;
-      return getOverlay(opts.db, req.params.viewId, project);
+      return getOverlay(opts.db, req.params.viewId, context);
     },
   );
 
