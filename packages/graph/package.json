@@ -14,6 +14,7 @@
   "dependencies": {
     "@atlas/schema": "workspace:*",
     "@atlas/store": "workspace:*",
-    "@atlas/analyzers": "workspace:*"
+    "@atlas/analyzers": "workspace:*",
+    "@atlas/planner": "workspace:*"
   }
 }

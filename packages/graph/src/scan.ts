@@ -30,6 +30,7 @@ import { buildCoverage, type AnalyzerRunRecord } from './coverage.ts';
 import { stableId } from './ids.ts';
 import { manifestDigest } from './manifest.ts';
 import { reconcile, type EntityRow, type ReconcileResult, type RelationRow } from './reconcile.ts';
+import { planViews, type Catalog, type PlannerGraph } from '@atlas/planner';
 
 export const CORE_PRODUCER = 'atlas-core';
 export const SYSTEM_KEY = 'system';
@@ -265,6 +266,33 @@ export async function scanWorktree(
       nextFiles: new Map(inventory.files.map((f) => [f.path, f.sha256])),
     });
 
+    // View catalog (plan §8): cheap to generate, so it is planned for every snapshot and published with it.
+    const catalog = planViews({
+      projectId: worktree.projectId,
+      snapshotId,
+      hasPrevious: !!previous,
+      entities: [...built.entities.values()].map(({ entity: e }) => ({
+        id: e.id,
+        kind: e.kind,
+        canonicalName: e.canonicalName,
+        displayName: e.displayName,
+        ownerEntityId: e.ownerEntityId,
+        lifecycle: e.lifecycle,
+        attributes: e.attributes as Record<string, unknown>,
+      })),
+      relations: [...built.relations.values()].map(({ relation: r }) => ({
+        id: r.id,
+        kind: r.kind,
+        fromId: r.fromId,
+        toId: r.toId,
+        status: r.status,
+        confidence: r.confidenceCategory,
+        evidenceIds: r.evidenceIds,
+      })),
+      gaps: coverage.gaps,
+      changes: reconciled.changes,
+    });
+
     signal.throwIfAborted();
     opts.onProgress?.({ phase: 'publish' });
     const publishedAt = now().toISOString();
@@ -385,6 +413,7 @@ export async function scanWorktree(
         json(reconciled.summary),
         snapshotId,
       );
+      persistCatalog(db, snapshotId, catalog);
       db.prepare(
         `UPDATE snapshots SET state = 'superseded' WHERE worktree_id = ? AND id != ? AND state IN ('ready','partial')`,
       ).run(worktree.id, snapshotId);
@@ -949,4 +978,103 @@ export function resolveAlias(db: Db, projectId: string, entityId: string): strin
     cur = a.new_id;
   }
   return cur;
+}
+
+function persistCatalog(db: Db, snapshotId: string, catalog: Catalog) {
+  const ins = db.prepare(
+    'INSERT INTO canvases (snapshot_id, id, workspace, lens, owner_canvas_id, root_entity_id, state, body) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  );
+  for (const c of catalog.canvases)
+    ins.run(
+      snapshotId,
+      c.id,
+      c.workspace,
+      c.lens,
+      c.ownerCanvasId ?? null,
+      c.rootEntityId ?? null,
+      c.state,
+      json(c),
+    );
+  const insLink = db.prepare(
+    'INSERT OR IGNORE INTO canvas_links (snapshot_id, from_canvas_id, to_canvas_id, relation, via_entity_id) VALUES (?, ?, ?, ?, ?)',
+  );
+  for (const l of catalog.links)
+    insLink.run(snapshotId, l.fromCanvasId, l.toCanvasId, l.relation, l.viaEntityId ?? null);
+}
+
+/** The view catalog published with a snapshot. */
+export function loadCatalog(db: Db, snapshotId: string): Catalog {
+  const canvases = db
+    .prepare('SELECT body FROM canvases WHERE snapshot_id = ? ORDER BY id')
+    .all<{ body: string }>(snapshotId)
+    .map((r) => JSON.parse(r.body) as Catalog['canvases'][number]);
+  const links = db
+    .prepare(
+      'SELECT from_canvas_id, to_canvas_id, relation, via_entity_id FROM canvas_links WHERE snapshot_id = ? ORDER BY from_canvas_id, to_canvas_id, relation',
+    )
+    .all<{
+      from_canvas_id: string;
+      to_canvas_id: string;
+      relation: string;
+      via_entity_id: string | null;
+    }>(snapshotId)
+    .map((l) => ({
+      schemaVersion: 1 as const,
+      fromCanvasId: l.from_canvas_id,
+      toCanvasId: l.to_canvas_id,
+      relation: l.relation as 'child' | 'sibling' | 'related' | 'evidence',
+      viaEntityId: l.via_entity_id ?? undefined,
+    }));
+  return { canvases, links };
+}
+
+/** Everything the projector needs for one snapshot, read from the store. */
+export function loadPlannerGraph(db: Db, snapshotId: string): PlannerGraph {
+  const snap = db
+    .prepare(
+      'SELECT project_id, previous_snapshot_id, coverage_report_id FROM snapshots WHERE id = ?',
+    )
+    .get<{
+      project_id: string;
+      previous_snapshot_id: string | null;
+      coverage_report_id: string | null;
+    }>(snapshotId);
+  if (!snap) throw new Error(`unknown snapshot ${snapshotId}`);
+  const { prevEntities: entities, prevRelations } = loadGraph(db, snapshotId);
+  const rels = db
+    .prepare('SELECT id, confidence FROM relations WHERE snapshot_id = ?')
+    .all<{ id: string; confidence: string }>(snapshotId);
+  const confidence = new Map(rels.map((r) => [r.id, r.confidence]));
+  const cov = snap.coverage_report_id
+    ? db
+        .prepare('SELECT body FROM coverage_reports WHERE id = ?')
+        .get<{ body: string }>(snap.coverage_report_id)
+    : undefined;
+  const changes = db
+    .prepare(
+      'SELECT target, id, change, previous_id, detail FROM snapshot_changes WHERE snapshot_id = ? ORDER BY target, change, id',
+    )
+    .all<{
+      target: 'entity' | 'relation';
+      id: string;
+      change: string;
+      previous_id: string | null;
+      detail: string;
+    }>(snapshotId)
+    .map((c) => ({
+      target: c.target,
+      id: c.id,
+      change: c.change,
+      previousId: c.previous_id ?? undefined,
+      detail: JSON.parse(c.detail) as Record<string, unknown>,
+    }));
+  return {
+    projectId: snap.project_id,
+    snapshotId,
+    hasPrevious: !!snap.previous_snapshot_id,
+    entities,
+    relations: prevRelations.map((r) => ({ ...r, confidence: confidence.get(r.id) ?? 'exact' })),
+    gaps: cov ? (JSON.parse(cov.body) as CoverageReport).gaps : [],
+    changes,
+  };
 }

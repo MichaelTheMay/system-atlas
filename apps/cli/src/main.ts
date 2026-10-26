@@ -8,6 +8,19 @@ import { isProcessAlive, readDiscovery } from '@atlas/daemon/discovery';
 import { ensureDaemon, findDaemon } from './client.ts';
 import { runDoctor } from './doctor.ts';
 
+interface CatalogResponse {
+  snapshotId: string;
+  canvases: {
+    id: string;
+    lens: string;
+    title: string;
+    ownerCanvasId?: string;
+    relevanceScore: number;
+    relevanceReason: string;
+  }[];
+  links: { fromCanvasId: string; toCanvasId: string; relation: string }[];
+}
+
 interface ScanJob {
   id: string;
   state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
@@ -233,10 +246,50 @@ program
   .action(notYet('watch', 'M01'));
 program
   .command('views')
+  .description('Generated canvases')
   .command('list')
-  .option('--json')
-  .description('List canvases')
-  .action(notYet('views list', 'A06'));
+  .description('List the canvas catalog of the latest snapshot as a navigation tree')
+  .argument('[path]', 'project root', '.')
+  .option('--json', 'machine-readable output')
+  .action(async (path: string, opts: { json?: boolean }) => {
+    const { daemon } = await ensureDaemon(paths);
+    const reg = await daemon.api<Registration>('/projects', {
+      method: 'POST',
+      body: JSON.stringify({ rootPath: resolve(path) }),
+    });
+    let catalog: CatalogResponse;
+    try {
+      catalog = await daemon.api<CatalogResponse>(`/worktrees/${reg.worktree.id}/canvases`);
+    } catch {
+      console.error('no snapshot yet; run `atlas scan` first');
+      process.exitCode = 1;
+      return;
+    }
+    if (opts.json) return console.log(JSON.stringify(catalog, null, 2));
+    const children = new Map<string, string[]>();
+    for (const l of catalog.links)
+      if (l.relation === 'child')
+        (
+          children.get(l.fromCanvasId) ?? children.set(l.fromCanvasId, []).get(l.fromCanvasId)!
+        ).push(l.toCanvasId);
+    const byId = new Map(catalog.canvases.map((c) => [c.id, c]));
+    const print = (id: string, depth: number) => {
+      const c = byId.get(id)!;
+      console.log(
+        `${'  '.repeat(depth)}${c.title}  [${c.lens}] relevance ${c.relevanceScore.toFixed(2)}`,
+      );
+      if (depth === 0) console.log(`${'  '.repeat(depth + 1)}why: ${c.relevanceReason}`);
+      for (const k of (children.get(id) ?? []).sort((a, b) =>
+        byId.get(a)!.title.localeCompare(byId.get(b)!.title),
+      ))
+        print(k, depth + 1);
+    };
+    console.log(`snapshot ${catalog.snapshotId}: ${catalog.canvases.length} canvases`);
+    for (const c of catalog.canvases
+      .filter((x) => !x.ownerCanvasId)
+      .sort((a, b) => b.relevanceScore - a.relevanceScore))
+      print(c.id, 0);
+  });
 program
   .command('run')
   .argument('<command...>')

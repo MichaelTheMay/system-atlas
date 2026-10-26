@@ -65,6 +65,9 @@ importers:
       '@atlas/graph':
         specifier: workspace:*
         version: link:../../packages/graph
+      '@atlas/planner':
+        specifier: workspace:*
+        version: link:../../packages/planner
       '@atlas/schema':
         specifier: workspace:*
         version: link:../../packages/schema
@@ -165,6 +168,9 @@ importers:
       '@atlas/analyzers':
         specifier: workspace:*
         version: link:../analyzers
+      '@atlas/planner':
+        specifier: workspace:*
+        version: link:../planner
       '@atlas/schema':
         specifier: workspace:*
         version: link:../schema

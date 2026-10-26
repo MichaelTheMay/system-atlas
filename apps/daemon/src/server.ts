@@ -1,7 +1,15 @@
 import { isAbsolute } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { getLatestSnapshot, getWorktree, listProjects, registerRoot } from '@atlas/graph';
+import {
+  getLatestSnapshot,
+  getWorktree,
+  listProjects,
+  loadCatalog,
+  loadPlannerGraph,
+  registerRoot,
+} from '@atlas/graph';
+import { projectView, type Catalog, type PlannerGraph } from '@atlas/planner';
 import { defaultAnalyzers, type Analyzer } from '@atlas/analyzers';
 import { JobRunner } from './jobs.ts';
 import type { Db } from '@atlas/store';
@@ -192,6 +200,61 @@ export function buildServer(opts: ServerOptions): AtlasServer {
         changes,
         issues,
       };
+    },
+  );
+
+  // Snapshot-scoped views (plan §8): catalogs are cheap rows; projections are computed on demand.
+  const viewCache = new Map<string, { graph: PlannerGraph; catalog: Catalog }>();
+  const views = (snapshotId: string) => {
+    let hit = viewCache.get(snapshotId);
+    if (!hit) {
+      hit = {
+        graph: loadPlannerGraph(opts.db, snapshotId),
+        catalog: loadCatalog(opts.db, snapshotId),
+      };
+      viewCache.set(snapshotId, hit);
+      if (viewCache.size > 4) viewCache.delete(viewCache.keys().next().value!);
+    }
+    return hit;
+  };
+  const snapshotExists = (id: string) =>
+    !!opts.db
+      .prepare(
+        "SELECT 1 AS ok FROM snapshots WHERE id = ? AND state IN ('ready','partial','superseded')",
+      )
+      .get(id);
+
+  app.get<{ Params: { id: string } }>(
+    `${API_PREFIX}/snapshots/:id/canvases`,
+    async (req, reply) => {
+      if (!snapshotExists(req.params.id))
+        return reply.code(404).send({ error: 'unknown_snapshot' });
+      return { snapshotId: req.params.id, ...views(req.params.id).catalog };
+    },
+  );
+
+  app.get<{ Params: { id: string; cid: string }; Querystring: { focus?: string } }>(
+    `${API_PREFIX}/snapshots/:id/canvases/:cid/projection`,
+    async (req, reply) => {
+      if (!snapshotExists(req.params.id))
+        return reply.code(404).send({ error: 'unknown_snapshot' });
+      const v = views(req.params.id);
+      if (!v.catalog.canvases.some((c) => c.id === req.params.cid))
+        return reply.code(404).send({ error: 'unknown_canvas' });
+      const focus =
+        typeof req.query.focus === 'string' && req.query.focus.length <= 500
+          ? req.query.focus
+          : undefined;
+      return projectView(v.graph, v.catalog, req.params.cid, focus);
+    },
+  );
+
+  app.get<{ Params: { id: string } }>(
+    `${API_PREFIX}/worktrees/:id/canvases`,
+    async (req, reply) => {
+      const latest = getLatestSnapshot(opts.db, req.params.id);
+      if (!latest) return reply.code(404).send({ error: 'no_snapshot' });
+      return { snapshotId: latest.snapshot.id, ...views(latest.snapshot.id).catalog };
     },
   );
 

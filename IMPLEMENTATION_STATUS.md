@@ -18,7 +18,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 | A03 | Inventory and coverage report                     | A02         | not started |                            |
 | A04 | TS/JS and Python analyzers                        | A03         | not started |                            |
 | A05 | Semantic identity and snapshot reconciler         | A04         | not started |                            |
-| A06 | View planner and canvas navigation                | A05         | not started |                            |
+| A06 | View planner and canvas navigation                | A05         | done        | PR #6; see A06 evidence    |
 | A07 | React Flow, layout worker, overlays and inspector | A06         | not started |                            |
 | E01 | Run/event/artifact store and ingestion            | A02         | not started |                            |
 | E02 | Process wrapper and output registration           | E01         | not started |                            |
@@ -44,7 +44,7 @@ Phase 0 complete 2026-10-26 (tag `phase-0`).
 
 ### Phase 1 — architecture vertical slice
 
-- [ ] TS web/service fixture and Python CLI/API fixture generate different relevant views
+- [~] TS web/service fixture and Python CLI/API fixture generate different relevant views. Catalogs differ: TS has 8 root lenses (including deployables, workflow and UI); Python has 5 (`views.test.ts`, `atlas views list`). Rendering is A07.
 - [ ] Every supported edge opens evidence
 - [ ] Unsupported features appear as gaps
 - [~] Second identical scan causes no semantic/view churn. Semantic: zero changes on both fixtures (`reconcile.test.ts`) and via `atlas scan`. View churn is checked in A06.
@@ -133,6 +133,25 @@ Phases 3–5: see plan §15; checklists added when Phase 2 completes.
   - The integrity check catches corruption.
 - Open issues are counted per project, not per snapshot, so they stay visible across later scans until resolved (regression test in `server.test.ts`).
 - Manual: `atlas scan` on a scratch copy showed first snapshot, then no changes, then after a one-line edit: 1 entity added, 2 changed; 1 relation added, 3 changed.
+
+### A06 (2026-10-26)
+
+- `packages/planner`:
+  - `planViews()` builds the catalog: lens eligibility, `relevance-v1` scoring with reasons, stable IDs, child links along canonical ownership, sibling links, and root-package merge.
+  - `projectView()` builds projections: container clustering (member target 30, single-directory levels skipped, kind clusters, `other`), external aggregation with scope drill-down, boundary ports capped at 12, per-lens scenes (context, deployables, API, data, workflow, UI, coverage, changes), deterministic edges with relation IDs, breadcrumbs, siblings and children.
+- The catalog is persisted in the publish transaction. Daemon routes added for catalog and projection (snapshot-scoped, with a cache). New CLI command `atlas views list`. Docs in `docs/views.md`.
+- Tests: 102 Vitest tests in 15 files.
+  - TS and Python catalogs differ and are evidence-gated.
+  - The navigation tree is a forest with a single parent per canvas.
+  - The system context is not a single box, and the root package is merged.
+  - Ports and third-party aggregation work.
+  - Every supported projected edge resolves to relations with evidence.
+  - Identical rescans give byte-identical catalogs and projections (snapshot ID masked), and the catalog is stable across "edit, rescan, rescan".
+  - Clustering descends levels and drill-down view IDs are distinct.
+  - The port cap holds.
+- dsh measurement (9,175 files):
+  - 1,414 canvases. Catalog load took 62 ms. Projections were p50 6.5 ms, p95 8.7 ms, max 73 ms.
+  - Before the port cap, one canvas had 197 ports and hit the 200-node cap. After it, 0 of 1,414 canvases exceed 40 nodes: 1,067 have 10 or fewer, 327 have 11-30, 20 have 31-40.
 
 ## Environment record (2026-10-26)
 

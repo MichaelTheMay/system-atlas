@@ -97,6 +97,35 @@ paths:
       responses:
         '200': { description: OK }
         '404': { description: Unknown snapshot }
+  /api/v1/snapshots/{id}/canvases:
+    get:
+      summary: View catalog of a snapshot (canvas specs and child/sibling links); see docs/views.md
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: OK }
+        '404': { description: Unknown snapshot }
+  /api/v1/snapshots/{id}/canvases/{cid}/projection:
+    get:
+      summary: Lazily computed nodes, edges, ports, breadcrumbs, siblings and children of one canvas
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: cid, in: path, required: true, schema: { type: string } }
+        - {
+            name: focus,
+            in: query,
+            description: Cluster drill-down path (own viewId),
+            schema: { type: string, maxLength: 500 },
+          }
+      responses:
+        '200': { description: OK }
+        '404': { description: Unknown snapshot or canvas }
+  /api/v1/worktrees/{id}/canvases:
+    get:
+      summary: Catalog of the latest published snapshot
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: OK }
+        '404': { description: No snapshot }
   /api/v1/stream:
     get:
       summary: Server-sent events (hello, heartbeats, project.registered, scan.started, snapshot.published, scan.failed, scan.cancelled)
