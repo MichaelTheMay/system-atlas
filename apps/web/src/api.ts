@@ -114,3 +114,173 @@ export async function latestSnapshot(
   if (!res.ok) throw new Error(`snapshot: HTTP ${res.status}`);
   return (await res.json()) as SnapshotSummary;
 }
+
+// ---- views -------------------------------------------------------------------------------
+
+export interface CanvasSpecDto {
+  id: string;
+  lens: string;
+  title: string;
+  ownerCanvasId?: string;
+  rootEntityId?: string;
+  relevanceScore: number;
+  relevanceReason: string;
+  coverageSummary: { entityCount: number; gapCount: number; staleCount: number };
+}
+
+export interface CatalogDto {
+  snapshotId: string;
+  canvases: CanvasSpecDto[];
+  links: {
+    fromCanvasId: string;
+    toCanvasId: string;
+    relation: 'child' | 'sibling' | 'related' | 'evidence';
+    viaEntityId?: string;
+  }[];
+}
+
+export interface ProjectionNodeDto {
+  id: string;
+  kind: 'entity' | 'cluster' | 'port' | 'aggregate' | 'gap' | 'group';
+  label: string;
+  sublabel?: string;
+  entityId?: string;
+  entityKind?: string;
+  lifecycle?: string;
+  parentId?: string;
+  openCanvasId?: string;
+  focus?: string;
+  memberCount?: number;
+  counts?: Record<string, number>;
+  change?: string;
+}
+
+export interface ProjectionEdgeDto {
+  id: string;
+  source: string;
+  target: string;
+  kinds: Record<string, number>;
+  relationIds: string[];
+  status: 'supported' | 'inferred' | 'stale' | 'mixed';
+}
+
+export interface ProjectionDto {
+  viewId: string;
+  canvasId: string;
+  snapshotId: string;
+  lens: string;
+  title: string;
+  focus?: string;
+  relevanceReason: string;
+  nodes: ProjectionNodeDto[];
+  edges: ProjectionEdgeDto[];
+  truncated: boolean;
+  breadcrumbs: { canvasId: string; title: string; focus?: string }[];
+  siblings: { canvasId: string; lens: string; title: string }[];
+  children: { canvasId: string; title: string; viaEntityId?: string }[];
+  stats: { entities: number; relations: number; hiddenNodes: number };
+}
+
+export interface EvidenceDto {
+  id: string;
+  sourceKind: string;
+  repoRelativePath?: string;
+  contentHash?: string;
+  startLine?: number;
+  endLine?: number;
+  extractorId: string;
+  extractorVersion: string;
+  excerpt?: string;
+  redactionState: string;
+  freshness: 'current' | 'changed' | 'deleted' | 'unknown';
+}
+
+export interface EntityDetailsDto {
+  snapshotId: string;
+  latestSnapshotId?: string;
+  entity: {
+    id: string;
+    kind: string;
+    canonicalName: string;
+    displayName: string;
+    lifecycle: string;
+    producer: string;
+    firstSeenSnapshot: string;
+    attributes: Record<string, unknown>;
+  };
+  owners: { id: string; displayName: string; kind: string }[];
+  children: { kind: string; n: number }[];
+  relations: {
+    id: string;
+    kind: string;
+    direction: 'in' | 'out';
+    other: { id: string; displayName: string };
+    status: string;
+    confidence: string;
+    producer: string;
+    evidenceCount: number;
+  }[];
+  evidence: EvidenceDto[];
+  claims: { id: string; predicate: string; origin: string; status: string; value: unknown }[];
+  lastChange: {
+    snapshotId: string;
+    change: string;
+    at: string;
+    detail: Record<string, unknown>;
+  } | null;
+}
+
+export interface RelationDetailsDto {
+  id: string;
+  kind: string;
+  from: { id: string; displayName: string; kind: string };
+  to: { id: string; displayName: string; kind: string };
+  status: string;
+  confidence: string;
+  producer: string;
+  qualifiers: Record<string, string>;
+  evidence: EvidenceDto[];
+}
+
+export interface SourceDto {
+  path: string;
+  language: string;
+  state: 'current' | 'changed' | 'deleted';
+  text: string | null;
+}
+
+export interface OverlayDto {
+  schemaVersion: 1;
+  viewId: string;
+  profileId: string;
+  entityPositions: Record<string, { x: number; y: number }>;
+  nodePositions: Record<string, { x: number; y: number }>;
+  pinnedIds: string[];
+  annotations: { id: string; targetId?: string; text: string; createdAt: string }[];
+  displayOverrides: Record<string, { label?: string; collapsed?: boolean; hidden?: boolean }>;
+  viewport: { x: number; y: number; zoom: number };
+  revision: number;
+}
+
+export async function apiOptional<T>(path: string, token: string): Promise<T | null> {
+  const res = await fetch(`/api/v1${path}`, { headers: { authorization: `Bearer ${token}` } });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+  return (await res.json()) as T;
+}
+
+/** PUT with optimistic revision; returns the stored overlay, or the server's current one on conflict. */
+export async function saveOverlay(
+  token: string,
+  overlay: OverlayDto,
+): Promise<{ ok: boolean; overlay: OverlayDto }> {
+  const res = await fetch(`/api/v1/views/${overlay.viewId}/overlay`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(overlay),
+  });
+  const body = (await res.json()) as OverlayDto & { current?: OverlayDto };
+  if (res.status === 409 && body.current) return { ok: false, overlay: body.current };
+  if (!res.ok) throw new Error(`overlay: HTTP ${res.status}`);
+  return { ok: true, overlay: body };
+}

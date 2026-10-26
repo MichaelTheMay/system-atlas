@@ -1,22 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Background,
-  BackgroundVariant,
-  Controls,
-  ReactFlow,
-  ReactFlowProvider,
-} from '@xyflow/react';
+import { ReactFlowProvider } from '@xyflow/react';
 import type { Workspace } from '@atlas/schema';
 import {
   api,
+  apiOptional,
   captureToken,
   latestSnapshot,
   subscribe,
+  type CatalogDto,
   type DaemonStatus,
+  type OverlayDto,
+  type ProjectionDto,
   type ProjectSummary,
   type ScanJob,
   type SnapshotSummary,
 } from './api.ts';
+import { CanvasView, type Location, type Selection } from './components/CanvasView.tsx';
+import { CatalogNav } from './components/CatalogNav.tsx';
+import { Inspector } from './components/Inspector.tsx';
+import { ListView } from './components/ListView.tsx';
+import { useOverlay } from './useOverlay.ts';
 
 type Conn =
   | { state: 'no-token' }
@@ -46,14 +49,38 @@ export function App() {
   const token = useMemo(() => captureToken(), []);
   const [conn, setConn] = useState<Conn>(token ? { state: 'connecting' } : { state: 'no-token' });
   const [root, setRoot] = useState<Workspace>('architecture');
-  const [query, setQuery] = useState('');
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [worktreeId, setWorktreeId] = useState('');
-  const [snapshot, setSnapshot] = useState<SnapshotSummary | null | undefined>(undefined);
+  const [summary, setSummary] = useState<SnapshotSummary | null | undefined>(undefined);
+  const [catalog, setCatalog] = useState<CatalogDto | null>(null);
   const [scan, setScan] = useState<{ state: 'idle' | 'running' | 'failed'; message?: string }>({
     state: 'idle',
   });
   const [lastEvent, setLastEvent] = useState<BusEvent>();
+  const [history, setHistory] = useState<{ stack: Location[]; index: number }>({
+    stack: [],
+    index: -1,
+  });
+  const [selection, setSelection] = useState<Selection>(null);
+  const [projection, setProjection] = useState<ProjectionDto | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [listMode, setListMode] = useState(false);
+  const { overlayRef, overlay, persist, reset, isDirty } = useOverlay(token);
+
+  const location = history.index >= 0 ? history.stack[history.index] : undefined;
+  const worktree = projects
+    .flatMap((p) => p.worktrees.map((w) => ({ ...w, project: p.project })))
+    .find((w) => w.id === worktreeId);
+
+  const navigate = useCallback((loc: Location) => {
+    setSelection(null);
+    setHistory((h) => {
+      const cur = h.stack[h.index];
+      if (cur && cur.canvasId === loc.canvasId && cur.focus === loc.focus) return h;
+      const stack = [...h.stack.slice(0, h.index + 1), loc].slice(-100);
+      return { stack, index: stack.length - 1 };
+    });
+  }, []);
 
   const loadProjects = useCallback(async () => {
     if (!token) return;
@@ -86,13 +113,28 @@ export function App() {
     return () => ctrl.abort();
   }, [token, loadProjects]);
 
+  /** Latest snapshot + catalog for the selected worktree; keeps the current canvas if it still exists. */
   const refreshSnapshot = useCallback(async () => {
     if (!token || !worktreeId) return;
-    setSnapshot(await latestSnapshot(token, worktreeId));
+    const s = await latestSnapshot(token, worktreeId);
+    setSummary(s);
+    const cat = s
+      ? await apiOptional<CatalogDto>(`/snapshots/${s.snapshot.id}/canvases`, token)
+      : null;
+    setCatalog(cat);
+    setHistory((h) => {
+      const cur = h.stack[h.index];
+      if (cat && cur && cat.canvases.some((c) => c.id === cur.canvasId)) return h;
+      const home = cat?.canvases.find((c) => c.lens === 'system-context');
+      return home ? { stack: [{ canvasId: home.id }], index: 0 } : { stack: [], index: -1 };
+    });
+    setRefreshKey((k) => k + 1);
   }, [token, worktreeId]);
 
   useEffect(() => {
-    setSnapshot(undefined);
+    setSummary(undefined);
+    setCatalog(null);
+    setHistory({ stack: [], index: -1 });
     void refreshSnapshot();
   }, [refreshSnapshot]);
 
@@ -119,8 +161,28 @@ export function App() {
     }
   };
 
-  const active = ROOTS.find((r) => r.id === root)!;
-  const project = projects.find((p) => p.worktrees.some((w) => w.id === worktreeId));
+  const onProjection = useCallback(
+    (p: ProjectionDto | null, o: OverlayDto | null) => {
+      setProjection(p);
+      reset(o);
+    },
+    [reset],
+  );
+
+  const editOverlay = useCallback(
+    (mutate: (o: OverlayDto) => OverlayDto) => {
+      persist(mutate);
+      // pins and notes change node decoration/layout: re-project once the save has had a chance to land
+      setTimeout(() => setRefreshKey((k) => k + 1), 600);
+    },
+    [persist],
+  );
+
+  const spec = catalog?.canvases.find((c) => c.id === location?.canvasId);
+  const coverageCanvasId = catalog?.canvases.find(
+    (c) => c.lens === 'coverage' && !c.ownerCanvasId,
+  )?.id;
+  const snapshotId = summary?.snapshot.id;
 
   return (
     <div className="shell">
@@ -159,7 +221,7 @@ export function App() {
             onClick={startScan}
             disabled={scan.state === 'running'}
           >
-            {scan.state === 'running' ? 'Scanning…' : snapshot ? 'Rescan' : 'Scan project'}
+            {scan.state === 'running' ? 'Scanning…' : summary ? 'Rescan' : 'Scan project'}
           </button>
         )}
         <nav className="roots" aria-label="Workspace roots">
@@ -176,72 +238,182 @@ export function App() {
             </button>
           ))}
         </nav>
-        <label className="field">
-          <span className="field-label">Canvas catalog</span>
-          <input
-            type="search"
-            placeholder="Search views"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+        {root === 'architecture' ? (
+          <CatalogNav
+            catalog={catalog}
+            currentCanvasId={location?.canvasId}
+            onOpen={(id) => navigate({ canvasId: id })}
           />
-        </label>
-        <p className="empty-note">
-          Generated views arrive with the view planner (A06). The snapshot summary is shown for now.
-        </p>
-      </aside>
-
-      <main className="canvas" aria-label={`${active.label} canvas`}>
-        <header className="canvas-header">
-          <nav className="crumbs" aria-label="Breadcrumbs">
-            <span>{active.label}</span>
-            {project && <span className="crumb-sep"> / {project.project.displayName}</span>}
-          </nav>
-          {snapshot && (
-            <span className={`badge ${snapshot.snapshot.state}`} title={snapshot.snapshot.id}>
-              snapshot {snapshot.snapshot.state} ·{' '}
-              {snapshot.snapshot.dirty
-                ? 'uncommitted changes'
-                : `HEAD ${snapshot.snapshot.headCommit?.slice(0, 8) ?? ''}`}
-            </span>
-          )}
-        </header>
-        <div className="flow">
-          <ReactFlowProvider>
-            <ReactFlow nodes={[]} edges={[]} fitView>
-              <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-              <Controls showInteractive={false} />
-            </ReactFlow>
-          </ReactFlowProvider>
-          <div className="empty-canvas" role="status">
-            {root === 'outputs' ? (
-              <>
-                <h2>No runs recorded yet</h2>
-                <p>Runs captured with atlas run or the Playwright capture helper appear here.</p>
-                <code>atlas run -- npm test</code>
-              </>
-            ) : snapshot ? (
-              <SnapshotCard s={snapshot} />
-            ) : (
-              <>
-                <h2>No snapshot yet</h2>
-                <p>Register and scan a repository to generate its architecture canvases.</p>
-                <code>atlas scan /path/to/repo</code>
-              </>
-            )}
-          </div>
-        </div>
-      </main>
-
-      <aside className="inspector" aria-label="Inspector">
-        <h2>Inspector</h2>
-        {snapshot && root === 'architecture' ? (
-          <Coverage s={snapshot} />
         ) : (
           <p className="empty-note">
-            Select an entity, relation or output to see its evidence, freshness and coverage.
+            Run evidence arrives with the Outputs & Audit tickets (E01-E04).
           </p>
         )}
       </aside>
+
+      <main
+        className="canvas"
+        aria-label={
+          root === 'architecture'
+            ? `Architecture canvas${projection ? `: ${projection.title}` : ''}`
+            : 'Outputs & Audit canvas'
+        }
+      >
+        <header className="canvas-header">
+          <div className="nav-buttons">
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="Back"
+              disabled={history.index <= 0}
+              onClick={() => setHistory((h) => ({ ...h, index: Math.max(0, h.index - 1) }))}
+            >
+              ←
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="Forward"
+              disabled={history.index >= history.stack.length - 1}
+              onClick={() =>
+                setHistory((h) => ({ ...h, index: Math.min(h.stack.length - 1, h.index + 1) }))
+              }
+            >
+              →
+            </button>
+          </div>
+          <nav className="crumbs" aria-label="Breadcrumbs">
+            {root === 'architecture' && projection ? (
+              projection.breadcrumbs.map((b, i) => (
+                <span key={`${b.canvasId}-${b.focus ?? ''}`}>
+                  {i > 0 && <span className="crumb-sep"> / </span>}
+                  {i === projection.breadcrumbs.length - 1 ? (
+                    <span aria-current="location">{b.title}</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="crumb"
+                      onClick={() => navigate({ canvasId: b.canvasId, focus: b.focus })}
+                    >
+                      {b.title}
+                    </button>
+                  )}
+                </span>
+              ))
+            ) : (
+              <span>{root === 'architecture' ? 'Architecture' : 'Outputs & Audit'}</span>
+            )}
+          </nav>
+          <div className="header-tools">
+            {root === 'architecture' && projection && projection.siblings.length > 0 && (
+              <label className="lens-switch">
+                <span className="sr-only">Switch lens</span>
+                <select
+                  aria-label="Switch lens"
+                  value=""
+                  onChange={(e) => e.target.value && navigate({ canvasId: e.target.value })}
+                >
+                  <option value="">Lens: {projection.lens}</option>
+                  {projection.siblings.map((s) => (
+                    <option key={s.canvasId} value={s.canvasId}>
+                      {s.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {root === 'architecture' && projection && (
+              <button
+                type="button"
+                className="icon-btn"
+                aria-pressed={listMode}
+                onClick={() => setListMode((m) => !m)}
+              >
+                {listMode ? 'Canvas' : 'List'}
+              </button>
+            )}
+            {summary && (
+              <span className={`badge ${summary.snapshot.state}`} title={summary.snapshot.id}>
+                snapshot {summary.snapshot.state} ·{' '}
+                {summary.snapshot.dirty
+                  ? 'uncommitted changes'
+                  : `HEAD ${summary.snapshot.headCommit?.slice(0, 8) ?? ''}`}
+              </span>
+            )}
+          </div>
+        </header>
+        {root === 'outputs' ? (
+          <EmptyState
+            title="No runs recorded yet"
+            text="Runs captured with atlas run or the Playwright capture helper appear here."
+            code="atlas run -- npm test"
+          />
+        ) : summary === null ? (
+          <EmptyState
+            title="No snapshot yet"
+            text="Register and scan a repository to generate its architecture canvases."
+            code="atlas scan /path/to/repo"
+          />
+        ) : !location || !snapshotId || !worktree ? (
+          <EmptyState
+            title={projects.length ? 'Loading…' : 'No projects registered'}
+            text={projects.length ? '' : 'Run atlas open /path/to/repo to register one.'}
+          />
+        ) : (
+          <div className="canvas-body">
+            <ReactFlowProvider>
+              <CanvasView
+                token={token!}
+                snapshotId={snapshotId}
+                projectId={worktree.project.id}
+                location={location}
+                refreshKey={refreshKey}
+                onNavigate={navigate}
+                onSelect={setSelection}
+                onProjection={onProjection}
+                overlayRef={overlayRef}
+                persist={persist}
+                overlayDirty={isDirty}
+              />
+            </ReactFlowProvider>
+            {listMode && projection && (
+              // the canvas stays mounted underneath: it owns projection loading and navigation
+              <ListView
+                projection={projection}
+                onSelect={(n) => setSelection({ type: 'node', node: n })}
+                onOpen={(n) =>
+                  n.focus !== undefined
+                    ? navigate({ canvasId: projection.canvasId, focus: n.focus })
+                    : n.openCanvasId && navigate({ canvasId: n.openCanvasId })
+                }
+              />
+            )}
+          </div>
+        )}
+      </main>
+
+      {snapshotId ? (
+        <Inspector
+          token={token!}
+          snapshotId={snapshotId}
+          rootPath={worktree?.rootPath}
+          projection={root === 'architecture' ? projection : null}
+          spec={spec}
+          coverageCanvasId={coverageCanvasId}
+          summary={summary ?? null}
+          selection={selection}
+          overlay={overlay}
+          onEditOverlay={editOverlay}
+          onNavigate={navigate}
+        />
+      ) : (
+        <aside className="inspector" aria-label="Inspector">
+          <h2>Inspector</h2>
+          <p className="empty-note">
+            Select an entity, relation or output to see its evidence, freshness and coverage.
+          </p>
+        </aside>
+      )}
 
       <footer className="strip" aria-label="Status">
         <StatusLine conn={conn} />
@@ -253,76 +425,15 @@ export function App() {
   );
 }
 
-function SnapshotCard({ s }: { s: SnapshotSummary }) {
-  const ents = Object.entries(s.counts.entitiesByKind);
-  const rels = Object.entries(s.counts.relationsByKind);
+function EmptyState({ title, text, code }: { title: string; text: string; code?: string }) {
   return (
-    <>
-      <h2>Snapshot {s.snapshot.state}</h2>
-      <dl className="facts">
-        <dt>Files analyzed</dt>
-        <dd>{s.coverage.totals.files}</dd>
-        <dt>Entities</dt>
-        <dd>{ents.map(([k, n]) => `${n} ${k}`).join(', ') || 'none'}</dd>
-        <dt>Relations</dt>
-        <dd>{rels.map(([k, n]) => `${n} ${k}`).join(', ') || 'none'}</dd>
-        <dt>Coverage gaps</dt>
-        <dd>{s.coverage.gaps.length}</dd>
-        <dt>Last changed</dt>
-        <dd>{changeText(s.changes)}</dd>
-        {s.openIssues > 0 && (
-          <>
-            <dt>Open issues</dt>
-            <dd>{s.openIssues} reconciliation issue(s)</dd>
-          </>
-        )}
-      </dl>
-    </>
-  );
-}
-
-function changeText(c: SnapshotSummary['changes']): string {
-  if (!c?.previousSnapshotId) return 'first snapshot';
-  const fmt = (r: Record<string, number>) =>
-    Object.entries(r)
-      .filter(([, n]) => n > 0)
-      .map(([k, n]) => `${n} ${k}`)
-      .join(', ');
-  const parts = [
-    fmt(c.entities) && `entities ${fmt(c.entities)}`,
-    fmt(c.relations) && `relations ${fmt(c.relations)}`,
-  ].filter(Boolean);
-  return parts.length ? parts.join('; ') : 'no changes since previous scan';
-}
-
-function Coverage({ s }: { s: SnapshotSummary }) {
-  return (
-    <section aria-label="Coverage">
-      <h3 className="sub">Languages</h3>
-      <ul className="plain">
-        {s.coverage.byLanguage.slice(0, 12).map((l) => (
-          <li key={`${l.language}-${l.support}`}>
-            <span>{l.language}</span>
-            <span className={`support ${l.support}`}>{l.support}</span>
-            <span className="num">{l.files}</span>
-          </li>
-        ))}
-      </ul>
-      <h3 className="sub">Coverage gaps</h3>
-      {s.coverage.gaps.length === 0 ? (
-        <p className="empty-note">No gaps reported for this snapshot.</p>
-      ) : (
-        <ul className="gaps">
-          {s.coverage.gaps.slice(0, 30).map((g, i) => (
-            <li key={i}>
-              <span className="gap-kind">{g.kind}</span>
-              {g.path && <code>{g.path}</code>}
-              <span className="gap-detail">{g.detail}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+    <div className="flow">
+      <div className="empty-canvas" role="status">
+        <h2>{title}</h2>
+        {text && <p>{text}</p>}
+        {code && <code>{code}</code>}
+      </div>
+    </div>
   );
 }
 

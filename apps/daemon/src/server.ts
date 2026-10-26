@@ -12,6 +12,8 @@ import {
 import { projectView, type Catalog, type PlannerGraph } from '@atlas/planner';
 import { defaultAnalyzers, type Analyzer } from '@atlas/analyzers';
 import { JobRunner } from './jobs.ts';
+import { entityDetails, readSource, relationDetails } from './routes/inspect.ts';
+import { getOverlay, putOverlay } from './routes/overlays.ts';
 import type { Db } from '@atlas/store';
 import { EventBus } from './events.ts';
 import { isAllowedHost, isAllowedOrigin, tokenMatches } from './security.ts';
@@ -255,6 +257,63 @@ export function buildServer(opts: ServerOptions): AtlasServer {
       const latest = getLatestSnapshot(opts.db, req.params.id);
       if (!latest) return reply.code(404).send({ error: 'no_snapshot' });
       return { snapshotId: latest.snapshot.id, ...views(latest.snapshot.id).catalog };
+    },
+  );
+
+  app.get<{ Params: { id: string; eid: string } }>(
+    `${API_PREFIX}/snapshots/:id/entities/:eid`,
+    async (req, reply) => {
+      const d = entityDetails(opts.db, req.params.id, req.params.eid);
+      return d ?? reply.code(404).send({ error: 'unknown_entity' });
+    },
+  );
+
+  app.get<{ Params: { id: string }; Querystring: { ids?: string } }>(
+    `${API_PREFIX}/snapshots/:id/relations`,
+    async (req, reply) => {
+      const ids = (req.query.ids ?? '').split(',').filter((x) => /^rel_[0-9a-f]{16,64}$/.test(x));
+      const d = relationDetails(opts.db, req.params.id, ids);
+      return d ? { relations: d } : reply.code(404).send({ error: 'unknown_snapshot' });
+    },
+  );
+
+  app.get<{ Params: { id: string }; Querystring: { path?: string } }>(
+    `${API_PREFIX}/snapshots/:id/source`,
+    async (req, reply) => {
+      const path = req.query.path ?? '';
+      if (!path || path.length > 4096 || path.startsWith('/') || path.split('/').includes('..'))
+        return reply.code(400).send({ error: 'invalid_path' });
+      const r = await readSource(opts.db, req.params.id, path);
+      if (r.status !== 200) return reply.code(r.status).send({ error: r.error });
+      const { status: _s, ...body } = r;
+      return body;
+    },
+  );
+
+  app.get<{ Params: { viewId: string }; Querystring: { project?: string; snapshot?: string } }>(
+    `${API_PREFIX}/views/:viewId/overlay`,
+    async (req, reply) => {
+      if (!/^cvs_[0-9a-f]{16,64}$/.test(req.params.viewId))
+        return reply.code(400).send({ error: 'invalid_view' });
+      const { project, snapshot } = req.query;
+      // aliases are followed only relative to the snapshot being viewed (worktree isolation)
+      const context =
+        project &&
+        snapshot &&
+        /^proj_[0-9a-f]{16,64}$/.test(project) &&
+        /^snap_[0-9a-f]{16,64}$/.test(snapshot)
+          ? { projectId: project, snapshotId: snapshot }
+          : undefined;
+      return getOverlay(opts.db, req.params.viewId, context);
+    },
+  );
+
+  app.put<{ Params: { viewId: string } }>(
+    `${API_PREFIX}/views/:viewId/overlay`,
+    async (req, reply) => {
+      const r = putOverlay(opts.db, req.params.viewId, req.body);
+      if (!r.ok) return reply.code(r.status).send({ error: r.error, current: r.current });
+      return r.overlay;
     },
   );
 

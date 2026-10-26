@@ -19,7 +19,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 | A04 | TS/JS and Python analyzers                        | A03         | not started |                            |
 | A05 | Semantic identity and snapshot reconciler         | A04         | not started |                            |
 | A06 | View planner and canvas navigation                | A05         | done        | PR #6; see A06 evidence    |
-| A07 | React Flow, layout worker, overlays and inspector | A06         | not started |                            |
+| A07 | React Flow, layout worker, overlays and inspector | A06         | done        | PR #7; see A07 evidence    |
 | E01 | Run/event/artifact store and ingestion            | A02         | not started |                            |
 | E02 | Process wrapper and output registration           | E01         | not started |                            |
 | E03 | Playwright capture helper                         | E01         | not started |                            |
@@ -44,13 +44,15 @@ Phase 0 complete 2026-10-26 (tag `phase-0`).
 
 ### Phase 1 — architecture vertical slice
 
-- [~] TS web/service fixture and Python CLI/API fixture generate different relevant views. Catalogs differ: TS has 8 root lenses (including deployables, workflow and UI); Python has 5 (`views.test.ts`, `atlas views list`). Rendering is A07.
-- [ ] Every supported edge opens evidence
-- [ ] Unsupported features appear as gaps
-- [~] Second identical scan causes no semantic/view churn. Semantic: zero changes on both fixtures (`reconcile.test.ts`) and via `atlas scan`. View churn is checked in A06.
-- [~] Single-file change updates affected state. Semantic: only entities citing the edited file change (`reconcile.test.ts`), and the CLI shows +1 endpoint. Views are checked in A06/A07.
-- [ ] Manual pin survives refresh
-- [ ] Branch/worktree contexts stay separate
+- [x] TS web/service fixture and Python CLI/API fixture generate different relevant views. The TS fixture has 8 root lenses plus package canvases; Python has 5 (`views.test.ts`, `atlas views list`). Both render in the UI: the TS walkthrough, plus a Python e2e test covering merged root, modules, module-detail and the API lens (`architecture.spec.ts`, screenshots inspected).
+- [x] Every supported edge opens evidence. Every supported projected edge resolves to relations with evidence (`views.test.ts`). The UI edge inspector shows the relation and evidence excerpt (e2e "an edge explains itself").
+- [x] Unsupported features appear as gaps: unsupported-language gaps in the coverage report and Coverage canvas (`scan.test.ts`, e2e "scans the selected project … coverage gaps" on the Elixir fixture).
+- [x] Second identical scan causes no semantic/view churn. Zero snapshot changes (`reconcile.test.ts`), and identical catalogs and projections (`views.test.ts`).
+- [x] Single-file change updates affected state. Only entities citing the edited file change (`reconcile.test.ts`). The catalog is stable and the changes canvas shows the edit (`views.test.ts`).
+- [x] Manual pin survives refresh: drag, reload and rescan keep the position within 1 px (e2e "a manual pin survives reload and rescan"). Pins follow rename aliases (`inspector.test.ts`).
+- [x] Branch/worktree contexts stay separate. Two `git worktree`s are separate contexts with their own branches (`registry.test.ts`), and snapshots are per worktree. A file moved on a feature worktree does not move main's pins or claims: aliases are followed only when the viewed snapshot lacks the old ID and has the new one (`apps/daemon/test/worktrees.test.ts`).
+
+Phase 1 complete 2026-10-26 (tag `phase-1`).
 
 ### Phase 2 — real outputs vertical slice
 
@@ -152,6 +154,30 @@ Phases 3–5: see plan §15; checklists added when Phase 2 completes.
 - dsh measurement (9,175 files):
   - 1,414 canvases. Catalog load took 62 ms. Projections were p50 6.5 ms, p95 8.7 ms, max 73 ms.
   - Before the port cap, one canvas had 197 ports and hit the 200-node cap. After it, 0 of 1,414 canvases exceed 40 nodes: 1,067 have 10 or fewer, 327 have 11-30, 20 have 31-40.
+
+### A07 (2026-10-26)
+
+- Web UI (`apps/web`):
+  - React Flow canvases with custom node and edge types. Status is shown by line style and text, not color alone.
+  - ELK layout in its own Web Worker via `elk-api`. `@atlas/layout` accepts an injected ELK.
+  - Overlay hook with debounced, revision-checked saves. Drag pins nodes; the viewport is saved only for user moves.
+  - Catalog tree with search, breadcrumbs, back/forward, lens switcher, and a list-view alternative.
+  - Inspector with canvas, entity, edge, node and source panels.
+- Daemon routes for overlays (alias-following reads, 409 on stale revision), entity details, relation details and manifest-restricted source. The `ViewOverlay` schema gains `nodePositions`.
+- Advisor review fixes before tagging:
+  - Rename aliases are followed only relative to the viewed snapshot, for both overlays and claims. A two-worktree regression test was added.
+  - An e2e test now renders the Python fixture.
+  - A default viewport counts as unset, so a pin-only save no longer pins the camera. The pin test asserts the node is on screen after reload.
+  - Double-click zoom is disabled. It moved and persisted the viewport of the canvas being left.
+  - Edgeless canvases use rectangle packing.
+- Bugs found by real-browser testing and fixed:
+  - `elk.bundled.js` becomes ELK's own worker when loaded inside a worker, which caused "o is not a constructor".
+  - Expression-bodied React effects returned a Promise from `scrollIntoView` in Chromium 156 and crashed on unmount. A lint rule now forbids them.
+  - The structure canvas showed the merged root package as a port.
+  - Programmatic `fitView` was saved as the user's viewport.
+  - Group nodes lacked edge handles.
+- Tests: 109 Vitest tests in 17 files, 10 Playwright tests. The Playwright tests fail on any uncaught page error. The walkthrough covers open, nested component, evidence and highlighted source, plus back/forward, edge explanation, pin survival across reload and rescan, list view, root switching and the coverage gap.
+- Visual checks were done with agent-browser screenshots: system context, structure, `@reports/api`, source, API, Deployables, Data, Coverage, and dsh's structure (21 nodes, clusters and aggregated libraries).
 
 ## Environment record (2026-10-26)
 

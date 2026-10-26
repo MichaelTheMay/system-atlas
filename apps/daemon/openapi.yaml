@@ -126,6 +126,55 @@ paths:
       responses:
         '200': { description: OK }
         '404': { description: No snapshot }
+  /api/v1/snapshots/{id}/entities/{eid}:
+    get:
+      summary: Entity details for the inspector (owners, children, relations, evidence with freshness, claims, last change)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: eid, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+        '404': { description: Unknown entity in this snapshot }
+  /api/v1/snapshots/{id}/relations:
+    get:
+      summary: Relation details with evidence ("Why this edge?"); up to 50 ids
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - {
+            name: ids,
+            in: query,
+            required: true,
+            schema: { type: string, description: comma-separated rel_ ids },
+          }
+      responses:
+        '200': { description: OK }
+  /api/v1/snapshots/{id}/source:
+    get:
+      summary: Source text of a file in the snapshot manifest; state=changed/deleted and no text when the file no longer matches
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+        '400': { description: Invalid path }
+        '403': { description: Resolves outside the registered root }
+        '404': { description: Not in this snapshot }
+        '413': { description: Too large }
+  /api/v1/views/{viewId}/overlay:
+    get:
+      summary: Presentation overlay of a view (local profile); pass project to follow rename aliases
+      parameters:
+        - { name: viewId, in: path, required: true, schema: { type: string } }
+        - { name: project, in: query, schema: { type: string } }
+      responses:
+        '200': { description: OK (empty overlay with revision 0 when none saved) }
+    put:
+      summary: Save an overlay; body.revision must equal the stored revision
+      parameters: [{ name: viewId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Saved; revision incremented }
+        '400': { description: Invalid overlay }
+        '409': { description: Revision conflict; body.current is the stored overlay }
   /api/v1/stream:
     get:
       summary: Server-sent events (hello, heartbeats, project.registered, scan.started, snapshot.published, scan.failed, scan.cancelled)

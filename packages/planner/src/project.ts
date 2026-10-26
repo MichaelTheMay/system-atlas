@@ -527,13 +527,17 @@ function kindScene(
   };
   for (const e of primary.sort((a, b) => a.id.localeCompare(b.id))) {
     const parent = opts.groupByPackage ? groupNode(packageAnchor(ctx, e.id)) : undefined;
-    scene.add(entityNode(ctx, e, parent), [e.id]);
-    for (const c of opts.childKinds
+    const kids = opts.childKinds
       ? (nav.children.get(e.id) ?? []).filter((k) =>
           opts.childKinds!.includes(nav.byId.get(k)!.kind),
         )
-      : []) {
-      scene.add(entityNode(ctx, nav.byId.get(c)!, `n:${e.id}`), [c]);
+      : [];
+    if (kids.length) {
+      // an element that owns shown children (a service and its containers) is drawn as a group
+      scene.add({ ...entityNode(ctx, e, parent), kind: 'group' }, [e.id]);
+      for (const c of kids) scene.add(entityNode(ctx, nav.byId.get(c)!, `n:${e.id}`), [c]);
+    } else {
+      scene.add(entityNode(ctx, e, parent), [e.id]);
     }
   }
   // stand-alone child kinds (e.g. Dockerfile entrypoints without a compose service)
@@ -546,6 +550,33 @@ function kindScene(
       )
         continue;
       scene.add(entityNode(ctx, e), [e.id]);
+    }
+  }
+  // code started by shown entrypoints (Dockerfile CMD -> module): a port that opens the module's package
+  if (opts.childKinds?.includes('entrypoint')) {
+    for (const r of g.relations) {
+      if (
+        r.kind !== 'calls' ||
+        !scene.owner.has(r.fromId) ||
+        scene.owner.has(r.toId) ||
+        nav.byId.get(r.fromId)?.kind !== 'entrypoint'
+      )
+        continue;
+      const target = nav.byId.get(r.toId);
+      if (!target) continue;
+      const pkg = packageAnchor(ctx, r.toId);
+      scene.add(
+        {
+          id: `port:${r.toId}`,
+          kind: 'port',
+          label: target.displayName,
+          sublabel: `${nav.byId.get(pkg)?.displayName ?? ''} · runs`,
+          entityId: r.toId,
+          entityKind: target.kind,
+          openCanvasId: ctx.canvasByOwner.get(r.toId) ?? ctx.canvasByOwner.get(pkg),
+        },
+        [r.toId],
+      );
     }
   }
   const primaryIds = new Set(primary.map((e) => e.id));
@@ -702,8 +733,14 @@ function buildEdges(ctx: Ctx, scene: Scene, rootId: string, withPorts: boolean):
     });
     return id;
   };
+  const selfIds = new Set([
+    rootId,
+    ...(rootId === nav.systemId && nav.rootPackageId ? [nav.rootPackageId] : []),
+  ]);
   for (const r of g.relations) {
     if (r.kind === 'contains') continue;
+    // the view's own root (and the root package merged into the system) is the frame, not a neighbor
+    if (withPorts && (selfIds.has(r.fromId) || selfIds.has(r.toId))) continue;
     let s = scene.owner.get(r.fromId);
     let t = scene.owner.get(r.toId);
     if (!s && !t) continue;

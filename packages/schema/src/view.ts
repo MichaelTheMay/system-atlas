@@ -108,34 +108,44 @@ export type CanvasLink = z.infer<typeof CanvasLink>;
 const Point = z.object({ x: z.number().finite(), y: z.number().finite() });
 
 /** plan §6 ViewOverlay: presentation only, never semantic facts. */
-export const ViewOverlay = z.object({
-  schemaVersion: z.literal(VIEW_SCHEMA_VERSION),
-  viewId: idSchema('canvas'),
-  profileId: z.string().min(1),
-  entityPositions: z.record(idSchema('entity'), Point),
-  pinnedIds: z.array(idSchema('entity')),
-  annotations: z.array(
-    z.object({
-      id: idSchema('annotation'),
-      targetId: z.union([idSchema('entity'), idSchema('relation')]).optional(),
-      text: z.string().max(10_000),
-      position: Point.optional(),
-      createdAt: Timestamp,
+export const ViewOverlay = z
+  .object({
+    schemaVersion: z.literal(VIEW_SCHEMA_VERSION),
+    viewId: idSchema('canvas'),
+    profileId: z.string().min(1),
+    /** Positions of entity nodes; keyed by entity id so they can follow accepted rename aliases. */
+    entityPositions: z.record(idSchema('entity'), Point),
+    /** Positions of non-entity nodes (clusters, ports, groups) by projection node id. */
+    nodePositions: z.record(z.string().min(1).max(300), Point).default({}),
+    pinnedIds: z.array(idSchema('entity')),
+    annotations: z.array(
+      z.object({
+        id: idSchema('annotation'),
+        targetId: z.union([idSchema('entity'), idSchema('relation')]).optional(),
+        text: z.string().max(10_000),
+        position: Point.optional(),
+        createdAt: Timestamp,
+      }),
+    ),
+    displayOverrides: z.record(
+      idSchema('entity'),
+      z.object({
+        label: z.string().optional(),
+        collapsed: z.boolean().optional(),
+        hidden: z.boolean().optional(),
+      }),
+    ),
+    viewport: z.object({
+      x: z.number().finite(),
+      y: z.number().finite(),
+      zoom: z.number().positive(),
     }),
-  ),
-  displayOverrides: z.record(
-    idSchema('entity'),
-    z.object({
-      label: z.string().optional(),
-      collapsed: z.boolean().optional(),
-      hidden: z.boolean().optional(),
-    }),
-  ),
-  viewport: z.object({
-    x: z.number().finite(),
-    y: z.number().finite(),
-    zoom: z.number().positive(),
-  }),
-  revision: z.number().int().nonnegative(),
-});
+    revision: z.number().int().nonnegative(),
+  })
+  .refine(
+    (o) =>
+      Object.keys(o.entityPositions).length + Object.keys(o.nodePositions).length <= 10_000 &&
+      o.annotations.length <= 1_000,
+    'overlay too large',
+  );
 export type ViewOverlay = z.infer<typeof ViewOverlay>;

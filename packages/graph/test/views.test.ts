@@ -387,3 +387,37 @@ describe('boundary ports', () => {
 });
 
 export type { Db };
+
+describe('root package merge', () => {
+  it('does not show the merged root package as a port on the structure canvas', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'atlas-rootpkg-'));
+    const files: Record<string, string> = {
+      'package.json':
+        '{"name":"mono-root","workspaces":["a","b"],"dependencies":{"a":"workspace:*"}}',
+      'a/package.json': '{"name":"a"}',
+      'a/index.ts': 'export const a = 1;',
+      'a/x.ts': "import { a } from './index';",
+      'b/package.json': '{"name":"b","dependencies":{"a":"workspace:*"}}',
+      'b/index.ts': "import { a } from 'a';",
+      'b/y.ts': 'export {};',
+    };
+    for (const [p, c] of Object.entries(files)) {
+      const { mkdirSync } = await import('node:fs');
+      mkdirSync(join(root, p, '..'), { recursive: true });
+      writeFileSync(join(root, p), c);
+    }
+    const db = freshDb();
+    const { worktree } = await registerRoot(db, root);
+    const r = await scanWorktree(db, worktree, { analyzers: defaultAnalyzers() });
+    const catalog = loadCatalog(db, r.snapshot.id);
+    const g = loadPlannerGraph(db, r.snapshot.id);
+    const p = projectView(
+      g,
+      catalog,
+      catalog.canvases.find((c) => c.lens === 'component' && !c.ownerCanvasId)!.id,
+    );
+    expect(p.nodes.filter((n) => n.kind === 'port').map((n) => n.label)).toEqual([]);
+    expect(p.nodes.map((n) => n.label)).toEqual(expect.arrayContaining(['a', 'b']));
+    expect(p.edges.some((e) => e.kinds['depends-on'])).toBe(true);
+  });
+});

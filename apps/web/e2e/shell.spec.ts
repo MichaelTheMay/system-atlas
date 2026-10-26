@@ -1,13 +1,21 @@
 import { expect, test } from '@playwright/test';
 import { E2E_TOKEN } from '../../../playwright.config.ts';
 
+let pageErrors: string[] = [];
+test.beforeEach(({ page }) => {
+  pageErrors = [];
+  page.on('pageerror', (e) => pageErrors.push(`${e.message}\n${e.stack ?? ''}`.slice(0, 2000)));
+});
+test.afterEach(() => {
+  expect(pageErrors).toEqual([]);
+});
+
 test('connects to the daemon with a fragment token and strips it from the URL', async ({
   page,
 }) => {
   await page.goto(`/#token=${E2E_TOKEN}`);
   await expect(page.getByRole('contentinfo', { name: 'Status' })).toContainText('live updates on');
   expect(page.url()).not.toContain('token');
-  await expect(page.getByRole('heading', { name: 'No snapshot yet' })).toBeVisible();
 });
 
 test('switches between the Architecture and Outputs & Audit roots', async ({ page }) => {
@@ -15,8 +23,8 @@ test('switches between the Architecture and Outputs & Audit roots', async ({ pag
   await page.getByRole('button', { name: /Outputs & Audit/ }).click();
   await expect(page.getByRole('main')).toHaveAccessibleName('Outputs & Audit canvas');
   await expect(page.getByRole('heading', { name: 'No runs recorded yet' })).toBeVisible();
-  await page.getByRole('button', { name: /Architecture/ }).click();
-  await expect(page.getByRole('heading', { name: 'No snapshot yet' })).toBeVisible();
+  await page.getByRole('button', { name: /^Architecture/ }).click();
+  await expect(page.getByRole('main')).toHaveAccessibleName(/^Architecture canvas/);
 });
 
 test('without a token the UI says it is not connected and the API refuses', async ({
@@ -60,10 +68,10 @@ test('scans the selected project from the UI and shows coverage gaps', async ({
   await page.goto(`/#token=${E2E_TOKEN}`);
   await page.getByRole('combobox', { name: 'Project' }).selectOption(worktreeId);
   await page.getByRole('button', { name: /Scan project|Rescan/ }).click();
-  await expect(page.getByRole('heading', { name: /Snapshot (ready|partial)/ })).toBeVisible({
-    timeout: 15_000,
-  });
-  const coverage = page.getByRole('region', { name: 'Coverage' });
-  await expect(coverage).toContainText('unsupported-language');
-  await expect(coverage).toContainText('elixir');
+  await page.getByRole('button', { name: 'Coverage & unknowns coverage', exact: true }).click();
+  const gap = page.locator('.react-flow__node', { hasText: 'unsupported language' });
+  await expect(gap).toBeVisible({ timeout: 15_000 });
+  await gap.click();
+  const details = page.getByRole('region', { name: 'Node details' });
+  await expect(details).toContainText('elixir');
 });
