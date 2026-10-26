@@ -3,7 +3,8 @@ import { createWriteStream, existsSync, mkdtempSync, readdirSync, rmSync, statSy
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { redactValue } from '@atlas/schema';
-import { childEnv, IngestClient } from './client.ts';
+import { childEnv } from './client.ts';
+import { startRun } from './run.ts';
 
 export interface RunProcessOptions {
   daemon: { baseUrl: string; token: string };
@@ -38,32 +39,20 @@ const CHUNK = 16 * 1024;
  */
 export async function runProcess(o: RunProcessOptions): Promise<RunProcessResult> {
   const argv = [o.command, ...o.args];
-  const created = await fetch(`${o.daemon.baseUrl}/api/v1/runs`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${o.daemon.token}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      rootPath: o.rootPath,
-      adapter: 'process',
-      commandSummary: (o.name ? `${o.name}: ` : '') + argv.join(' ').slice(0, 1500),
-      environmentSummary: {
-        platform: process.platform,
-        node: process.version,
-        cwd: relative(o.rootPath, o.cwd) || '.',
-        shell: false,
-      },
-      instrumentationCapabilities: ['stdout', 'stderr', 'exit', 'declared-outputs', 'sdk-env'],
-      waitForSnapshot: true,
-    }),
+  const { client, target, snapshotBound, runId } = await startRun({
+    daemon: o.daemon,
+    rootPath: o.rootPath,
+    adapter: 'process',
+    commandSummary: (o.name ? `${o.name}: ` : '') + argv.join(' ').slice(0, 1500),
+    environmentSummary: {
+      platform: process.platform,
+      node: process.version,
+      cwd: relative(o.rootPath, o.cwd) || '.',
+      shell: false,
+    },
+    instrumentationCapabilities: ['stdout', 'stderr', 'exit', 'declared-outputs', 'sdk-env'],
+    producerId: 'atlas-run',
   });
-  if (!created.ok)
-    throw new Error(`could not create run: ${created.status} ${await created.text()}`);
-  const { run, ingestToken, snapshotBound } = (await created.json()) as {
-    run: { id: string };
-    ingestToken: string;
-    snapshotBound: boolean;
-  };
-  const target = { baseUrl: o.daemon.baseUrl, runId: run.id, runToken: ingestToken };
-  const client = new IngestClient(target, 'atlas-run');
   const started = Date.now();
   const startedEvent = await client.event({
     type: 'run.started',
@@ -222,7 +211,7 @@ export async function runProcess(o: RunProcessOptions): Promise<RunProcessResult
     captureGaps: exit.error ? [{ kind: 'spawn-failed', detail: exit.error.message }] : undefined,
   });
   return {
-    runId: run.id,
+    runId,
     status,
     exitCode: exit.code,
     signal: exit.signal,

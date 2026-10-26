@@ -91,3 +91,20 @@ The child receives `ATLAS_INGEST_URL`, `ATLAS_RUN_ID` and `ATLAS_RUN_TOKEN`, whi
 `@atlas/adapters` exports `recorderFromEnv()`, which provides `step(name, fn)`, `assert(description, ok)`, `recordArtifact(path)` and `event(type, payload)`. Without the environment variables every call is a no-op.
 
 Programs in other languages can use the HTTP protocol directly. `fixtures/research-demo/worker/generate-report.mjs` does this in about ten lines.
+
+## Playwright capture helper (E03)
+
+`BrowserCapture.attach(client, context, opts)` from `@atlas/adapters` instruments one explicitly chosen `BrowserContext`. Atlas never observes browsers it was not attached to.
+
+- **`step(page, name, fn)`** emits `step.started`, runs the action, waits for the configured `waitPolicy`, takes a `post-action` screenshot and emits `step.completed`.
+  - On an exception it takes a `failure-state` screenshot, emits `step.failed` with the redacted error, and rethrows.
+  - `beforeEachStep` adds `pre-action` screenshots.
+- **`screenshot(page, kind)`** captures real bytes with provenance:
+  - Tab ID (`tab-1`, `tab-2`, … in order of appearance), redacted URL, title, viewport and kind.
+  - The step event it belongs to, the wait policy, and any masked selectors (masking happens before the bytes are stored).
+  - If the page is gone or the capture fails, the screenshot is recorded as a **missing** artifact with the reason, plus a `capture.gap` event.
+- **Limits.** Screenshots are capped at `maxScreenshots`, 50 by default. Past that, one gap is recorded.
+- **`finish()`** takes final screenshots of open tabs, emits per-tab `network.summary` and `console.summary` (bounded and redacted), and attaches the Playwright trace (`trace.zip`, open with `npx playwright show-trace`). If the caller already traces the context, as the Playwright test runner does, the trace is left to the caller and a gap records that.
+- **Proof.** A post-action screenshot proves a captured state, not that asynchronous work finished. The wait policy is recorded with each screenshot for that reason.
+
+`scripts/research-journey.ts` is the reference journey. `pnpm demo` runs the full local demo: scan, two `atlas run`s and the browser journey.
