@@ -8,6 +8,12 @@ import { isProcessAlive, readDiscovery } from '@atlas/daemon/discovery';
 import { ensureDaemon, findDaemon } from './client.ts';
 import { runDoctor } from './doctor.ts';
 
+interface Registration {
+  project: { id: string; displayName: string };
+  worktree: { id: string; rootPath: string; git?: { branch?: string } };
+  created: { project: boolean; worktree: boolean };
+}
+
 const paths = resolveAtlasPaths();
 const program = new Command();
 program
@@ -43,8 +49,14 @@ program
     }
     const { daemon, started } = await ensureDaemon(paths);
     console.log(`${started ? 'started' : 'attached to'} atlas daemon pid ${daemon.rec.pid}`);
-    console.log(`project root: ${root}`);
-    console.log('note: project registration arrives in ticket A02');
+    const reg = await daemon.api<Registration>('/projects', {
+      method: 'POST',
+      body: JSON.stringify({ rootPath: root }),
+    });
+    console.log(
+      `${reg.created.worktree ? 'registered' : 'already registered'}: ${reg.project.displayName} (${reg.project.id}), worktree ${reg.worktree.id}` +
+        (reg.worktree.git?.branch ? ` on branch ${reg.worktree.git.branch}` : ''),
+    );
     const url = uiUrl(daemon.baseUrl, daemon.rec.token);
     console.log(`open: ${url}`);
     if (opts.browser) spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
@@ -74,6 +86,29 @@ program
       for (const c of checks)
         console.log(`${c.status.toUpperCase().padEnd(4)}  ${c.id.padEnd(24)} ${c.detail}`);
     if (checks.some((c) => c.status === 'fail')) process.exitCode = 1;
+  });
+
+program
+  .command('projects')
+  .description('List registered projects and worktrees')
+  .option('--json', 'machine-readable output')
+  .action(async (opts: { json?: boolean }) => {
+    const d = await findDaemon(paths);
+    if (!d) {
+      console.error('daemon not running; run `atlas open <path>` first');
+      process.exitCode = 1;
+      return;
+    }
+    const { projects } = await d.api<{
+      projects: { project: Registration['project']; worktrees: Registration['worktree'][] }[];
+    }>('/projects');
+    if (opts.json) return console.log(JSON.stringify(projects, null, 2));
+    if (!projects.length) return console.log('no projects registered');
+    for (const p of projects) {
+      console.log(`${p.project.displayName}  ${p.project.id}`);
+      for (const w of p.worktrees)
+        console.log(`  ${w.rootPath}${w.git?.branch ? `  [${w.git.branch}]` : ''}  ${w.id}`);
+    }
   });
 
 const daemonCmd = program.command('daemon').description('Manage the local daemon');

@@ -1,4 +1,8 @@
+import { isAbsolute } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import { listProjects, registerRoot } from '@atlas/graph';
+import type { Db } from '@atlas/store';
 import { EventBus } from './events.ts';
 import { isAllowedHost, isAllowedOrigin, tokenMatches } from './security.ts';
 import { readStatic, resolveStatic } from './static.ts';
@@ -8,6 +12,7 @@ export const API_PREFIX = '/api/v1';
 
 export interface ServerOptions {
   token: string;
+  db: Db;
   dataDir: string;
   /** Built web UI directory; when absent the daemon serves only the API. */
   webRoot?: string;
@@ -78,6 +83,32 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     dataDir: opts.dataDir,
     node: process.version,
   }));
+
+  app.get(`${API_PREFIX}/projects`, async () => ({ projects: listProjects(opts.db) }));
+
+  const RegisterBody = z.object({
+    rootPath: z.string().min(1).max(4096).refine(isAbsolute, 'rootPath must be absolute'),
+  });
+  app.post(`${API_PREFIX}/projects`, async (req, reply) => {
+    const body = RegisterBody.safeParse(req.body);
+    if (!body.success)
+      return reply.code(400).send({ error: 'invalid_body', issues: body.error.issues });
+    try {
+      const reg = await registerRoot(opts.db, body.data.rootPath);
+      if (reg.created.worktree)
+        bus.publish({
+          type: 'project.registered',
+          data: { projectId: reg.project.id, worktreeId: reg.worktree.id },
+        });
+      return reply.code(reg.created.worktree ? 201 : 200).send(reg);
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'ENOTDIR' || /not a directory/.test(String(e))) {
+        return reply.code(400).send({ error: 'not_a_directory' });
+      }
+      throw e;
+    }
+  });
 
   app.get(`${API_PREFIX}/stream`, (req, reply) => {
     reply.hijack();

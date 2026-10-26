@@ -17,6 +17,9 @@
   },
   "dependencies": {
     "@atlas/schema": "workspace:*",
-    "fastify": "5.12.7"
+    "fastify": "5.12.7",
+    "@atlas/store": "workspace:*",
+    "@atlas/graph": "workspace:*",
+    "zod": "4.6.7"
   }
 }

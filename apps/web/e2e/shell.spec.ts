@@ -27,3 +27,19 @@ test('without a token the UI says it is not connected and the API refuses', asyn
   await expect(page.getByRole('contentinfo', { name: 'Status' })).toContainText('Not connected');
   expect((await request.get('/api/v1/status')).status()).toBe(401);
 });
+
+test('lists a registered project in the project selector', async ({ page, request }) => {
+  const rootPath = new URL('../../../fixtures/py-cli-api', import.meta.url).pathname.replace(
+    /\/$/,
+    '',
+  );
+  const res = await request.post('/api/v1/projects', {
+    headers: { authorization: `Bearer ${E2E_TOKEN}` },
+    data: { rootPath },
+  });
+  expect([200, 201]).toContain(res.status());
+  await page.goto(`/#token=${E2E_TOKEN}`);
+  const select = page.getByRole('combobox', { name: 'Project' });
+  await expect(select).toBeEnabled();
+  await expect(select).toContainText('py-cli-api');
+});

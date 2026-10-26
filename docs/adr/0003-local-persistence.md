@@ -17,3 +17,8 @@ Plan §3/§5: SQLite for entity/relation indexes, views, events, FTS search; no 
 ## Consequences
 
 Requires Node >= 24.21 (`engines`, `.nvmrc`, `engine-strict`).
+
+## Addendum (A02, 2026-10-26)
+
+- Persistence code lives in a new `packages/store` (Db interface, migration runner, SQL files). The plan suggested `packages/schema/migrations`, but `@atlas/schema` must stay browser-safe, so SQL and `node:sqlite` stay out of it.
+- Semantic, claim and canvas rows are snapshot-scoped (`(snapshot_id, id)` keys). A snapshot is a complete graph, so historical views and runs pinned to old snapshots need no reconstruction. The storage cost is one row copy per entity per published snapshot. Retention (H01) prunes superseded snapshots no run or pin references.

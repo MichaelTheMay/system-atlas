@@ -6,7 +6,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**A02 — Project/worktree identity and SQLite migrations** on branch `feat/A02-identity-and-migrations`.
+**A03 — Inventory and coverage report** on branch `feat/A03-inventory-coverage`.
 
 ## Tickets (plan §17)
 
@@ -36,9 +36,11 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ### Phase 0 — scaffold
 
-- [ ] Clean checkout installs, typechecks and starts via documented commands
-- [ ] A fixture can be registered without modifying it (content hash before/after)
-- [ ] All persistence paths and contracts are explicit in docs
+- [x] Clean checkout installs, typechecks and starts via documented commands. A fresh `git clone` ran `pnpm install --frozen-lockfile`, `pnpm typecheck` and `pnpm build` in 7.9 s; `atlas open` served the UI (HTTP 200).
+- [x] A fixture can be registered without modifying it. Checked by a content hash before/after in the clean clone, an empty `git status` afterwards, and the `registry.test.ts` fingerprint test.
+- [x] All persistence paths and contracts are explicit in docs: `docs/persistence.md`, `packages/schema/src`, `packages/store/migrations`, `apps/daemon/openapi.yaml`.
+
+Phase 0 complete 2026-10-26 (tag `phase-0`).
 
 ### Phase 1 — architecture vertical slice
 
@@ -73,6 +75,19 @@ Phases 3–5: see plan §15; checklists added when Phase 2 completes.
 - Daemon security tests cover Host rebinding (421), foreign Origin (403), missing or wrong token (401), path traversal, and CSP headers.
 - Known limits: `scan/watch/views/run/import/export` exit 2 with the owning ticket. Project registration lands in A02.
 - Local note: on this Ubuntu 24.04 host, agent-browser needs `--args "--no-sandbox"` (AppArmor userns restriction). Playwright passes it itself.
+
+### A02 (2026-10-26)
+
+- New `packages/store`: Db interface over `node:sqlite` (WAL, foreign keys), checksummed migration runner with `VACUUM INTO` backups, and `0001_init.sql` with tables for every plan §6 contract.
+- `packages/graph`: read-only git inspection, remote URL redaction, `registerRoot`, `listProjects`, `manifestDigest`.
+- Daemon opens and migrates the DB at startup and exposes `GET/POST /api/v1/projects`. `atlas open` registers the root, and `atlas projects` lists projects. The UI selector lists projects and worktrees with their branches.
+- Tests: 41 Vitest tests in 7 files, 4 Playwright tests.
+  - Store: migrations apply, re-run is a no-op, backup before upgrade, edited migration refused, failed migration fully rolled back, events append-only and deduped, FTS5 search.
+  - Registry: two `git worktree`s give one project with separate contexts and branches; a clone and a sub-path are separate projects; re-registration is idempotent and refreshes the branch; non-git dirs work; the fixture fingerprint is unchanged.
+  - Git safety: `core.fsmonitor` is not executed. Remote URL redaction is tested.
+  - Daemon: register, list, and reject bad paths.
+- Manual: CLI registered both fixtures against a scratch data dir, and `git status -- fixtures` was unchanged. The UI was screenshotted with the populated selector.
+- Not yet: snapshots and manifests are written by A03/A05. The `dirty` flag versus HEAD is computed in A03 from the inventory.
 
 ## Environment record (2026-10-26)
 

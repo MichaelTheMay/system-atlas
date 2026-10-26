@@ -44,9 +44,28 @@ paths:
                   dataDir: { type: string }
                   node: { type: string }
         '401': { description: Missing or wrong token }
+  /api/v1/projects:
+    get:
+      summary: List registered projects with their worktrees
+      responses:
+        '200': { description: OK }
+    post:
+      summary: Register a directory (idempotent). Reads only; never writes into the directory.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rootPath]
+              properties: { rootPath: { type: string, description: Absolute path } }
+      responses:
+        '201': { description: Newly registered worktree }
+        '200': { description: Already registered }
+        '400': { description: Relative path, missing path or not a directory }
   /api/v1/stream:
     get:
-      summary: Server-sent events (hello, heartbeats, change notifications)
+      summary: Server-sent events (hello, heartbeats, project.registered, change notifications)
       responses:
         '200':
           description: text/event-stream

@@ -58,3 +58,8 @@ export async function subscribe(
     }
   }
 }
+
+export interface ProjectSummary {
+  project: { id: string; displayName: string; remoteUrl?: string };
+  worktrees: { id: string; rootPath: string; git?: { branch?: string; subPath: string } }[];
+}
