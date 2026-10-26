@@ -30,3 +30,10 @@ export function hashFile(path: string): Promise<string> {
       .on('end', () => resolvePromise(h.digest('hex')));
   });
 }
+
+/** Digest of the tree as it is on disk right now (same inventory rules as a scan). */
+export async function currentTreeDigest(rootPath: string): Promise<string> {
+  const { buildInventory } = await import('@atlas/analyzers');
+  const inv = await buildInventory(rootPath);
+  return manifestDigest(inv.files);
+}

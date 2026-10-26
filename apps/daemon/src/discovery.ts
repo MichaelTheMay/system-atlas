@@ -5,6 +5,8 @@ import { dirname } from 'node:path';
 export interface DiscoveryRecord {
   pid: number;
   port: number;
+  /** Isolated origin serving artifact bytes (previews); absent on older daemons. */
+  previewPort?: number;
   host: '127.0.0.1';
   token: string;
   version: string;
