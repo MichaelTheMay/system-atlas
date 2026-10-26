@@ -49,6 +49,13 @@ jobs:
         run: pnpm exec playwright install-deps chromium
       - run: pnpm e2e
       - run: node apps/cli/src/main.ts doctor
+      - name: Reproducible demo (pnpm demo, temporary data dir)
+        timeout-minutes: 5
+        run: |
+          export ATLAS_DATA_DIR="$(mktemp -d)" ATLAS_RUNTIME_DIR="$(mktemp -d)"
+          pnpm demo
+          node apps/cli/src/main.ts status --json
+          node apps/cli/src/main.ts daemon stop
       - if: failure()
         uses: actions/upload-artifact@v7
         with:

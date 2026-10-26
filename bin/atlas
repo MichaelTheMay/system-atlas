@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+# System Atlas CLI launcher. Put this directory on PATH (or symlink this file into a PATH directory):
+#   export PATH="/path/to/system-atlas/bin:$PATH"
+# Requires Node >= 24.21 (runs the TypeScript sources directly).
+here="$(dirname "$(readlink -f "$0")")"
+exec node "$here/../apps/cli/src/main.ts" "$@"
