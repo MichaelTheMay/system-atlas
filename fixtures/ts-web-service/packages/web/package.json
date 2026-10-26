@@ -1,0 +1,6 @@
+{
+  "name": "@reports/web",
+  "version": "1.0.0",
+  "main": "src/main.tsx",
+  "dependencies": { "@reports/shared": "workspace:*", "react": "^19.0.0", "react-router": "^7.0.0" }
+}
