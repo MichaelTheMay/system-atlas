@@ -51,7 +51,7 @@ async function main() {
   const { app, startedAt } = buildServer({
     objects,
     previewOrigin: () => (previewPort ? `http://127.0.0.1:${previewPort}` : undefined),
-    signPreview: (id) => preview.sign(id),
+    signPreview: (id, kind) => preview.sign(id, kind),
     token,
     db,
     dataDir: paths.dataDir,

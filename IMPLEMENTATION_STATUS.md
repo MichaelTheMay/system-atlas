@@ -23,7 +23,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 | E01 | Run/event/artifact store and ingestion            | A02         | done        | PR #8; see E01 evidence    |
 | E02 | Process wrapper and output registration           | E01         | done        | PR #9; see E02 evidence    |
 | E03 | Playwright capture helper                         | E01         | done        | PR #10; see E03 evidence   |
-| E04 | Output canvases and isolated preview renderer     | E02,E03,A07 | not started |                            |
+| E04 | Output canvases and isolated preview renderer     | E02,E03,A07 | done        | PR #11; see E04 evidence   |
 | M01 | Watcher and incremental invalidation              | A05,A07     | not started |                            |
 | M02 | Model proposal validation, cache and budget       | M01         | not started |                            |
 | I01 | MCP and generic event SDK                         | E01,A06     | not started |                            |
@@ -56,12 +56,17 @@ Phase 1 complete 2026-10-26 (tag `phase-1`).
 
 ### Phase 2 — real outputs vertical slice
 
-- [~] Real fixture browser journey captures screenshots of three steps and a failure. Captured and verified via the API: 3 post-action screenshots, 1 failure-state, final, trace (e2e `journey.spec.ts`). UI display is E04.
-- [ ] Real CLI run records stdout/stderr and produces a JSON file and an image
-- [ ] Both appear in Outputs & Audit and link to the correct snapshot
-- [ ] Failed assertion remains failed despite exit code 0
-- [~] Missing screenshot appears as missing. A screenshot of a closed tab is a missing artifact with its reason plus a capture gap (e2e `journey.spec.ts`). UI display is E04.
-- [ ] Malicious HTML cannot read app storage or execute with app privileges
+- [x] Real fixture browser journey captures screenshots of three steps and a failure. 3 post-action, 1 failure-state and the final screenshot are captured (`journey.spec.ts`), and the UI filmstrip shows them with images loaded (`outputs.spec.ts`).
+- [x] Real CLI run records stdout/stderr and produces a JSON file and an image: `apps/cli/test/run.test.ts`. The UI shows the command output and the 360 px PNG chart (`outputs.spec.ts`).
+- [x] Both appear in Outputs & Audit and link to the correct snapshot. The run's `snapshotId` equals the worktree's latest snapshot, and the UI badge shows it (`outputs.spec.ts`).
+- [x] Failed assertion remains failed despite exit code 0. The worker card shows "process succeeded" and "task failed" (`outputs.spec.ts`, `store.test.ts`).
+- [x] Missing screenshot appears as missing. The filmstrip has one missing frame with reason "page is closed" (`outputs.spec.ts`).
+- [x] Malicious HTML cannot read app storage or execute with app privileges. In the sandboxed frame from the preview origin (`outputs.spec.ts`):
+  - the frame's origin is `null`;
+  - parent DOM, top `sessionStorage`, storage, cookie and API fetch are all blocked;
+  - the app DOM and token are unchanged, and no API requests come from the frame.
+
+Phase 2 complete 2026-10-26 (tag `phase-2`).
 
 Phases 3–5: see plan §15; checklists added when Phase 2 completes.
 
@@ -234,6 +239,22 @@ Phases 3–5: see plan §15; checklists added when Phase 2 completes.
   - 3 completed steps and 1 failed step, in sequence order, plus the assertion and summaries.
   - The trace zip is attached.
 - Manual: `pnpm demo` against a scratch data dir produced the two worker runs and the journey. The post-search screenshot was inspected; it shows the 6 results. Identical failure and final bytes are deduplicated in the object store.
+
+### E04 (2026-10-26)
+
+- Outputs & Audit UI: run overview with filters, and run detail with Steps, Browser journey (filmstrip), Code execution, Artifacts gallery and Audit trail tabs. The detail shows linked components and the source snapshot badge.
+- Previews only via the isolated origin:
+  - A new server-rendered, escaped, script-free `/v/:id` viewer for JSON, CSV and text.
+  - Sandboxed frames for HTML and SVG.
+  - `Cross-Origin-Resource-Policy: cross-origin`. Chrome blocked `same-site` between loopback ports (`ERR_BLOCKED_BY_RESPONSE.NotSameSite`, found in real-browser testing). Access is gated by signed URLs.
+- Correlation: explicit IDs, command mapping (supported) and route signature (inferred). It runs on finish and on snapshot binding, and is idempotent. Entity details list runs.
+- Cross-navigation opens the run's own snapshot, with a visible historical badge.
+- `atlas run` titles use the command basename, not the absolute interpreter path.
+- Tests: 129 Vitest tests in 21 files, 14 Playwright tests.
+  - Outputs overview and detail.
+  - The full walkthrough: component, outputs, run, artifact, component, source.
+  - Malicious-HTML isolation.
+- Screenshots were inspected for the overview, journey filmstrip, code execution and artifact gallery (JSON viewer, PNG chart, sandboxed HTML report).
 
 ## Environment record (2026-10-26)
 

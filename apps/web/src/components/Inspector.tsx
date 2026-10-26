@@ -25,6 +25,7 @@ interface Props {
   overlay: OverlayDto | null;
   onEditOverlay(mutate: (o: OverlayDto) => OverlayDto): void;
   onNavigate(loc: Location): void;
+  onOpenRun(runId: string): void;
 }
 
 export function Inspector(p: Props) {
@@ -288,6 +289,28 @@ function EntityInfo(
             ))}
           </ul>
         </>
+      )}
+
+      <h4 className="sub">Outputs ({d.runs.length})</h4>
+      {d.runs.length === 0 ? (
+        <p className="muted">
+          No runs are linked to this element. Links come from explicit entity ids, command mapping
+          or route signatures.
+        </p>
+      ) : (
+        <ul className="plain-list">
+          {d.runs.map((r) => (
+            <li key={r.id}>
+              <button type="button" className="link" onClick={() => p.onOpenRun(r.id)}>
+                {r.commandSummary ?? r.id}
+              </button>
+              <span className={`chip chip-${r.status}`}>{r.status}</span>{' '}
+              <span className="muted">
+                via {r.method} ({r.correlation})
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
 
       <h4 className="sub">Notes (yours, not facts)</h4>

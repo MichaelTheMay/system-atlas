@@ -3,6 +3,7 @@ import { realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, sep } from 'node:path';
 import type { Db } from '@atlas/store';
+import { runsForEntity } from '@atlas/evidence';
 
 /** Entity details for the inspector: what it is, where it came from, how fresh, what is missing. */
 export function entityDetails(db: Db, snapshotId: string, entityId: string) {
@@ -108,6 +109,8 @@ export function entityDetails(db: Db, snapshotId: string, entityId: string) {
     relations: rels,
     evidence: evidenceList(db, attributes.evidenceIds ?? [], latest),
     claims,
+    // outputs: runs linked to this entity by correlation (plan §13 "Show outputs")
+    runs: runsForEntity(db, entityId),
     lastChange: lastChange
       ? {
           snapshotId: lastChange.snapshot_id,
@@ -216,4 +219,43 @@ export async function readSource(db: Db, snapshotId: string, path: string, maxBy
     state: same ? ('current' as const) : ('changed' as const),
     text: same ? bytes.toString('utf8') : null,
   };
+}
+
+/**
+ * The canvas that best shows an entity: its own child view if it has one, otherwise the view of its
+ * nearest owner that has a container canvas (where it appears as a node).
+ */
+export function canvasForEntity(
+  db: Db,
+  snapshotId: string,
+  entityId: string,
+): { canvasId: string; viaEntityId: string } | undefined {
+  const own = db
+    .prepare(
+      "SELECT id FROM canvases WHERE snapshot_id = ? AND root_entity_id = ? AND lens IN ('component','module-detail')",
+    )
+    .get<{ id: string }>(snapshotId, entityId);
+  if (own) return { canvasId: own.id, viaEntityId: entityId };
+  let cur = db
+    .prepare('SELECT owner_entity_id FROM entities WHERE snapshot_id = ? AND id = ?')
+    .get<{ owner_entity_id: string | null }>(snapshotId, entityId)?.owner_entity_id;
+  const canvasOf = db.prepare(
+    "SELECT id FROM canvases WHERE snapshot_id = ? AND root_entity_id = ? AND lens IN ('component','module-detail')",
+  );
+  const ownerOf = db.prepare(
+    'SELECT owner_entity_id, kind FROM entities WHERE snapshot_id = ? AND id = ?',
+  );
+  for (let i = 0; cur && i < 50; i++) {
+    const c = canvasOf.get<{ id: string }>(snapshotId, cur);
+    if (c) return { canvasId: c.id, viaEntityId: entityId };
+    const o = ownerOf.get<{ owner_entity_id: string | null; kind: string }>(snapshotId, cur);
+    if (o?.kind === 'system') break;
+    cur = o?.owner_entity_id ?? null;
+  }
+  const structure = db
+    .prepare(
+      "SELECT id FROM canvases WHERE snapshot_id = ? AND lens = 'component' AND owner_canvas_id IS NULL",
+    )
+    .get<{ id: string }>(snapshotId);
+  return structure ? { canvasId: structure.id, viaEntityId: entityId } : undefined;
 }

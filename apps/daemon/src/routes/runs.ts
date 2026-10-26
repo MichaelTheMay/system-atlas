@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   appendEvents,
   bindRunsToSnapshot,
+  correlateRun,
   createRun,
   finishRun,
   FinishRunInput,
@@ -60,7 +61,7 @@ export function registerRunRoutes(
     bus: EventBus;
     jobs: JobRunner;
     token: string;
-    previewUrl(artifactId: string): { url: string; expiresAt: string };
+    previewUrl(artifactId: string, kind: 'a' | 'v'): { url: string; expiresAt: string };
   },
 ) {
   const { db, objects, bus, jobs } = deps;
@@ -206,6 +207,7 @@ export function registerRunRoutes(
       return reply.code(400).send({ error: 'invalid_body', issues: body.error.issues });
     const r = finishRun(db, req.params.id, body.data);
     if (!r.ok) return reply.code(r.error === 'unknown_run' ? 404 : 409).send({ error: r.error });
+    correlateRun(db, r.run.id);
     bus.publish({
       type: 'run.finished',
       data: { runId: r.run.id, status: r.run.status, projectId: r.run.projectId },
@@ -218,24 +220,47 @@ export function registerRunRoutes(
     async (req) => ({ runs: listRuns(db, req.params.id, Number(req.query.limit ?? 50) || 50) }),
   );
 
-  app.get<{ Params: { id: string } }>(
-    `${prefix}/runs/:id`,
-    async (req, reply) =>
-      getRunDetail(db, req.params.id) ?? reply.code(404).send({ error: 'unknown_run' }),
-  );
+  app.get<{ Params: { id: string } }>(`${prefix}/runs/:id`, async (req, reply) => {
+    const d = getRunDetail(db, req.params.id);
+    if (!d) return reply.code(404).send({ error: 'unknown_run' });
+    // linked components, named from the run's own snapshot (not whatever is current)
+    const ent = db.prepare(
+      'SELECT display_name AS displayName, kind, canonical_name AS canonicalName FROM entities WHERE snapshot_id = ? AND id = ?',
+    );
+    const links = d.correlations.map((c) => ({
+      ...c,
+      entity: d.run.snapshotId
+        ? (ent.get<{ displayName: string; kind: string; canonicalName: string }>(
+            d.run.snapshotId,
+            c.entityId,
+          ) ?? null)
+        : null,
+    }));
+    return { ...d, links };
+  });
 
   app.get<{ Params: { id: string } }>(`${prefix}/artifacts/:id/preview-url`, async (req, reply) => {
     const a = getArtifact(db, req.params.id);
     if (!a) return reply.code(404).send({ error: 'unknown_artifact' });
     if (a.bytesState !== 'available')
       return reply.code(409).send({ error: `bytes ${a.bytesState}`, artifact: a });
-    return { artifact: a, ...deps.previewUrl(a.id) };
+    const textLike = /^(application\/json|text\/(csv|plain|markdown))$/.test(a.mediaType);
+    return {
+      artifact: a,
+      viewer: textLike ? 'text' : 'raw',
+      ...deps.previewUrl(a.id, textLike ? 'v' : 'a'),
+    };
   });
 
   return {
     /** Called after a snapshot is published: bind runs that executed against exactly that tree. */
     onSnapshotPublished(s: { id: string; worktreeId: string; dirtyTreeDigest: string }) {
       const n = bindRunsToSnapshot(db, s);
+      // runs that just gained a snapshot can now be linked to its entities
+      for (const r of db
+        .prepare("SELECT id FROM runs WHERE snapshot_id = ? AND status != 'running'")
+        .all<{ id: string }>(s.id))
+        correlateRun(db, r.id);
       if (n) bus.publish({ type: 'run.updated', data: { boundToSnapshot: s.id, runs: n } });
     },
   };

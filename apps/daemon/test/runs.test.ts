@@ -37,7 +37,7 @@ beforeAll(() => {
     objects,
     port: () => port,
     previewOrigin: () => `http://127.0.0.1:${previewPort}`,
-    signPreview: (id) => preview.sign(id),
+    signPreview: (id, kind) => preview.sign(id, kind),
   });
   root = join(mkdtempSync(join(tmpdir(), 'atlas-runs-fx-')), 'py-cli-api');
   cpSync(new URL('../../../fixtures/py-cli-api', import.meta.url).pathname, root, {
@@ -233,6 +233,8 @@ describe('isolated preview server', () => {
     expect(csp).toContain("connect-src 'none'");
     expect(csp).toContain(`frame-ancestors http://${host}`);
     expect(res.headers['x-content-type-options']).toBe('nosniff');
+    // the app (another loopback port) embeds these bytes; Chrome treats ports as cross-site for CORP
+    expect(res.headers['cross-origin-resource-policy']).toBe('cross-origin');
     expect(
       (
         await preview.app.inject({

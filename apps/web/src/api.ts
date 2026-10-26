@@ -222,6 +222,15 @@ export interface EntityDetailsDto {
   }[];
   evidence: EvidenceDto[];
   claims: { id: string; predicate: string; origin: string; status: string; value: unknown }[];
+  runs: {
+    id: string;
+    status: string;
+    startAt: string;
+    adapter: string;
+    commandSummary: string | null;
+    method: string;
+    correlation: string;
+  }[];
   lastChange: {
     snapshotId: string;
     change: string;
@@ -283,4 +292,91 @@ export async function saveOverlay(
   if (res.status === 409 && body.current) return { ok: false, overlay: body.current };
   if (!res.ok) throw new Error(`overlay: HTTP ${res.status}`);
   return { ok: true, overlay: body };
+}
+
+// ---- outputs & audit ---------------------------------------------------------------------
+
+export interface RunDto {
+  id: string;
+  projectId: string;
+  worktreeId?: string;
+  snapshotId?: string;
+  adapter: string;
+  commandSummary?: string;
+  startAt: string;
+  endAt?: string;
+  status: 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted' | 'unknown';
+  exitCode?: number;
+  signal?: string;
+  environmentSummary: Record<string, unknown>;
+  instrumentationCapabilities: string[];
+  captureGaps: { kind: string; detail: string }[];
+}
+
+export interface RunSummaryDto {
+  run: RunDto;
+  outcome: {
+    process: RunDto['status'];
+    task: 'passed' | 'failed' | 'unknown';
+    assertions: { pass: number; fail: number; unknown: number };
+  };
+  counts: { events: number; artifacts: number; missingArtifacts: number; screenshots: number };
+}
+
+export interface EventDto {
+  id: string;
+  producerId: string;
+  producerEventId: string;
+  sequence?: number;
+  occurredAt: string;
+  receivedAt: string;
+  type: string;
+  parentEventId?: string;
+  entityRefs: string[];
+  payload: Record<string, unknown>;
+}
+
+export interface ArtifactDto {
+  id: string;
+  sha256: string;
+  mediaType: string;
+  byteLength: number;
+  runId: string;
+  eventId?: string;
+  logicalName: string;
+  role: string;
+  capturedAt: string;
+  bytesState: 'pending' | 'available' | 'deleted' | 'missing';
+  redactionState: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface RunLinkDto {
+  id: string;
+  eventOrArtifactId: string;
+  entityId: string;
+  method: string;
+  status: string;
+  entity: { displayName: string; kind: string; canonicalName: string } | null;
+}
+
+export interface RunDetailDto extends RunSummaryDto {
+  events: EventDto[];
+  artifacts: ArtifactDto[];
+  assertions: {
+    id: string;
+    outcome: 'pass' | 'fail' | 'unknown';
+    description: string;
+    eventId?: string;
+    source: string;
+  }[];
+  links: RunLinkDto[];
+  missingParents: string[];
+}
+
+export interface PreviewUrlDto {
+  url: string;
+  viewer: 'raw' | 'text';
+  expiresAt: string;
+  artifact: ArtifactDto;
 }

@@ -6,5 +6,8 @@
     "vitest.config.ts",
     "eslint.config.js",
     "apps/web/e2e"
-  ]
+  ],
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"]
+  }
 }
