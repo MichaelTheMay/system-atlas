@@ -1,0 +1,39 @@
+# deps / build
+node_modules/
+dist/
+build/
+out/
+.turbo/
+*.tsbuildinfo
+coverage/
+.vite/
+
+# local data (Atlas never stores state in the repo by default)
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+.atlas-data/
+.atlas/local/
+
+# playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# editors / os
+.DS_Store
+.idea/
+*.swp
