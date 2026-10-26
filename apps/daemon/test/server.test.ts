@@ -213,7 +213,20 @@ describe('scan API', () => {
       await app.inject({ url: `/api/v1/worktrees/${wt}/snapshot`, headers: auth })
     ).json();
     expect(snap.snapshot.id).toBe(done.snapshotId);
-    expect(snap.counts.entitiesByKind).toEqual({ system: 1, package: 5 });
+    expect(snap.counts.entitiesByKind).toEqual({
+      system: 1,
+      package: 11,
+      module: 10,
+      symbol: 9,
+      endpoint: 3,
+      'ui-surface': 2,
+      queue: 1,
+      table: 2,
+      deployable: 3,
+      database: 1,
+      'infrastructure-resource': 1,
+      entrypoint: 3,
+    });
     expect(snap.coverage.totals.files).toBe(21);
   });
 
