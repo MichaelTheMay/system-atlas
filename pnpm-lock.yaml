@@ -59,6 +59,9 @@ importers:
 
   apps/daemon:
     dependencies:
+      '@atlas/analyzers':
+        specifier: workspace:*
+        version: link:../../packages/analyzers
       '@atlas/graph':
         specifier: workspace:*
         version: link:../../packages/graph
@@ -126,6 +129,9 @@ importers:
       ignore:
         specifier: 7.0.14
         version: 7.0.14
+      smol-toml:
+        specifier: 1.9.1
+        version: 1.9.1
       tree-sitter-python:
         specifier: 0.25.0
         version: 0.25.0
@@ -156,6 +162,9 @@ importers:
 
   packages/graph:
     dependencies:
+      '@atlas/analyzers':
+        specifier: workspace:*
+        version: link:../analyzers
       '@atlas/schema':
         specifier: workspace:*
         version: link:../schema
@@ -1109,6 +1118,10 @@ packages:
   shebang-regex@3.0.0:
     resolution: {integrity: sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==}
     engines: {node: '>=8'}
+
+  smol-toml@1.9.1:
+    resolution: {integrity: sha512-j7WyPdf0CJoutMzMoPLF/bVXHtKZIT9Rb4eGeEbWw8X2t5oirjPgpL+OpaENZrILYaXqYwnVH+qgUwVbl+pUJQ==}
+    engines: {node: '>= 18'}
 
   sonic-boom@4.2.1:
     resolution: {integrity: sha512-w6AxtubXa2wTXAUsZMMWERrsIRAdrK0Sc+FUytWvYAhBJLyuI4llrMIC1DtlNSdI99EI86KZum2MMq3EAZlF9Q==}
@@ -2191,6 +2204,8 @@ snapshots:
       shebang-regex: 3.0.0
 
   shebang-regex@3.0.0: {}
+
+  smol-toml@1.9.1: {}
 
   sonic-boom@4.2.1:
     dependencies:

@@ -103,3 +103,16 @@ describe('schema invariants', () => {
     expect(hit).toHaveLength(1);
   });
 });
+
+describe('Db.transaction', () => {
+  it('rejects async callbacks and rolls back', () => {
+    const db = openDb(':memory:');
+    db.exec('CREATE TABLE t (x INTEGER)');
+    expect(() =>
+      db.transaction(async () => {
+        db.exec('INSERT INTO t VALUES (1)');
+      }),
+    ).toThrow(/synchronous/);
+    expect(db.prepare('SELECT count(*) AS n FROM t').get<{ n: number }>()!.n).toBe(0);
+  });
+});

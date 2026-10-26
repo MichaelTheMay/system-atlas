@@ -6,7 +6,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**A03 — Inventory and coverage report** on branch `feat/A03-inventory-coverage`.
+**A04 — TS/JS and Python analyzers** on branch `feat/A04-analyzers`.
 
 ## Tickets (plan §17)
 
@@ -88,6 +88,19 @@ Phases 3–5: see plan §15; checklists added when Phase 2 completes.
   - Daemon: register, list, and reject bad paths.
 - Manual: CLI registered both fixtures against a scratch data dir, and `git status -- fixtures` was unchanged. The UI was screenshotted with the populated selector.
 - Not yet: snapshots and manifests are written by A03/A05. The `dirty` flag versus HEAD is computed in A03 from the inventory.
+
+### A03 (2026-10-26)
+
+- Inventory (`packages/analyzers/src/inventory`): git or walker listing, gitignore/.atlasignore/default excludes, secret/binary/size/symlink/nested-repo skipping, language and role classification, SHA-256 and git blob ids, dirty-vs-HEAD.
+- Generic manifest analyzer, excerpt redaction, coverage report builder.
+- Scan pipeline with timeouts, verified reads, manifest re-validation, stale carry-forward for failed analyzers, atomic publish and supersede. Migration `0002_producers.sql`.
+- Daemon serial job runner (newer scan cancels older) and scan/job/snapshot routes. `atlas scan` CLI. The UI has a scan button, snapshot card and coverage panel.
+- Tests: 72 Vitest tests in 10 files and 5 Playwright tests.
+  - Inventory runs on temp repos: gitignore, untracked node_modules, secrets, binaries, size, symlink escape, tracked gitlink and untracked nested repo. Dirty detection covers modify, delete and untracked files.
+  - Scan: TS fixture packages and depends-on with manifest-matching evidence. Python package. Elixir unsupported-language gap. Stable IDs on rescan. Fixtures unchanged. Failure carry-forward, changed-during-scan, timeout, cancel, and HEAD/dirty.
+  - Redaction patterns.
+- Manual: `atlas scan` on ts-web-service, elixir-unsupported and Atlas itself (158 files, 155 ms). The UI was screenshotted after the self-scan.
+- Known limits: TS/JS and Python source analysis is A04. The canvas still shows a summary card until A06/A07. `.npmrc` is always treated as secret-like (conservative).
 
 ## Environment record (2026-10-26)
 

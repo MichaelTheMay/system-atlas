@@ -57,3 +57,18 @@ Writes go through the daemon, the single writer.
 ## Daemon API
 
 See `apps/daemon/openapi.yaml`. All `/api/v1/*` routes need `Authorization: Bearer <token>` from the discovery record.
+
+## Scan pipeline (A03)
+
+`scanWorktree` (`packages/graph/src/scan.ts`) runs these steps:
+
+1. Inventory.
+2. Insert a `building` snapshot.
+3. Run analyzers with timeouts. They can only read inventoried files, and each read is re-hashed against the inventory hash.
+4. Assemble and schema-validate the graph in memory.
+5. Carry forward stale rows from analyzers that failed.
+6. Re-check every file's size and mtime.
+7. Publish in one synchronous transaction that also supersedes the previous snapshot.
+
+A cancelled or crashed scan leaves the previous snapshot current and marks its own row `failed`.
+Migration `0002_producers.sql` adds `producer` to `entities` and `relations`, recording which analyzer made each row.

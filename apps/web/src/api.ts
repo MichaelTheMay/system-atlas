@@ -63,3 +63,47 @@ export interface ProjectSummary {
   project: { id: string; displayName: string; remoteUrl?: string };
   worktrees: { id: string; rootPath: string; git?: { branch?: string; subPath: string } }[];
 }
+
+export interface CoverageGap {
+  kind: string;
+  path?: string;
+  analyzerId?: string;
+  detail: string;
+  count?: number;
+}
+
+export interface SnapshotSummary {
+  snapshot: {
+    id: string;
+    state: string;
+    dirty: boolean;
+    headCommit?: string;
+    publishedAt?: string;
+  };
+  coverage: {
+    totals: { files: number; bytes: number };
+    byLanguage: { language: string; files: number; support: string }[];
+    analyzers: { id: string; status: string; filesAnalyzed: number }[];
+    gaps: CoverageGap[];
+  };
+  counts: { entitiesByKind: Record<string, number>; relationsByKind: Record<string, number> };
+}
+
+export interface ScanJob {
+  id: string;
+  state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  error?: string;
+}
+
+/** Latest snapshot for a worktree, or null when none has been published. */
+export async function latestSnapshot(
+  token: string,
+  worktreeId: string,
+): Promise<SnapshotSummary | null> {
+  const res = await fetch(`/api/v1/worktrees/${worktreeId}/snapshot`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`snapshot: HTTP ${res.status}`);
+  return (await res.json()) as SnapshotSummary;
+}

@@ -1,7 +1,9 @@
 import { isAbsolute } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { listProjects, registerRoot } from '@atlas/graph';
+import { getLatestSnapshot, getWorktree, listProjects, registerRoot } from '@atlas/graph';
+import { defaultAnalyzers, type Analyzer } from '@atlas/analyzers';
+import { JobRunner } from './jobs.ts';
 import type { Db } from '@atlas/store';
 import { EventBus } from './events.ts';
 import { isAllowedHost, isAllowedOrigin, tokenMatches } from './security.ts';
@@ -21,11 +23,13 @@ export interface ServerOptions {
   /** Port used for Host/Origin validation; set after listen for port 0. */
   port: () => number;
   heartbeatMs?: number;
+  analyzers?: () => Analyzer[];
 }
 
 export interface AtlasServer {
   app: FastifyInstance;
   bus: EventBus;
+  jobs: JobRunner;
   startedAt: string;
 }
 
@@ -45,6 +49,7 @@ export function buildServer(opts: ServerOptions): AtlasServer {
   // Logger disabled: request logs would include Authorization headers and local paths.
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
   const bus = new EventBus();
+  const jobs = new JobRunner(opts.db, bus, opts.analyzers ?? defaultAnalyzers);
   const startedAt = new Date().toISOString();
   const devOrigins = (opts.devOrigins ?? []).filter((o) =>
     /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(o),
@@ -110,6 +115,39 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     }
   });
 
+  app.post<{ Params: { id: string } }>(`${API_PREFIX}/worktrees/:id/scans`, async (req, reply) => {
+    const wt = getWorktree(opts.db, req.params.id);
+    if (!wt) return reply.code(404).send({ error: 'unknown_worktree' });
+    return reply.code(202).send(jobs.enqueueScan(wt));
+  });
+
+  app.get<{ Params: { id: string } }>(`${API_PREFIX}/jobs/:id`, async (req, reply) => {
+    const job = jobs.get(req.params.id);
+    return job ?? reply.code(404).send({ error: 'unknown_job' });
+  });
+
+  app.get<{ Params: { id: string } }>(
+    `${API_PREFIX}/worktrees/:id/snapshot`,
+    async (req, reply) => {
+      const latest = getLatestSnapshot(opts.db, req.params.id);
+      if (!latest) return reply.code(404).send({ error: 'no_snapshot' });
+      const sid = latest.snapshot.id;
+      const entitiesByKind = Object.fromEntries(
+        opts.db
+          .prepare('SELECT kind, count(*) AS n FROM entities WHERE snapshot_id = ? GROUP BY kind')
+          .all<{ kind: string; n: number }>(sid)
+          .map((r) => [r.kind, r.n]),
+      );
+      const relationsByKind = Object.fromEntries(
+        opts.db
+          .prepare('SELECT kind, count(*) AS n FROM relations WHERE snapshot_id = ? GROUP BY kind')
+          .all<{ kind: string; n: number }>(sid)
+          .map((r) => [r.kind, r.n]),
+      );
+      return { ...latest, counts: { entitiesByKind, relationsByKind } };
+    },
+  );
+
   app.get(`${API_PREFIX}/stream`, (req, reply) => {
     reply.hijack();
     const res = reply.raw;
@@ -144,5 +182,5 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     return reply.send(await readStatic(hit.file));
   });
 
-  return { app, bus, startedAt };
+  return { app, bus, jobs, startedAt };
 }

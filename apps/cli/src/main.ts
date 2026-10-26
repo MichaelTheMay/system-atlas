@@ -8,6 +8,22 @@ import { isProcessAlive, readDiscovery } from '@atlas/daemon/discovery';
 import { ensureDaemon, findDaemon } from './client.ts';
 import { runDoctor } from './doctor.ts';
 
+interface ScanJob {
+  id: string;
+  state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  error?: string;
+}
+
+interface SnapshotSummary {
+  snapshot: { id: string; state: string; dirty: boolean; headCommit?: string };
+  coverage: {
+    totals: { files: number };
+    analyzers: { id: string; status: string; filesAnalyzed: number }[];
+    gaps: { kind: string; path?: string; detail: string }[];
+  };
+  counts: { entitiesByKind: Record<string, number>; relationsByKind: Record<string, number> };
+}
+
 interface Registration {
   project: { id: string; displayName: string };
   worktree: { id: string; rootPath: string; git?: { branch?: string } };
@@ -130,10 +146,67 @@ daemonCmd.command('stop').action(async () => {
 
 program
   .command('scan')
-  .argument('[path]')
-  .option('--no-model')
-  .description('Analyze a project')
-  .action(notYet('scan', 'A03-A05'));
+  .description(
+    'Register (if needed) and analyze a project; prints the snapshot and coverage summary',
+  )
+  .argument('[path]', 'project root', '.')
+  .option('--no-model', 'deterministic analysis only (the default; no model is used yet)')
+  .option('--json', 'machine-readable output')
+  .action(async (path: string, opts: { json?: boolean }) => {
+    const root = resolve(path);
+    if (!statSync(root, { throwIfNoEntry: false })?.isDirectory()) {
+      console.error(`not a directory: ${root}`);
+      process.exitCode = 1;
+      return;
+    }
+    const { daemon } = await ensureDaemon(paths);
+    const reg = await daemon.api<Registration>('/projects', {
+      method: 'POST',
+      body: JSON.stringify({ rootPath: root }),
+    });
+    let job = await daemon.api<ScanJob>(`/worktrees/${reg.worktree.id}/scans`, { method: 'POST' });
+    const started = Date.now();
+    while (job.state === 'queued' || job.state === 'running') {
+      await new Promise((r) => setTimeout(r, 150));
+      job = await daemon.api<ScanJob>(`/jobs/${job.id}`);
+    }
+    if (job.state !== 'succeeded') {
+      console.error(`scan ${job.state}: ${job.error ?? ''}`);
+      process.exitCode = 1;
+      return;
+    }
+    const snap = await daemon.api<SnapshotSummary>(`/worktrees/${reg.worktree.id}/snapshot`);
+    if (opts.json) return console.log(JSON.stringify({ job, ...snap }, null, 2));
+    const c = snap.coverage;
+    console.log(
+      `${reg.project.displayName}: snapshot ${snap.snapshot.id} ${snap.snapshot.state} in ${Date.now() - started} ms`,
+    );
+    console.log(
+      `  tree: ${snap.snapshot.dirty ? 'dirty (differs from HEAD)' : 'clean at HEAD'}${snap.snapshot.headCommit ? ` ${snap.snapshot.headCommit.slice(0, 12)}` : ''}`,
+    );
+    console.log(`  files analyzed: ${c.totals.files}`);
+    console.log(
+      `  entities: ${
+        Object.entries(snap.counts.entitiesByKind)
+          .map(([k, n]) => `${n} ${k}`)
+          .join(', ') || 'none'
+      }`,
+    );
+    console.log(
+      `  relations: ${
+        Object.entries(snap.counts.relationsByKind)
+          .map(([k, n]) => `${n} ${k}`)
+          .join(', ') || 'none'
+      }`,
+    );
+    console.log(
+      `  analyzers: ${c.analyzers.map((a) => `${a.id} ${a.status} (${a.filesAnalyzed} files)`).join(', ')}`,
+    );
+    console.log(`  coverage gaps: ${c.gaps.length}`);
+    for (const g of c.gaps.slice(0, 15))
+      console.log(`    - ${g.kind}${g.path ? ` ${g.path}` : ''}: ${g.detail}`);
+    if (c.gaps.length > 15) console.log(`    … ${c.gaps.length - 15} more (use --json)`);
+  });
 program
   .command('watch')
   .argument('[path]')
