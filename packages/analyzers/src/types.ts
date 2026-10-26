@@ -5,20 +5,30 @@ import type {
   RelationKind,
   SupportLevel,
 } from '@atlas/schema';
+import type { InventoryFile } from './inventory/inventory.ts';
 
-/** A file selected by inventory (plan §7 step 1). Paths are relative to the registered root. */
-export interface InventoryFile {
-  path: string;
-  size: number;
-  sha256: string;
-  language: string;
-}
+export type { InventoryFile };
 
 export interface AnalyzerContext {
   rootPath: string;
+  /** Project display name, for analyzers that label the system. */
+  projectName: string;
   files: readonly InventoryFile[];
+  /**
+   * Returns the file's text only if its bytes still match the inventory hash; otherwise throws
+   * ContentChangedError, so evidence never cites a hash for bytes it did not parse.
+   */
   readFile(path: string): Promise<string>;
   signal: AbortSignal;
+}
+
+export class ContentChangedError extends Error {
+  readonly path: string;
+  constructor(path: string) {
+    super(`file changed during scan: ${path}`);
+    this.path = path;
+    this.name = 'ContentChangedError';
+  }
 }
 
 /** Evidence locator emitted by analyzers; persisted as Evidence by the reconciler. */

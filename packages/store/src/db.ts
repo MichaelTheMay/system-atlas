@@ -17,7 +17,10 @@ export interface Db {
   readonly path: string;
   exec(sql: string): void;
   prepare(sql: string): Statement;
-  /** Runs `fn` inside BEGIN IMMEDIATE … COMMIT; rolls back on throw. Nested calls join the outer transaction. */
+  /**
+   * Runs `fn` inside BEGIN IMMEDIATE … COMMIT; rolls back on throw. Nested calls join the outer
+   * transaction. `fn` must be synchronous: an async callback would commit before its awaits run.
+   */
   transaction<T>(fn: () => T): T;
   close(): void;
 }
@@ -55,6 +58,11 @@ export function openDb(path: string): Db {
       depth++;
       try {
         const out = fn();
+        if (out && typeof (out as { then?: unknown }).then === 'function') {
+          throw new Error(
+            'Db.transaction callbacks must be synchronous; do async work before the transaction',
+          );
+        }
         raw.exec('COMMIT');
         return out;
       } catch (e) {

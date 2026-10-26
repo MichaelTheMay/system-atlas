@@ -1,9 +1,6 @@
-import { execFile } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import { promisify } from 'node:util';
-
-const run = promisify(execFile);
+import { runGitText } from '@atlas/analyzers';
 
 export interface GitInfo {
   topLevel: string;
@@ -15,35 +12,8 @@ export interface GitInfo {
   remoteUrl?: string;
 }
 
-/**
- * Read-only git inspection. Only `rev-parse`, `symbolic-ref` and `config --get` are used;
- * fsmonitor and hooks are disabled so repository configuration cannot execute commands, and
- * inherited GIT_* variables are dropped so they cannot redirect the lookup.
- */
-async function git(cwd: string, args: string[]): Promise<string | undefined> {
-  const env: NodeJS.ProcessEnv = {
-    PATH: process.env.PATH,
-    HOME: process.env.HOME,
-    GIT_TERMINAL_PROMPT: '0',
-    GIT_OPTIONAL_LOCKS: '0',
-    LC_ALL: 'C',
-  };
-  try {
-    const { stdout } = await run(
-      'git',
-      ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', ...args],
-      {
-        cwd,
-        env,
-        timeout: 5000,
-        maxBuffer: 1024 * 1024,
-      },
-    );
-    return stdout.trim();
-  } catch {
-    return undefined;
-  }
-}
+/** Read-only git inspection through the shared safe runner (`@atlas/analyzers` runGit). */
+const git = runGitText;
 
 export async function inspectGit(root: string): Promise<GitInfo | undefined> {
   const out = await git(root, ['rev-parse', '--show-toplevel', '--git-common-dir']);

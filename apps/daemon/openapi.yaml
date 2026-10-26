@@ -63,9 +63,30 @@ paths:
         '201': { description: Newly registered worktree }
         '200': { description: Already registered }
         '400': { description: Relative path, missing path or not a directory }
+  /api/v1/worktrees/{id}/scans:
+    post:
+      summary: Queue a scan. A newer request for the same worktree replaces a queued one and cancels a running one.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '202': { description: Job accepted (id, state) }
+        '404': { description: Unknown worktree }
+  /api/v1/jobs/{id}:
+    get:
+      summary: Job status (queued, running, succeeded, failed, cancelled) with snapshot id and counts
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: OK }
+        '404': { description: Unknown job }
+  /api/v1/worktrees/{id}/snapshot:
+    get:
+      summary: Latest published snapshot (ready or partial) with coverage report and entity/relation counts
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: OK }
+        '404': { description: No published snapshot }
   /api/v1/stream:
     get:
-      summary: Server-sent events (hello, heartbeats, project.registered, change notifications)
+      summary: Server-sent events (hello, heartbeats, project.registered, scan.started, snapshot.published, scan.failed, scan.cancelled)
       responses:
         '200':
           description: text/event-stream

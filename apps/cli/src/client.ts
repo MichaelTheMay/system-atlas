@@ -22,7 +22,7 @@ function handle(rec: DiscoveryRecord): DaemonHandle {
         headers: {
           ...(init?.headers ?? {}),
           authorization: `Bearer ${rec.token}`,
-          'content-type': 'application/json',
+          ...(init?.body !== undefined ? { 'content-type': 'application/json' } : {}),
         },
       });
       if (!res.ok) throw new Error(`daemon ${path} -> ${res.status} ${await res.text()}`);

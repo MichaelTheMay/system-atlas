@@ -43,3 +43,27 @@ test('lists a registered project in the project selector', async ({ page, reques
   await expect(select).toBeEnabled();
   await expect(select).toContainText('py-cli-api');
 });
+
+test('scans the selected project from the UI and shows coverage gaps', async ({
+  page,
+  request,
+}) => {
+  const rootPath = new URL(
+    '../../../fixtures/elixir-unsupported',
+    import.meta.url,
+  ).pathname.replace(/\/$/, '');
+  const reg = await request.post('/api/v1/projects', {
+    headers: { authorization: `Bearer ${E2E_TOKEN}` },
+    data: { rootPath },
+  });
+  const worktreeId = (await reg.json()).worktree.id as string;
+  await page.goto(`/#token=${E2E_TOKEN}`);
+  await page.getByRole('combobox', { name: 'Project' }).selectOption(worktreeId);
+  await page.getByRole('button', { name: /Scan project|Rescan/ }).click();
+  await expect(page.getByRole('heading', { name: /Snapshot (ready|partial)/ })).toBeVisible({
+    timeout: 15_000,
+  });
+  const coverage = page.getByRole('region', { name: 'Coverage' });
+  await expect(coverage).toContainText('unsupported-language');
+  await expect(coverage).toContainText('elixir');
+});

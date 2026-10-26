@@ -18,17 +18,19 @@ beforeAll(async () => {
   await writeFile(join(webRoot, 'assets', 'app.js'), 'console.log(1)');
 });
 
+let lastServer: ReturnType<typeof buildServer>;
 function server() {
   const db = openDb(':memory:');
   migrate(db);
-  return buildServer({
+  lastServer = buildServer({
     token,
     db,
     dataDir: '/tmp/x',
     webRoot,
     port: () => port,
     devOrigins: ['http://localhost:5173', 'http://evil.com'],
-  }).app;
+  });
+  return lastServer.app;
 }
 
 describe('daemon security', () => {
@@ -172,5 +174,59 @@ describe('project registration API', () => {
       payload: { rootPath: '/definitely/not/here' },
     });
     expect(missing.statusCode).toBe(400);
+  });
+});
+
+describe('scan API', () => {
+  const auth = { host, authorization: `Bearer ${token}` };
+  let app: ReturnType<typeof server>;
+  beforeAll(() => {
+    app = server();
+  });
+  afterAll(() => app.close());
+
+  it('scans a registered fixture and serves its latest snapshot with coverage', async () => {
+    const rootPath = new URL('../../../fixtures/ts-web-service', import.meta.url).pathname.replace(
+      /\/$/,
+      '',
+    );
+    const reg = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      headers: auth,
+      payload: { rootPath },
+    });
+    const wt = reg.json().worktree.id as string;
+    expect(
+      (await app.inject({ url: `/api/v1/worktrees/${wt}/snapshot`, headers: auth })).statusCode,
+    ).toBe(404);
+    const job = await app.inject({
+      method: 'POST',
+      url: `/api/v1/worktrees/${wt}/scans`,
+      headers: auth,
+    });
+    expect(job.statusCode).toBe(202);
+    await lastServer.jobs.idle();
+    const done = (await app.inject({ url: `/api/v1/jobs/${job.json().id}`, headers: auth })).json();
+    expect(done).toMatchObject({ state: 'succeeded', snapshotState: 'ready' });
+    const snap = (
+      await app.inject({ url: `/api/v1/worktrees/${wt}/snapshot`, headers: auth })
+    ).json();
+    expect(snap.snapshot.id).toBe(done.snapshotId);
+    expect(snap.counts.entitiesByKind).toEqual({ system: 1, package: 5 });
+    expect(snap.coverage.totals.files).toBe(21);
+  });
+
+  it('404s for unknown worktrees and jobs', async () => {
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/worktrees/wt_0000000000000000/scans',
+          headers: auth,
+        })
+      ).statusCode,
+    ).toBe(404);
+    expect((await app.inject({ url: '/api/v1/jobs/job_x', headers: auth })).statusCode).toBe(404);
   });
 });
