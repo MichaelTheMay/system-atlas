@@ -260,6 +260,31 @@ describe('scan API', () => {
     ).toBe(404);
   });
 
+  it('keeps reporting open reconciliation issues after later rescans', async () => {
+    const { mkdtemp: mk, writeFile: wf, mkdir: md, rename: rn } = await import('node:fs/promises');
+    const root = await mk(join(tmpdir(), 'atlas-issue-'));
+    await wf(join(root, 'a.py'), 'X = 1\n');
+    await wf(join(root, 'b.py'), 'X = 1\n');
+    const reg = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      headers: auth,
+      payload: { rootPath: root },
+    });
+    const wt = reg.json().worktree.id as string;
+    const scan = async () => {
+      await app.inject({ method: 'POST', url: `/api/v1/worktrees/${wt}/scans`, headers: auth });
+      await lastServer.jobs.idle();
+      return (await app.inject({ url: `/api/v1/worktrees/${wt}/snapshot`, headers: auth })).json();
+    };
+    await scan();
+    await md(join(root, 'sub'));
+    await rn(join(root, 'a.py'), join(root, 'sub/a2.py'));
+    await rn(join(root, 'b.py'), join(root, 'sub/b2.py'));
+    expect((await scan()).openIssues).toBe(1);
+    expect((await scan()).openIssues).toBe(1);
+  });
+
   it('404s for unknown worktrees and jobs', async () => {
     expect(
       (

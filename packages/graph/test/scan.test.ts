@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createManifestAnalyzer, type Analyzer } from '@atlas/analyzers';
+import { createManifestAnalyzer, defaultAnalyzers, type Analyzer } from '@atlas/analyzers';
 import type { Db } from '@atlas/store';
 import { getLatestSnapshot, registerRoot, scanWorktree } from '../src/index.ts';
 import { fixture, freshDb, treeFingerprint } from './helpers.ts';
@@ -150,6 +150,31 @@ const pkgFiles = {
   'package.json': '{"name":"root","workspaces":["a"]}',
   'a/package.json': '{"name":"a"}',
 };
+
+describe('TS declaration files and non-source roles', () => {
+  it('treats .d.ts and infra-role TypeScript as covered, not unsupported', async () => {
+    const root = tempProject({
+      'package.json': '{"name":"x"}',
+      'src/a.ts': 'export const a = 1;',
+      'src/types.d.ts': 'declare const x: number;',
+      'infra/stack.ts': 'export const s = 1;',
+    });
+    const db = freshDb();
+    const { worktree } = await registerRoot(db, root);
+    const r = await scanWorktree(db, worktree, { analyzers: defaultAnalyzers() });
+    expect(r.coverage.gaps.filter((g) => g.kind === 'unsupported-language')).toEqual([]);
+    expect(r.coverage.byLanguage).toContainEqual({
+      language: 'typescript',
+      support: 'syntax',
+      files: 1,
+    });
+    expect(r.coverage.byLanguage).toContainEqual({
+      language: 'typescript',
+      support: 'deep',
+      files: 2,
+    });
+  });
+});
 
 describe('scan failure handling', () => {
   it('carries a failing analyzer’s previous facts forward as stale instead of erasing them', async () => {

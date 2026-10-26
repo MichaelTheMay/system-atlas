@@ -114,7 +114,7 @@ Phases 3–5: see plan §15; checklists added when Phase 2 completes.
   - Atlas self-scan: 178 files in 458 ms.
   - `~/Dev/dsh`: 9,175 files and 11,641 entities. Scans took 4.9-5.3 s; `ts-js` was 3.9 s of that. Peak heap was 182 MB and 25 MB after GC. RSS stayed at about 1.4 GB because worker memory is not returned to the OS; this is tracked for H01.
   - The target repo's `git status` was unchanged before and after.
-- Fixed from real-repo findings: `.d.ts` and TS files outside source roles no longer appear as unsupported; style/asset imports are not reported as unresolved; `CREATE VIRTUAL TABLE` is recognized.
+- Fixed from real-repo findings (re-verified on dsh: 43 `.d.ts` files now syntax-level, no TypeScript gap; unit test in `scan.test.ts`): `.d.ts` and TS files outside source roles no longer appear as unsupported; style/asset imports are not reported as unresolved; `CREATE VIRTUAL TABLE` is recognized.
 - Known limits: see `docs/capabilities.md`. No call graph, no OpenAPI/CI modeling yet, Python has no type inference.
 
 ### A05 (2026-10-26)
@@ -131,6 +131,7 @@ Phases 3–5: see plan §15; checklists added when Phase 2 completes.
   - A human claim stays supported, then turns stale after an edit.
   - An analyzer failure makes rows stale, and recovery restores the same count.
   - The integrity check catches corruption.
+- Open issues are counted per project, not per snapshot, so they stay visible across later scans until resolved (regression test in `server.test.ts`).
 - Manual: `atlas scan` on a scratch copy showed first snapshot, then no changes, then after a one-line edit: 1 entity added, 2 changed; 1 relation added, 3 changed.
 
 ## Environment record (2026-10-26)

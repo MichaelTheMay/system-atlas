@@ -148,8 +148,9 @@ export function buildServer(opts: ServerOptions): AtlasServer {
         .prepare('SELECT change_summary FROM snapshots WHERE id = ?')
         .get<{ change_summary: string | null }>(sid);
       const openIssues = opts.db
-        .prepare("SELECT count(*) AS n FROM issues WHERE snapshot_id = ? AND status = 'open'")
-        .get<{ n: number }>(sid)!.n;
+        // issues belong to the snapshot that detected them but stay open across later snapshots
+        .prepare("SELECT count(*) AS n FROM issues WHERE project_id = ? AND status = 'open'")
+        .get<{ n: number }>(latest.snapshot.projectId)!.n;
       return {
         ...latest,
         counts: { entitiesByKind, relationsByKind },
