@@ -19,18 +19,25 @@ Atlas runs entirely locally. No hosted service or model is required for analysis
 ```bash
 git clone https://github.com/MichaelTheMay/system-atlas.git
 cd system-atlas
-pnpm install
+pnpm install --frozen-lockfile
 pnpm exec playwright install chromium   # browser for e2e tests and evidence capture
 pnpm build                               # builds the web UI the daemon serves
-pnpm atlas doctor                        # checks Node, SQLite FTS5, grammars, Chromium
+export PATH="$PWD/bin:$PATH"             # puts the `atlas` command on PATH (add to your shell profile)
+atlas doctor                             # checks Node, SQLite FTS5, grammars, Chromium
 ```
+
+`bin/atlas` runs the CLI from this checkout and acts on your current directory. Without changing
+PATH, `pnpm --dir /path/to/system-atlas atlas <command>` does the same from any directory.
 
 ## Use
 
 ```bash
-pnpm atlas open /path/to/repo    # starts the local daemon and prints the UI URL
-pnpm atlas status --json
-pnpm atlas daemon stop
+cd /path/to/your/repo
+atlas open .        # starts the local daemon, registers the repo, prints the UI URL
+atlas scan .        # analyzes the repo and prints the snapshot, changes and coverage gaps
+atlas views list .  # the generated canvas catalog
+atlas status --json
+atlas daemon stop
 ```
 
 The printed URL carries a one-time token in its `#fragment`. The daemon listens on 127.0.0.1 only.
@@ -51,8 +58,11 @@ The demo is local only and uses fake data. It does the following:
 ## Record your own runs
 
 ```bash
-atlas run -o out/report.json -- node scripts/build-report.js   # logs, exit, outputs, assertions via the SDK
+cd /path/to/your/repo
+atlas run -o out/report.json -- node scripts/build-report.js
 ```
+
+This records logs, exit code, declared outputs and any SDK assertions. See [`docs/evidence.md`](docs/evidence.md).
 
 ## Develop
 

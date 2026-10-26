@@ -60,6 +60,10 @@ interface Registration {
   created: { project: boolean; worktree: boolean };
 }
 
+// `pnpm atlas …` runs from the Atlas checkout; act on the directory the user invoked it from.
+if (process.env.INIT_CWD && process.env.npm_lifecycle_event === 'atlas')
+  process.chdir(process.env.INIT_CWD);
+
 const paths = resolveAtlasPaths();
 const program = new Command();
 program
@@ -212,7 +216,7 @@ program
       `${reg.project.displayName}: snapshot ${snap.snapshot.id} ${snap.snapshot.state} in ${Date.now() - started} ms`,
     );
     console.log(
-      `  tree: ${snap.snapshot.dirty ? 'dirty (differs from HEAD)' : 'clean at HEAD'}${snap.snapshot.headCommit ? ` ${snap.snapshot.headCommit.slice(0, 12)}` : ''}`,
+      `  tree: ${!snap.snapshot.headCommit ? 'not a git checkout (no HEAD to compare)' : snap.snapshot.dirty ? `dirty (differs from HEAD ${snap.snapshot.headCommit.slice(0, 12)})` : `clean at HEAD ${snap.snapshot.headCommit.slice(0, 12)}`}`,
     );
     console.log(`  files analyzed: ${c.totals.files}`);
     console.log(
