@@ -195,9 +195,15 @@ describe('view stability', () => {
     c.canvases.map((x) => projectView(g, c, x.id));
 
   it('identical rescans cause no catalog or projection churn', async () => {
-    const s = await scanned('ts-web-service');
+    const s = await scanned('ts-web-service', true);
+    // a byte-identical tree is a no-op: the same snapshot comes back
+    expect((await s.scan()).r.snapshot.id).toBe(s.r.snapshot.id);
+    // a change outside every analyzer's inputs publishes new snapshots with identical views
+    writeFileSync(join(s.root, 'NOTES.md'), 'one');
     const second = await s.scan();
+    writeFileSync(join(s.root, 'NOTES.md'), 'two');
     const third = await s.scan();
+    expect(third.r.snapshot.id).not.toBe(second.r.snapshot.id);
     expect(strip(third.catalog)).toEqual(strip(second.catalog));
     expect(strip(allProjections(third.graph, third.catalog))).toEqual(
       strip(allProjections(second.graph, second.catalog)),
@@ -215,6 +221,7 @@ describe('view stability', () => {
     const f = join(s.root, 'packages/api/src/db.ts');
     writeFileSync(f, readFileSync(f, 'utf8') + '\n// touch\n');
     const afterEdit = await s.scan();
+    writeFileSync(join(s.root, 'NOTES.md'), 'unrelated');
     const again = await s.scan();
     expect(afterEdit.catalog.canvases.map((c) => c.id)).toEqual(
       again.catalog.canvases.map((c) => c.id),
@@ -223,6 +230,9 @@ describe('view stability', () => {
       projectView(x.graph, x.catalog, x.catalog.canvases.find((c) => c.lens === 'changes')!.id);
     expect(changes(afterEdit).nodes.some((n) => n.change === 'changed')).toBe(true);
     expect(changes(again).nodes).toEqual([]);
+    // a no-op rescan keeps the latest snapshot, so its change view is not wiped
+    const noop = await s.scan();
+    expect(noop.r.snapshot.id).toBe(again.r.snapshot.id);
   });
 });
 

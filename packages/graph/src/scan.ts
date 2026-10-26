@@ -55,6 +55,8 @@ export interface ScanResult {
     evidence: number;
     carriedForward: number;
   };
+  /** True when the tree, configuration and HEAD equal the latest ready snapshot: nothing was published. */
+  noop?: boolean;
 }
 
 interface Built {
@@ -102,6 +104,55 @@ export async function scanWorktree(
        ORDER BY published_at DESC, created_at DESC LIMIT 1`,
     )
     .get<{ id: string }>(worktree.id);
+
+  // An identical tree under identical configuration is the same snapshot: publish nothing (plan §9 skip no-ops).
+  if (previous) {
+    const p = db
+      .prepare(
+        'SELECT state, dirty_tree_digest, config_digest, head_commit, dirty, coverage_report_id FROM snapshots WHERE id = ?',
+      )
+      .get<{
+        state: string;
+        dirty_tree_digest: string;
+        config_digest: string;
+        head_commit: string | null;
+        dirty: number;
+        coverage_report_id: string | null;
+      }>(previous.id)!;
+    const dirty = inventory.git ? (inventory.git.dirty ? 1 : 0) : 1;
+    if (
+      p.state === 'ready' &&
+      p.dirty_tree_digest === digest &&
+      p.config_digest === configDigest &&
+      (p.head_commit ?? null) === (inventory.git?.head ?? null) &&
+      p.dirty === dirty &&
+      p.coverage_report_id
+    ) {
+      const cov = db
+        .prepare('SELECT body FROM coverage_reports WHERE id = ?')
+        .get<{ body: string }>(p.coverage_report_id)!;
+      const n = (sql: string) => db.prepare(sql).get<{ n: number }>(previous.id)!.n;
+      const zero = { added: 0, removed: 0, changed: 0, renamed: 0, stale: 0, restored: 0 };
+      return {
+        snapshot: getSnapshot(db, previous.id)!,
+        coverage: JSON.parse(cov.body) as CoverageReport,
+        changes: {
+          entities: { ...zero },
+          relations: { ...zero },
+          issues: 0,
+          previousSnapshotId: previous.id,
+        },
+        counts: {
+          files: inventory.files.length,
+          entities: n('SELECT count(*) AS n FROM entities WHERE snapshot_id = ?'),
+          relations: n('SELECT count(*) AS n FROM relations WHERE snapshot_id = ?'),
+          evidence: 0,
+          carriedForward: 0,
+        },
+        noop: true,
+      };
+    }
+  }
 
   const snapshotId = newId('snapshot');
   const createdAt = now().toISOString();
@@ -1092,4 +1143,54 @@ export function loadPlannerGraph(db: Db, snapshotId: string): PlannerGraph {
     gaps: cov ? (JSON.parse(cov.body) as CoverageReport).gaps : [],
     changes,
   };
+}
+
+/**
+ * Drop the graph rows of superseded snapshots (retention). Kept whole: the latest published snapshot,
+ * its predecessor (change review), and every snapshot a run references (runs are always shown against
+ * the snapshot they ran on). Compacted snapshots keep metadata, coverage, change rows and issues.
+ */
+export function compactSnapshots(db: Db, worktreeId: string): string[] {
+  const latest = db
+    .prepare(
+      "SELECT id, previous_snapshot_id FROM snapshots WHERE worktree_id = ? AND state IN ('ready','partial') ORDER BY published_at DESC LIMIT 1",
+    )
+    .get<{ id: string; previous_snapshot_id: string | null }>(worktreeId);
+  if (!latest) return [];
+  const victims = db
+    .prepare(
+      `SELECT s.id FROM snapshots s
+       WHERE s.worktree_id = ? AND s.compacted_at IS NULL AND s.state IN ('superseded','failed')
+         AND s.id != ? AND s.id != coalesce(?, '')
+         AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.snapshot_id = s.id)`,
+    )
+    .all<{ id: string }>(worktreeId, latest.id, latest.previous_snapshot_id)
+    .map((r) => r.id);
+  if (victims.length === 0) return [];
+  db.transaction(() => {
+    for (const id of victims) {
+      for (const table of [
+        'entities',
+        'relations',
+        'claims',
+        'snapshot_files',
+        'canvases',
+        'canvas_links',
+      ]) {
+        db.prepare(`DELETE FROM ${table} WHERE snapshot_id = ?`).run(id);
+      }
+      db.prepare('DELETE FROM entity_search WHERE snapshot_id = ?').run(id);
+      db.prepare('UPDATE snapshots SET compacted_at = ? WHERE id = ?').run(
+        new Date().toISOString(),
+        id,
+      );
+    }
+  });
+  return victims;
+}
+
+export function isCompacted(db: Db, snapshotId: string): boolean {
+  return !!db
+    .prepare('SELECT compacted_at FROM snapshots WHERE id = ?')
+    .get<{ compacted_at: string | null }>(snapshotId)?.compacted_at;
 }

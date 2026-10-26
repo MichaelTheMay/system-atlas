@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -231,10 +231,10 @@ describe('scan API', () => {
   });
 
   it('serves the change summary of a rescan', async () => {
-    const rootPath = new URL('../../../fixtures/py-cli-api', import.meta.url).pathname.replace(
-      /\/$/,
-      '',
-    );
+    const rootPath = join(await mkdtemp(join(tmpdir(), 'atlas-rescan-')), 'py-cli-api');
+    await cp(new URL('../../../fixtures/py-cli-api', import.meta.url).pathname, rootPath, {
+      recursive: true,
+    });
     const reg = await app.inject({
       method: 'POST',
       url: '/api/v1/projects',
@@ -243,6 +243,7 @@ describe('scan API', () => {
     });
     const wt = reg.json().worktree.id as string;
     for (let i = 0; i < 2; i++) {
+      if (i) await writeFile(join(rootPath, 'NOTES.md'), 'changed');
       await app.inject({ method: 'POST', url: `/api/v1/worktrees/${wt}/scans`, headers: auth });
       await lastServer.jobs.idle();
     }

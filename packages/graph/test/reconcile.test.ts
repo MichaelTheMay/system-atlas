@@ -235,10 +235,11 @@ describe('reconciliation', () => {
   });
 
   it('reports stale changes when an analyzer fails, and restores them when it recovers', async () => {
-    const { db, worktree } = await setup();
+    const { db, worktree, root } = await setup();
     const broken = defaultAnalyzers().map((a): Analyzer =>
       a.id === 'generic-docker' ? { ...a, extract: () => Promise.reject(new Error('boom')) } : a,
     );
+    writeFileSync(join(root, 'NOTES.md'), 'a change, so the rescan is not a no-op');
     const failed = await scanWorktree(db, worktree, { analyzers: broken });
     expect(failed.changes.entities.stale).toBeGreaterThan(0);
     expect(failed.changes.entities.removed).toBe(0);
