@@ -7,6 +7,7 @@ import { resolveAtlasPaths } from '@atlas/schema/node';
 import { isProcessAlive, readDiscovery } from '@atlas/daemon/discovery';
 import { ensureDaemon, findDaemon } from './client.ts';
 import { runDoctor } from './doctor.ts';
+import { registerBoardCommands } from './board.ts';
 import { registerDesignCommands } from './design.ts';
 
 interface CatalogResponse {
@@ -670,5 +671,6 @@ program
   );
 
 registerDesignCommands(program, paths);
+registerBoardCommands(program, paths);
 
 await program.parseAsync();
