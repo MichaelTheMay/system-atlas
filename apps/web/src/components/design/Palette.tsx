@@ -77,21 +77,28 @@ export function WhiteboardLayer({
   /** Click-to-add: the new node lands in the middle of the visible canvas, nudged per click. */
   const addAt = async (tool: PaletteTool) => {
     const id = await addTool(tool);
-    if (id) place(id, freeSpot());
+    if (!id) return;
+    const spot = freeSpot();
+    place(id, spot);
+    // no free room on screen: the node went below the board, so bring it into view
+    if (spot.offscreen)
+      void flow.setCenter(spot.x + 115, spot.y + 50, { zoom: flow.getZoom(), duration: 0 });
   };
   /**
    * Click-to-add: the first free spot of the visible canvas, scanning rows from the top middle
-   * outwards, clear of other nodes and of the palette; else the top middle.
+   * outwards, clear of other nodes and of the palette; else below the lowest node (never under
+   * the palette, which would make it unclickable).
    */
   const freeSpot = () => {
     const r = document.querySelector('.react-flow')?.getBoundingClientRect();
-    if (!r) return { x: 0, y: 0 };
+    if (!r) return { x: 0, y: 0, offscreen: false };
     const tl = flow.screenToFlowPosition({ x: r.left + 16, y: r.top + 16 });
     const br = flow.screenToFlowPosition({ x: r.right - 16, y: r.bottom - 16 });
     const taken = flow.getNodes().map((n) => {
       const p = flow.getInternalNode(n.id)?.internals.positionAbsolute ?? n.position;
       return { x: p.x, y: p.y, w: n.measured?.width ?? 220, h: n.measured?.height ?? 80 };
     });
+    const bottom = Math.max(0, ...taken.map((t) => t.y + t.h));
     // the palette and the minimap float over the canvas: never drop a node underneath them
     for (const sel of ['.wb-palette', '.react-flow__minimap']) {
       const pr = document.querySelector(sel)?.getBoundingClientRect();
@@ -113,8 +120,9 @@ export function WhiteboardLayer({
       (_, i) => mid + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * (W + 20),
     ).filter((x) => x >= tl.x && x + W <= br.x);
     for (let y = tl.y + 20; y + H <= br.y; y += H + 20)
-      for (const x of xs) if (free(x, y)) return { x: Math.round(x), y: Math.round(y) };
-    return { x: Math.round(mid), y: Math.round(tl.y + 20) };
+      for (const x of xs)
+        if (free(x, y)) return { x: Math.round(x), y: Math.round(y), offscreen: false };
+    return { x: Math.round(mid), y: Math.round(bottom + 40), offscreen: true };
   };
   const addTool = (tool: PaletteTool) =>
     tool.kind === 'box'

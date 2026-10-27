@@ -92,6 +92,8 @@ test('draw a planned box, connect it, rename with undo/redo; drift is marked', a
   await expect(page.locator('.edge-label.wb-flow.undrawn', { hasText: /^HTTP/ })).toHaveCount(0);
 
   // a drawn flow is selected by its label; Delete removes it and Ctrl+Z brings it back
+  // (once the adopt has been saved and the board reloaded: Undo is disabled while busy)
+  await expect(page.getByRole('button', { name: 'Undo' })).toBeEnabled();
   await drawn.click();
   await page.keyboard.press('Delete');
   await expect(page.locator('.edge-label.wb-flow', { hasText: 'REST' })).toHaveCount(0);
@@ -100,7 +102,8 @@ test('draw a planned box, connect it, rename with undo/redo; drift is marked', a
     'drawn, not found in code',
   );
 
-  // inline rename: double-click the label
+  // inline rename: double-click the label (after the undo has reloaded the board)
+  await expect(page.getByRole('button', { name: 'Undo' })).toBeEnabled();
   await box.locator('.node-label').dblclick();
   const rename = page.getByRole('textbox', { name: 'Rename New API service' });
   await rename.fill('Billing API');
