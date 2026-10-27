@@ -391,6 +391,134 @@ export function createAtlasMcpServer(opts: AtlasMcpOptions): McpServer {
     false,
   );
 
+  // ---------------------------------------------------------------- proposals
+
+  const citation = z.union([
+    z.object({ evidenceId: z.string().regex(/^evd_[0-9a-f]{16,64}$/) }).strict(),
+    z
+      .object({
+        path: z.string().min(1).max(1000).describe('repository-relative file path'),
+        startLine: z.number().int().positive(),
+        endLine: z.number().int().positive(),
+        quote: z
+          .string()
+          .min(1)
+          .max(400)
+          .optional()
+          .describe('text that must appear in those lines'),
+      })
+      .strict(),
+  ]);
+
+  tool(
+    'atlas_propose_claims',
+    [
+      'Propose labeled claims about entities, each citing evidence from the snapshot you read (snapshotId precondition).',
+      'Predicates: summary, responsibility, subsystem (name), role (entrypoint|api|worker|library|storage|ui|test|config|tooling|other),',
+      'concern, depends-on ({ entityId, reason }). Cite evidenceIds from atlas_get_evidence or file ranges (path, startLine, endLine, optional quote).',
+      'Accepted claims are stored as "inferred" (never as supported facts, never as relations) and become stale when cited files change.',
+      'Claims with invented or mismatched evidence are rejected with reasons. If the snapshot is no longer current you get stale_precondition: re-read and retry.',
+    ].join(' '),
+    z.object({
+      snapshotId: z.string().regex(/^snap_[0-9a-f]{16,64}$/),
+      claims: z
+        .array(
+          z.object({
+            subjectId: z.string().regex(/^(ent|rel)_[0-9a-f]{16,64}$/),
+            predicate: z.enum([
+              'summary',
+              'responsibility',
+              'subsystem',
+              'role',
+              'concern',
+              'depends-on',
+            ]),
+            value: z.unknown(),
+            citations: z.array(citation).min(1).max(10),
+            rationale: z.string().max(500).optional().describe('short explanation for reviewers'),
+          }),
+        )
+        .min(1)
+        .max(25),
+      model: z
+        .string()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe('your model name, if you know it (recorded as reported)'),
+    }),
+    async ({ snapshotId, claims, model }) => {
+      // never invent metadata: record what the client reported at initialize, or "unknown"
+      const client = server.server.getClientVersion();
+      const reported = model ?? (client ? `${client.name}@${client.version}` : 'unknown');
+      const r = await api<Record<string, any>>('/proposals/claims', {
+        method: 'POST',
+        body: JSON.stringify({
+          snapshotId,
+          origin: 'model',
+          claims,
+          modelMetadata: {
+            provider: 'mcp-client',
+            model: reported,
+            promptTemplateVersion: 'agent-authored',
+          },
+        }),
+      });
+      return { proposalId: r.proposalId, accepted: r.accepted, rejected: r.rejected };
+    },
+    false,
+  );
+
+  tool(
+    'atlas_annotate',
+    'Attach a short note to an entity, shown in the UI on the canvas that best shows it, labeled as written by an agent.',
+    z.object({
+      entityId: z.string().regex(/^ent_[0-9a-f]{16,64}$/),
+      text: z.string().min(1).max(2000),
+    }),
+    async ({ entityId, text }) => {
+      const { projectId } = await project();
+      const sid = await latestSnapshotId();
+      const { canvasId } = await api<{ canvasId: string }>(
+        `/snapshots/${sid}/entities/${entityId}/canvas`,
+      );
+      const p = await api<{ viewId: string }>(`/snapshots/${sid}/canvases/${canvasId}/projection`);
+      const client = server.server.getClientVersion();
+      const id = `ann_${crypto.randomUUID().replaceAll('-', '')}`;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const o = await api<Record<string, any>>(
+          `/views/${p.viewId}/overlay?project=${projectId}&snapshot=${sid}`,
+        );
+        const next = {
+          ...o,
+          annotations: [
+            ...o.annotations,
+            {
+              id,
+              targetId: entityId,
+              text,
+              createdAt: new Date().toISOString(),
+              author: 'agent',
+              authorName: client?.name ?? 'agent',
+            },
+          ],
+        };
+        const res = await fetch(`${opts.daemon.baseUrl}/api/v1/views/${p.viewId}/overlay`, {
+          method: 'PUT',
+          headers: {
+            authorization: `Bearer ${opts.daemon.token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify(next),
+        });
+        if (res.ok) return { annotationId: id, viewId: p.viewId, canvasId };
+        if (res.status !== 409) throw new ToolError(`could not save the note: HTTP ${res.status}`);
+      }
+      throw new ToolError('the view was being edited concurrently; try again');
+    },
+    false,
+  );
+
   // ---------------------------------------------------------------- runs (read)
 
   tool(

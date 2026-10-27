@@ -83,6 +83,7 @@ describe('atlas mcp (stdio, as an external agent)', () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
+      'atlas_annotate',
       'atlas_finish_run',
       'atlas_get_artifact_metadata',
       'atlas_get_entity',
@@ -93,6 +94,7 @@ describe('atlas mcp (stdio, as an external agent)', () => {
       'atlas_list_runs',
       'atlas_list_views',
       'atlas_project_status',
+      'atlas_propose_claims',
       'atlas_record_artifact',
       'atlas_record_event',
       'atlas_refresh',
@@ -243,5 +245,76 @@ describe('atlas mcp (stdio, as an external agent)', () => {
     expect(() =>
       localDaemon({ ATLAS_RUNTIME_DIR: join(runtimeDir, 'nope'), ATLAS_DATA_DIR: '/tmp/x' }),
     ).toThrow(/no running Atlas daemon/);
+  });
+
+  it('proposes cited claims (invented evidence rejected) and annotates as an agent', async () => {
+    const status = await call('atlas_project_status');
+    const { hits } = await call('atlas_search', { query: 'db', kind: 'module' });
+    const dbId = hits.find((h: any) => h.path === 'packages/api/src/db.ts').id;
+    const r = await call('atlas_propose_claims', {
+      snapshotId: status.snapshot.id,
+      claims: [
+        {
+          subjectId: dbId,
+          predicate: 'role',
+          value: 'storage',
+          citations: [{ path: 'packages/api/src/db.ts', startLine: 1, endLine: 3 }],
+          rationale: 'issues SQL',
+        },
+        {
+          subjectId: dbId,
+          predicate: 'summary',
+          value: 'Talks to Redis.',
+          citations: [{ path: 'packages/api/src/redis.ts', startLine: 1, endLine: 2 }],
+        },
+      ],
+    });
+    expect(r.accepted).toEqual([expect.objectContaining({ index: 0, status: 'inferred' })]);
+    expect(r.rejected[0]).toMatchObject({
+      index: 1,
+      reasons: [expect.stringMatching(/not part of this snapshot/)],
+    });
+    const entity = await call('atlas_get_entity', { entityId: dbId });
+    expect(entity.claims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          predicate: 'role',
+          origin: 'model',
+          status: 'inferred',
+          value: 'storage',
+        }),
+      ]),
+    );
+    expect(
+      (
+        await call('atlas_propose_claims', {
+          snapshotId: 'snap_' + '0'.repeat(32),
+          claims: [
+            {
+              subjectId: dbId,
+              predicate: 'role',
+              value: 'api',
+              citations: [{ path: 'packages/api/src/db.ts', startLine: 1, endLine: 1 }],
+            },
+          ],
+        })
+      ).error,
+    ).toMatch(/unknown_snapshot/);
+
+    const note = await call('atlas_annotate', { entityId: dbId, text: 'Inserts have no retry.' });
+    expect(note.annotationId).toMatch(/^ann_/);
+    const overlay: any = await (
+      await fetch(`http://127.0.0.1:${port}/api/v1/views/${note.viewId}/overlay`, {
+        headers: { authorization: `Bearer ${token}` },
+      })
+    ).json();
+    expect(overlay.annotations).toEqual([
+      expect.objectContaining({
+        targetId: dbId,
+        text: 'Inserts have no retry.',
+        author: 'agent',
+        authorName: 'atlas-test-agent',
+      }),
+    ]);
   });
 });

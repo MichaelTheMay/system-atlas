@@ -7,3 +7,4 @@ export * from './scan.ts';
 export * from './reconcile.ts';
 export * from './issues.ts';
 export * from './search.ts';
+export * from './proposals.ts';

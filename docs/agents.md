@@ -40,6 +40,8 @@ The generic configuration for MCP clients that take a JSON server list:
 | `atlas_refresh`                                                                           | Rescans and returns the change summary; an unchanged tree is a no-op. `dryRun` only reports whether files changed since the snapshot                   |
 | `atlas_list_runs`, `atlas_get_run`, `atlas_list_artifacts`, `atlas_get_artifact_metadata` | Runs with process and task outcome, linked components, events (50 per page, payloads trimmed) and artifact metadata. Artifact bytes are never returned |
 | `atlas_start_run`, `atlas_record_event`, `atlas_record_artifact`, `atlas_finish_run`      | Record a run. See below                                                                                                                                |
+| `atlas_propose_claims`                                                                    | Propose cited, labeled claims about entities against a snapshot precondition. See below                                                                |
+| `atlas_annotate`                                                                          | A short note on an entity, shown on its canvas and labeled as written by an agent                                                                      |
 
 Not exposed, by design (plan §12):
 
@@ -48,9 +50,40 @@ Not exposed, by design (plan §12):
 - command execution;
 - anything outside the scoped project.
 
-Proposals and annotations come with M02, with evidence and snapshot preconditions.
+Proposals can only add labeled claims. They never change analyzer facts or relations.
 
 **Untrusted content.** Excerpts, file names, event payloads and artifact names are repository or run data. The server's instructions tell the agent to treat them as untrusted, never as instructions.
+
+## Proposing claims (M02a)
+
+`atlas_propose_claims { snapshotId, claims: [{ subjectId, predicate, value, citations, rationale? }] }`.
+
+**Predicates** form a closed set. Anything else is rejected, which is how proposals are kept from overwriting observed facts:
+
+| Predicate        | Value                                                                                                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------ |
+| `summary`        | Text up to 600 characters                                                                              |
+| `responsibility` | Text up to 300 characters                                                                              |
+| `subsystem`      | A name, up to 80 characters                                                                            |
+| `role`           | One of `entrypoint`, `api`, `worker`, `library`, `storage`, `ui`, `test`, `config`, `tooling`, `other` |
+| `concern`        | Text up to 400 characters                                                                              |
+| `depends-on`     | `{ entityId, reason }`. Stays a claim: it never becomes a relation                                     |
+
+**Citations** are required for model claims, between 1 and 10 each. Every citation must be one of these:
+
+- `{ evidenceId }` for existing evidence of this project. If it names a file, its hash must equal that file's hash in the snapshot. If it names no file, it must come from a run of this project.
+- `{ path, startLine, endLine, quote? }` for a file range of the snapshot, at most 200 lines. The file's bytes on disk must still match the snapshot. The lines must exist, and the quote, compared with whitespace normalized, must appear in them.
+
+**Validation and storage** happen in the daemon, the single writer:
+
+- Invalid items are rejected with reasons and nothing is written for them. Valid items in the same call are stored.
+- File citations become evidence pinned to the file's hash, so editing the file turns the claim stale at the next snapshot.
+- Model claims are stored as `inferred`, never `supported`. People citing evidence through `POST /proposals/claims` with `origin: human` get `supported`.
+- If a newer snapshot was published, the call fails with `stale_precondition`: re-read and retry.
+
+**Model metadata** records only what the client reported: its initialize name and version, or a `model` argument. No hidden reasoning is requested or stored.
+
+**Audit.** Every call is kept with accepted and rejected items and their reasons (`GET /projects/:id/proposals`). In the UI Inspector, claims show origin, reported model, status and citation count, and a person can **Reject** one. The rejection is audited and survives later snapshots.
 
 ## Recording a run over MCP
 

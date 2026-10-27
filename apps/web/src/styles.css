@@ -1461,3 +1461,24 @@ button.badge.issues {
 .canvas-header .icon-btn {
   white-space: nowrap;
 }
+
+/* Claims (M02a) */
+.muted.small,
+.small {
+  font-size: 12px;
+}
+.plain-list.claims li {
+  margin-bottom: 6px;
+}
+.tag.st-rejected {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+.claim.claim-rejected > strong {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.plain-list.claims .link {
+  margin-left: 6px;
+  font-size: 12px;
+}

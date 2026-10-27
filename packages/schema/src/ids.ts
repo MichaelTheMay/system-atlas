@@ -23,6 +23,7 @@ export const ID_PREFIXES = {
   correlation: 'cor',
   assertion: 'asr',
   issue: 'iss',
+  proposal: 'prp',
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

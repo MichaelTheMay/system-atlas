@@ -7,6 +7,9 @@ import {
   getSnapshot,
   isCompacted,
   listIssues,
+  listProposals,
+  proposeClaims,
+  rejectClaim,
   resolveIssue,
   searchEntities,
   getWorktree,
@@ -210,6 +213,41 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     });
     return r;
   });
+
+  /** Claims proposed by an agent/model or a person; validated against the precondition snapshot. */
+  app.post(`${API_PREFIX}/proposals/claims`, async (req, reply) => {
+    const r = await proposeClaims(opts.db, req.body);
+    if (!r.ok) return reply.code(r.status).send({ error: r.error });
+    const snap = getSnapshot(opts.db, (req.body as { snapshotId: string }).snapshotId);
+    bus.publish({
+      type: 'claims.proposed',
+      data: {
+        proposalId: r.proposalId,
+        projectId: snap?.projectId,
+        worktreeId: snap?.worktreeId,
+        accepted: r.accepted.length,
+        rejected: r.rejected.length,
+      },
+    });
+    return r;
+  });
+
+  app.post<{ Params: { id: string }; Body: { reason?: unknown } }>(
+    `${API_PREFIX}/claims/:id/reject`,
+    async (req, reply) => {
+      const r = rejectClaim(opts.db, req.params.id, String(req.body?.reason ?? ''));
+      if (!r.ok) return reply.code(r.status).send({ error: r.error });
+      bus.publish({ type: 'claims.reviewed', data: { claimId: req.params.id } });
+      return r;
+    },
+  );
+
+  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
+    `${API_PREFIX}/projects/:id/proposals`,
+    async (req) => ({
+      proposals: listProposals(opts.db, req.params.id, Number(req.query.limit) || 50),
+    }),
+  );
 
   /** Whether the working tree differs from the latest snapshot (hashes the eligible files; no scan). */
   app.get<{ Params: { id: string } }>(

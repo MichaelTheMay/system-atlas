@@ -104,6 +104,37 @@ paths:
         '400': { description: Invalid body or ids that are not candidates of this issue }
         '404': { description: Unknown issue }
         '409': { description: Issue not open, or a candidate already linked }
+  /api/v1/proposals/claims:
+    post:
+      summary: >-
+        Propose claims (origin model or human) against a snapshot precondition. Every citation is
+        verified (existing evidence of the snapshot/project, or a file range whose bytes and quote
+        match). Model claims are stored as inferred; invalid items are rejected with reasons; every
+        call is audited. See docs/agents.md.
+      responses:
+        '200':
+          {
+            description: '{ ok, proposalId, accepted: [{ index, claimId, status }], rejected: [{ index, reasons }] }',
+          }
+        '400': { description: Invalid batch (shape, predicate, missing model metadata) }
+        '404': { description: Unknown snapshot }
+        '409': { description: 'stale_precondition: the snapshot is no longer the latest' }
+  /api/v1/claims/{id}/reject:
+    post:
+      summary: A person rejects a claim; the rejection is audited and survives later snapshots
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: '{ ok }' }
+        '404': { description: Unknown claim }
+        '409': { description: Already rejected }
+  /api/v1/projects/{id}/proposals:
+    get:
+      summary: Audit of claim proposals and reviews, newest first (accepted and rejected items with reasons)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200 } }
+      responses:
+        '200': { description: '{ proposals }' }
   /api/v1/worktrees/{id}/freshness:
     get:
       summary: Whether the working tree differs from the latest snapshot (hashes eligible files; no scan)

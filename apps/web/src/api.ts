@@ -221,7 +221,18 @@ export interface EntityDetailsDto {
     evidenceCount: number;
   }[];
   evidence: EvidenceDto[];
-  claims: { id: string; predicate: string; origin: string; status: string; value: unknown }[];
+  claims: {
+    id: string;
+    predicate: string;
+    origin: string;
+    status: string;
+    value: unknown;
+    evidenceCount: number;
+    /** Model name as reported by the proposing client. */
+    model?: string;
+    /** Display name of a depends-on claim's target. */
+    targetName?: string;
+  }[];
   runs: {
     id: string;
     status: string;
@@ -267,7 +278,14 @@ export interface OverlayDto {
   /** Last automatic positions of top-level nodes; absent in overlays saved before M01c. */
   autoPositions?: Record<string, { x: number; y: number }>;
   pinnedIds: string[];
-  annotations: { id: string; targetId?: string; text: string; createdAt: string }[];
+  annotations: {
+    id: string;
+    targetId?: string;
+    text: string;
+    createdAt: string;
+    author?: 'user' | 'agent';
+    authorName?: string;
+  }[];
   displayOverrides: Record<string, { label?: string; collapsed?: boolean; hidden?: boolean }>;
   viewport: { x: number; y: number; zoom: number };
   revision: number;

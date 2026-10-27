@@ -12,9 +12,10 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@atlas/analyzers": "workspace:*",
+    "@atlas/planner": "workspace:*",
     "@atlas/schema": "workspace:*",
     "@atlas/store": "workspace:*",
-    "@atlas/analyzers": "workspace:*",
-    "@atlas/planner": "workspace:*"
+    "zod": "4.6.7"
   }
 }

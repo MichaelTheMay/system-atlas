@@ -130,6 +130,9 @@ export const ViewOverlay = z
         text: z.string().max(10_000),
         position: Point.optional(),
         createdAt: Timestamp,
+        /** Notes written by an agent through MCP are labeled as such; absent means a person. */
+        author: z.enum(['user', 'agent']).optional(),
+        authorName: z.string().max(100).optional(),
       }),
     ),
     displayOverrides: z.record(

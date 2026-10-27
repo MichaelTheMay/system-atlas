@@ -71,13 +71,33 @@ export function entityDetails(db: Db, snapshotId: string, entityId: string) {
       snapshotId,
       entityId,
     )
-    .map((c) => ({
-      id: c.id,
-      predicate: c.predicate,
-      origin: c.origin,
-      status: c.status,
-      value: (JSON.parse(c.body) as { value: unknown }).value,
-    }));
+    .map((c) => {
+      const body = JSON.parse(c.body) as {
+        value: unknown;
+        evidenceIds?: string[];
+        modelMetadata?: { provider: string; model: string };
+      };
+      const target =
+        c.predicate === 'depends-on' &&
+        typeof (body.value as { entityId?: unknown })?.entityId === 'string'
+          ? db
+              .prepare('SELECT display_name FROM entities WHERE snapshot_id = ? AND id = ?')
+              .get<{ display_name: string }>(
+                snapshotId,
+                (body.value as { entityId: string }).entityId,
+              )?.display_name
+          : undefined;
+      return {
+        id: c.id,
+        predicate: c.predicate,
+        origin: c.origin,
+        status: c.status,
+        value: body.value,
+        evidenceCount: body.evidenceIds?.length ?? 0,
+        model: body.modelMetadata?.model,
+        targetName: target,
+      };
+    });
   const lastChange = db
     .prepare(
       `SELECT c.snapshot_id, c.change, c.detail, s.published_at FROM snapshot_changes c JOIN snapshots s ON s.id = c.snapshot_id
