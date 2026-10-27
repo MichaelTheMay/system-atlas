@@ -2,6 +2,12 @@ import { memo } from 'react';
 import { Handle, Position, useStore, type Node, type NodeProps } from '@xyflow/react';
 import type { ProjectionNodeDto } from '../api.ts';
 import { ARCHETYPE_ICON, archetypeLabel } from './design/archetypes.tsx';
+import {
+  DesignNodeTags,
+  EditableLabel,
+  StickyNode,
+  designNodeClasses,
+} from './design/DesignElementNode.tsx';
 
 export type AtlasNodeData = ProjectionNodeDto & {
   pinned?: boolean;
@@ -34,7 +40,12 @@ const KIND_ICON: Record<string, string> = {
 const useDetailed = () => useStore((s) => s.transform[2] >= 0.6);
 
 export const AtlasNode = memo(function AtlasNode(props: NodeProps<AtlasFlowNode>) {
-  return props.data.archetype ? <DesignNode {...props} /> : <CodeNode {...props} />;
+  // drawn elements (D02a) are whiteboard boxes even before they have an archetype (empty subsystem)
+  return props.data.archetype || props.data.designElementId ? (
+    <DesignNode {...props} />
+  ) : (
+    <CodeNode {...props} />
+  );
 });
 
 const CodeNode = memo(function CodeNode({ data, selected }: NodeProps<AtlasFlowNode>) {
@@ -114,18 +125,19 @@ const CodeNode = memo(function CodeNode({ data, selected }: NodeProps<AtlasFlowN
  * The caption is always shown (not zoom-gated) because it is the point of the lens; the reason the
  * archetype was chosen is the tooltip.
  */
-const DesignNode = memo(function DesignNode({ data, selected }: NodeProps<AtlasFlowNode>) {
+const DesignNode = memo(function DesignNode({ id, data, selected }: NodeProps<AtlasFlowNode>) {
   const k = data.kind;
-  const a = data.archetype!;
+  const a = data.archetype ?? 'service';
   const classes = [
     'atlas-node',
     'design-node',
     `k-${k}`,
-    `arch-${a}`,
+    data.archetype ? `arch-${a}` : '',
     data.provenance ? `from-${data.provenance}` : '',
     data.lifecycle ? `lc-${data.lifecycle}` : '',
     selected ? 'selected' : '',
     data.containsSelection ? 'contains-selection' : '',
+    designNodeClasses(data), // whiteboard (D02a): unbound, ghost, stale binding
   ]
     .filter(Boolean)
     .join(' ');
@@ -146,8 +158,9 @@ const DesignNode = memo(function DesignNode({ data, selected }: NodeProps<AtlasF
         <span className="node-icon arch-icon" aria-hidden>
           {k === 'cluster' ? '⊞' : (ARCHETYPE_ICON[a] ?? '•')}
         </span>
-        <span className="node-label">{data.label}</span>
-        {data.pinned && (
+        <EditableLabel data={data} nodeId={id} />
+        {/* drawn elements are placed where they were dropped: no pin marker */}
+        {data.pinned && !data.designElementId && (
           <span className="node-flag" title="Pinned position" aria-label="pinned">
             📌
           </span>
@@ -164,11 +177,13 @@ const DesignNode = memo(function DesignNode({ data, selected }: NodeProps<AtlasF
       </div>
       <div className="node-meta">
         <span className="node-archetype">{caption}</span>
-        {data.provenance && data.provenance !== 'detected' && (
+        {/* a planned (unbound) box says so in its own tag below */}
+        {data.provenance && data.provenance !== 'detected' && !data.unbound && (
           <span className={`prov prov-${data.provenance}`}>{data.provenance}</span>
         )}
         {data.lifecycle === 'stale' && <span className="tag tag-stale">stale</span>}
       </div>
+      <DesignNodeTags data={data} />
       <Handle type="source" position={Position.Right} className="handle" />
     </div>
   );
@@ -188,7 +203,7 @@ export const GroupNode = memo(function GroupNode({ data }: NodeProps<GroupFlowNo
   );
 });
 
-export const nodeTypes = { atlas: AtlasNode, 'group-box': GroupNode };
+export const nodeTypes = { atlas: AtlasNode, 'group-box': GroupNode, sticky: StickyNode };
 
 export const NODE_SIZE: Record<string, { width: number; height: number }> = {
   entity: { width: 190, height: 56 },
@@ -204,4 +219,7 @@ export const DESIGN_NODE_SIZE: Record<string, { width: number; height: number }>
   cluster: { width: 230, height: 70 },
   aggregate: { width: 210, height: 64 },
   port: { width: 190, height: 56 },
+  /** Whiteboard (D02a): drawn boxes and sticky notes. */
+  design: { width: 210, height: 84 },
+  sticky: { width: 180, height: 96 },
 };

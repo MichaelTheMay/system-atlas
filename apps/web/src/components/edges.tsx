@@ -21,7 +21,12 @@ export type AtlasFlowEdge = Edge<AtlasEdgeData, 'atlas'>;
  * the fan-out at the source so flows leaving one box do not stack, and clear of the target box.
  * Mirrors React Flow's control points for Right→Left handles when the target is to the right.
  */
-function flowLabelPoint(p: { sourceX: number; sourceY: number; targetX: number; targetY: number }) {
+export function flowLabelPoint(p: {
+  sourceX: number;
+  sourceY: number;
+  targetX: number;
+  targetY: number;
+}) {
   const t = 0.6;
   const d = p.targetX - p.sourceX;
   if (d <= 0) return undefined;
