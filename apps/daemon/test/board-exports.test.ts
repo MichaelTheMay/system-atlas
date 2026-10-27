@@ -127,6 +127,25 @@ describe('design board exports and from-code import (D03 wave 1b)', () => {
     );
     const conns = Object.values(b.document.connections) as any[];
     expect(conns.length).toBeGreaterThan(0);
+    // flow labels become protocols (and payloads when they say more than the protocol)
+    const label = (id: string) => b.document.components[id].label;
+    expect(conns.find((k) => label(k.from) === 'web' && label(k.to) === 'api')).toMatchObject({
+      protocol: 'HTTP',
+      mode: 'sync',
+    });
+    expect(
+      conns.find((k) => label(k.from) === 'web' && label(k.to) === 'api').payload,
+    ).toBeUndefined();
+    expect(conns.find((k) => label(k.from) === 'api' && label(k.to) === 'db')).toMatchObject({
+      protocol: 'SQL',
+      payload: 'reads/writes',
+    });
+    expect(conns.find((k) => k.payload === 'enqueue')).toMatchObject({
+      mode: 'async',
+      direction: 'one-way',
+    });
+    expect(comps.find((c) => c.label === 'db')?.type).toBe('sql-db');
+    expect(comps.find((c) => c.label === 'worker')?.type).toBe('worker');
     for (const k of conns) {
       expect(b.document.components[k.from]).toBeDefined();
       expect(b.document.components[k.to]).toBeDefined();

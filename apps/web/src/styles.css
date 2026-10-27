@@ -2279,9 +2279,6 @@ button.badge.issues {
 .seq-svg {
   max-height: 60vh;
 }
-.seq-svg svg {
-  max-width: none;
-}
 .seq-view.seq-large {
   position: fixed;
   inset: 48px 64px;
@@ -2310,4 +2307,20 @@ button.badge.issues {
 }
 .present-bar .player-text {
   min-width: 220px;
+}
+/* laser on while presenting: Excalidraw is in zen mode with its laser tool; hide the shape tools */
+.board-presenting .excalidraw .App-menu_top .shapes-section,
+.board-presenting .excalidraw .App-toolbar-container {
+  display: none;
+}
+.seq-large .seq-svg {
+  overflow: auto;
+  place-items: safe center;
+}
+.seq-large .seq-svg svg {
+  max-width: 100%;
+  height: auto;
+}
+.seq-view:not(.seq-large) .seq-svg {
+  cursor: zoom-in;
 }

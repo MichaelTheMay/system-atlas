@@ -45,6 +45,16 @@ export function SequenceView({ scenario }: { scenario: Scenario }) {
     };
   }, [text]);
 
+  // Esc closes the enlarged view
+  useEffect(() => {
+    if (!large) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLarge(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [large]);
+
   return (
     <div
       className={`seq-view${large ? ' seq-large' : ''}`}
@@ -75,7 +85,12 @@ export function SequenceView({ scenario }: { scenario: Scenario }) {
           <pre className="seq-source">{text}</pre>
         </>
       ) : svg ? (
-        <div className="seq-svg" dangerouslySetInnerHTML={{ __html: svg }} />
+        <div
+          className="seq-svg"
+          title={large ? undefined : 'Enlarge'}
+          onClick={() => setLarge(true)}
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
       ) : (
         <p className="board-loading">Rendering…</p>
       )}

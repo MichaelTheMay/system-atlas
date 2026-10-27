@@ -78,14 +78,20 @@ export function boardSpecFromProjection(p: Projection, date = new Date()): Board
     const from = idOf.get(e.source);
     const to = idOf.get(e.target);
     if (!from || !to || from === to) continue;
+    const fields = flowFields(e.flow);
+    // the flow label is the payload, unless it only repeats the protocol ("HTTP")
+    const payload =
+      e.flow && e.flow.toLowerCase() !== fields.protocol?.toLowerCase()
+        ? e.flow.slice(0, 120)
+        : undefined;
     connections.push({
       id: localKey(`k-${from}-${to}`, conUsed),
       from,
       to,
       mode: 'sync',
       direction: 'request-response',
-      ...flowFields(e.flow),
-      ...(e.flow ? { payload: e.flow.slice(0, 120) } : {}),
+      ...fields,
+      ...(payload ? { payload } : {}),
       origin: code,
       status: 'active',
     });

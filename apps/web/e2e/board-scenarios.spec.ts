@@ -201,6 +201,21 @@ test('export SVG with text, and present mode with frames as slides', async ({ pa
   // fonts are inlined so the text renders outside Atlas
   expect(svg).toContain('@font-face');
 
+  // Markdown design doc + PNG as one zip (stored entries: names and bytes readable as is)
+  await board.getByRole('button', { name: 'Export ▾' }).click();
+  const [zipDl] = await Promise.all([
+    page.waitForEvent('download'),
+    board.getByRole('menuitem', { name: 'Markdown design doc + PNG (.zip)' }).click(),
+  ]);
+  expect(zipDl.suggestedFilename()).toBe('slides-design-doc.zip');
+  const zip = readFileSync((await zipDl.path())!);
+  expect(zip.subarray(0, 4).toString('latin1')).toBe('PK\x03\x04');
+  const zipText = zip.toString('latin1');
+  expect(zipText).toContain('slides.md');
+  expect(zipText).toContain('# Slides\n');
+  expect(zipText).toContain('![Slides](slides.png)');
+  expect(zipText).toContain('\x89PNG');
+
   await board.getByRole('button', { name: 'Present' }).click();
   const bar = page.getByRole('toolbar', { name: 'Presentation' });
   await expect(bar).toBeVisible();
