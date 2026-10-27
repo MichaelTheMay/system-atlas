@@ -3,12 +3,13 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   getBezierPath,
+  useReactFlow,
   type Edge,
   type EdgeProps,
 } from '@xyflow/react';
 import type { ProjectionDto, ProjectionEdgeDto, ProjectionNodeDto } from '../../api.ts';
 import { flowLabelPoint, type AtlasEdgeData } from '../edges.tsx';
-import { GhostActions } from './DesignElementNode.tsx';
+import { GhostActions, InlineInput } from './DesignElementNode.tsx';
 import { useDesignEdits } from './useDesignEdits.tsx';
 import './whiteboard.css';
 
@@ -80,23 +81,16 @@ export function designEdgeExtras(e: ProjectionEdgeDto, p: ProjectionDto) {
 function LabelEditor({ elementId, initial }: { elementId: string; initial: string }) {
   const ed = useDesignEdits()!;
   return (
-    <input
-      autoFocus
-      defaultValue={initial}
-      aria-label="Flow label"
+    <InlineInput
+      initial={initial}
+      label="Flow label"
       placeholder="label"
       maxLength={60}
-      className="wb-inline wb-flow-input nodrag nopan"
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        const t = e.currentTarget;
-        if (e.key === 'Escape') ed.setRenaming(null);
-        else if (e.key === 'Enter') t.blur();
-      }}
-      onBlur={(e) => {
-        if (ed.renaming !== `flow:${elementId}`) return;
+      className="wb-flow-input"
+      draftKey={`flow:${elementId}`}
+      onDone={(v) => {
         ed.setRenaming(null);
-        void ed.setFlowLabel(elementId, e.currentTarget.value);
+        if (v !== null) void ed.setFlowLabel(elementId, v);
       }}
     />
   );
@@ -105,6 +99,7 @@ function LabelEditor({ elementId, initial }: { elementId: string; initial: strin
 /** Whiteboard flow: label (editable when drawn), drift markers, Adopt and ghost review. */
 export const DesignFlowEdge = memo(function DesignFlowEdge(p: EdgeProps<DesignFlowEdgeT>) {
   const ed = useDesignEdits();
+  const flow = useReactFlow();
   const [path] = getBezierPath(p);
   const d = p.data;
   const at = flowLabelPoint(p);
@@ -136,6 +131,17 @@ export const DesignFlowEdge = memo(function DesignFlowEdge(p: EdgeProps<DesignFl
               : d?.notInCode
                 ? `${label}: drawn, but no code relation matches it`
                 : `${label} (${d?.status ?? ''})`
+          }
+          // edit mode: clicking a drawn flow's label selects the flow (Delete removes it)
+          onClick={
+            editable
+              ? () =>
+                  flow.setEdges((es) =>
+                    es.map((x) =>
+                      x.selected === (x.id === p.id) ? x : { ...x, selected: x.id === p.id },
+                    ),
+                  )
+              : undefined
           }
           onDoubleClick={
             editable

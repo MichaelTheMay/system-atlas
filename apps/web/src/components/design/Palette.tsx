@@ -72,25 +72,30 @@ export function WhiteboardLayer({
 }) {
   const ed = useDesignEdits();
   const flow = useReactFlow();
+  const [collapsed, setCollapsed] = useState(false);
   if (!ed?.projection) return null;
   /** Click-to-add: the new node lands in the middle of the visible canvas, nudged per click. */
   const addAt = async (tool: PaletteTool) => {
     const id = await addTool(tool);
     if (id) place(id, freeSpot());
   };
-  /** Click-to-add: the free spot nearest the top middle of the visible canvas (no overlap). */
+  /**
+   * Click-to-add: the first free spot of the visible canvas, scanning rows from the top middle
+   * outwards, clear of other nodes and of the palette; else the top middle.
+   */
   const freeSpot = () => {
     const r = document.querySelector('.react-flow')?.getBoundingClientRect();
-    const start = r
-      ? flow.screenToFlowPosition({ x: r.left + r.width / 2 - 110, y: r.top + 70 })
-      : { x: 0, y: 0 };
+    if (!r) return { x: 0, y: 0 };
+    const tl = flow.screenToFlowPosition({ x: r.left + 16, y: r.top + 16 });
+    const br = flow.screenToFlowPosition({ x: r.right - 16, y: r.bottom - 16 });
     const taken = flow.getNodes().map((n) => {
       const p = flow.getInternalNode(n.id)?.internals.positionAbsolute ?? n.position;
       return { x: p.x, y: p.y, w: n.measured?.width ?? 220, h: n.measured?.height ?? 80 };
     });
-    // the palette floats over the canvas: never drop a node underneath it
-    const pr = document.querySelector('.wb-palette')?.getBoundingClientRect();
-    if (pr) {
+    // the palette and the minimap float over the canvas: never drop a node underneath them
+    for (const sel of ['.wb-palette', '.react-flow__minimap']) {
+      const pr = document.querySelector(sel)?.getBoundingClientRect();
+      if (!pr) continue;
       const a = flow.screenToFlowPosition({ x: pr.left, y: pr.top });
       const b = flow.screenToFlowPosition({ x: pr.right, y: pr.bottom });
       taken.push({ x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y });
@@ -101,17 +106,15 @@ export function WhiteboardLayer({
       !taken.some(
         (t) => x < t.x + t.w + 16 && x + W > t.x - 16 && y < t.y + t.h + 16 && y + H > t.y - 16,
       );
-    for (let ring = 0; ring < 8; ring++)
-      for (let dy = 0; dy <= ring; dy++)
-        for (const dx of ring
-          ? [-ring, ring, ...Array.from({ length: 2 * ring - 1 }, (_, i) => i - ring + 1)]
-          : [0]) {
-          if (Math.abs(dx) !== ring && dy !== ring) continue;
-          const x = start.x + dx * (W + 20);
-          const y = start.y + dy * (H + 20);
-          if (free(x, y)) return { x: Math.round(x), y: Math.round(y) };
-        }
-    return { x: Math.round(start.x), y: Math.round(start.y) };
+    const mid = (tl.x + br.x) / 2 - W / 2;
+    const cols = Math.max(1, Math.floor((br.x - tl.x) / (W + 20)));
+    const xs = Array.from(
+      { length: cols },
+      (_, i) => mid + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * (W + 20),
+    ).filter((x) => x >= tl.x && x + W <= br.x);
+    for (let y = tl.y + 20; y + H <= br.y; y += H + 20)
+      for (const x of xs) if (free(x, y)) return { x: Math.round(x), y: Math.round(y) };
+    return { x: Math.round(mid), y: Math.round(tl.y + 20) };
   };
   const addTool = (tool: PaletteTool) =>
     tool.kind === 'box'
@@ -122,44 +125,68 @@ export function WhiteboardLayer({
   return (
     <>
       {ed.editMode && (
-        <Panel position="top-left" className="wb-palette" aria-label="Archetype palette">
-          <div className="wb-palette-title">Add</div>
-          {!ed.canDrawBoxes && (
-            <p className="wb-palette-note">
-              Boxes are drawn on the System design root or inside a drawn subsystem. Notes work
-              everywhere.
-            </p>
+        <Panel
+          position="top-left"
+          className={`wb-palette${collapsed ? ' collapsed' : ''}`}
+          aria-label="Archetype palette"
+        >
+          <div className="wb-palette-title">
+            Add
+            <button
+              type="button"
+              className="wb-mini ghost-btn"
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? 'Show palette' : 'Hide palette'}
+              title={collapsed ? 'Show palette' : 'Hide palette'}
+              onClick={() => setCollapsed((c) => !c)}
+            >
+              {collapsed ? '▸' : '▾'}
+            </button>
+          </div>
+          {!collapsed && (
+            <>
+              {/* boxes only show on the root and on drawn subsystems: elsewhere, notes only */}
+              {ed.canDrawBoxes ? (
+                <>
+                  {ARCHETYPES.map((a) => (
+                    <PaletteItem
+                      key={a}
+                      tool={{ kind: 'box', archetype: a }}
+                      icon={ARCHETYPE_ICON[a] ?? '•'}
+                      label={archetypeLabel(a)}
+                      className={`arch-${a}`}
+                      disabled={ed.busy}
+                      onAdd={addAt}
+                    />
+                  ))}
+                  <PaletteItem
+                    tool={{ kind: 'subsystem' }}
+                    icon="⊞"
+                    label="subsystem"
+                    className="wb-sub"
+                    disabled={ed.busy}
+                    onAdd={addAt}
+                  />
+                </>
+              ) : (
+                <p className="wb-palette-note">
+                  Boxes are drawn on the System design root or inside a drawn subsystem.
+                </p>
+              )}
+              <PaletteItem
+                tool={{ kind: 'sticky' }}
+                icon="✎"
+                label="sticky note"
+                className="wb-note"
+                disabled={ed.busy}
+                onAdd={addAt}
+              />
+              <p className="wb-palette-hint">
+                Drag onto the board or click.
+                {ed.canDrawBoxes && ' Drag from the right edge of a box to connect.'}
+              </p>
+            </>
           )}
-          {ARCHETYPES.map((a) => (
-            <PaletteItem
-              key={a}
-              tool={{ kind: 'box', archetype: a }}
-              icon={ARCHETYPE_ICON[a] ?? '•'}
-              label={archetypeLabel(a)}
-              className={`arch-${a}`}
-              disabled={!ed.canDrawBoxes || ed.busy}
-              onAdd={addAt}
-            />
-          ))}
-          <PaletteItem
-            tool={{ kind: 'subsystem' }}
-            icon="⊞"
-            label="subsystem"
-            className="wb-sub"
-            disabled={!ed.canDrawBoxes || ed.busy}
-            onAdd={addAt}
-          />
-          <PaletteItem
-            tool={{ kind: 'sticky' }}
-            icon="✎"
-            label="sticky note"
-            className="wb-note"
-            disabled={ed.busy}
-            onAdd={addAt}
-          />
-          <p className="wb-palette-hint">
-            Drag onto the board or click. Drag from a box's right edge to connect.
-          </p>
         </Panel>
       )}
       {ed.editMode && ed.selectedNodes.length > 0 && (

@@ -24,36 +24,56 @@ export const renamable = (d: ProjectionNodeDto) =>
   (isDetectedBox(d) ||
     (d.id.startsWith('design:') && (d.kind === 'design' || d.kind === 'cluster')));
 
-function InlineInput({
+/**
+ * Drafts of open inline editors by key: a live refresh can re-render (remount) the node or edge
+ * that holds the editor while the person is typing; the draft keeps what they typed.
+ */
+const drafts = new Map<string, string>();
+
+export function InlineInput({
   initial,
   label,
+  draftKey,
   multiline,
+  className,
+  placeholder,
+  maxLength,
   onDone,
 }: {
   initial: string;
   label: string;
+  draftKey: string;
   multiline?: boolean;
+  className?: string;
+  placeholder?: string;
+  maxLength?: number;
   onDone(value: string | null): void;
 }) {
-  const [v, setV] = useState(initial);
+  const [v, setV] = useState(() => drafts.get(draftKey) ?? initial);
   const ref = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
   const done = useRef(false);
   useEffect(() => {
+    const resumed = drafts.has(draftKey);
     ref.current?.focus();
-    ref.current?.select();
-  }, []);
+    if (!resumed) ref.current?.select();
+  }, [draftKey]);
   const finish = (value: string | null) => {
     if (done.current) return;
     done.current = true;
+    drafts.delete(draftKey);
     onDone(value);
   };
   const props = {
     ref,
     value: v,
     'aria-label': label,
-    className: 'wb-inline nodrag nopan nowheel',
-    onChange: (e: React.ChangeEvent<HTMLInputElement & HTMLTextAreaElement>) =>
-      setV(e.target.value),
+    placeholder,
+    maxLength,
+    className: `wb-inline nodrag nopan nowheel${className ? ` ${className}` : ''}`,
+    onChange: (e: React.ChangeEvent<HTMLInputElement & HTMLTextAreaElement>) => {
+      drafts.set(draftKey, e.target.value);
+      setV(e.target.value);
+    },
     onBlur: () => finish(v),
     onDoubleClick: (e: React.MouseEvent) => e.stopPropagation(),
     onKeyDown: (e: React.KeyboardEvent) => {
@@ -78,6 +98,7 @@ export function EditableLabel({ data, nodeId }: { data: ProjectionNodeDto; nodeI
       <InlineInput
         initial={data.label}
         label={`Rename ${data.label}`}
+        draftKey={`rename:${nodeId}`}
         onDone={(v) => {
           ed.setRenaming(null);
           if (v !== null) void ed.rename(data, v);
@@ -195,6 +216,7 @@ export const StickyNode = memo(function StickyNode({
           multiline
           initial={data.text ?? data.label}
           label="Note text"
+          draftKey={`note:${id}`}
           onDone={(v) => {
             ed.setRenaming(null);
             if (v !== null) void ed.setStickyText(data.designElementId!, v);

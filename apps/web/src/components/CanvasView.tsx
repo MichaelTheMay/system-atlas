@@ -22,6 +22,7 @@ import { edgeTypes, type AtlasEdgeData } from './edges.tsx';
 // whiteboard controls of the design lens (D02a)
 import { DesignFlowEdge, designEdgeExtras, designNodeExtras } from './design/drift.tsx';
 import { useWhiteboard } from './design/useWhiteboard.ts';
+import { useDesignEdits } from './design/useDesignEdits.tsx';
 import { WhiteboardLayer } from './design/Palette.tsx';
 
 const EDGE_TYPES = { ...edgeTypes, 'design-flow': DesignFlowEdge };
@@ -117,6 +118,7 @@ export function CanvasView(props: Props) {
   const pendingViewport = useRef<{ viewport?: Viewport } | null>(null);
   /** View currently on screen: a live refresh of the same view keeps the user's viewport. */
   const shownViewId = useRef<string | null>(null);
+  const multiSelect = !!useDesignEdits()?.editMode;
   const selectedEntityRef = useRef(selectedEntityId);
   selectedEntityRef.current = selectedEntityId;
 
@@ -124,8 +126,8 @@ export function CanvasView(props: Props) {
   // if the canvas only shows an owner of it, the nearest visible owner is marked instead
   useEffect(() => {
     setNodes((ns) => {
-      // a multi-selection (whiteboard edit mode) is React Flow's own; do not collapse it
-      if (ns.filter((n) => n.selected).length > 1) return ns;
+      // a multi-selection in whiteboard edit mode is React Flow's own; do not collapse it
+      if (multiSelect && ns.filter((n) => n.selected).length > 1) return ns;
       const present = ns.some((n) => n.data.entityId && n.data.entityId === selectedEntityId);
       const visible = new Set(ns.map((n) => n.data.entityId).filter(Boolean));
       const holder = present ? undefined : selectedAncestors?.find((a) => visible.has(a));
@@ -141,7 +143,7 @@ export function CanvasView(props: Props) {
       // returning the same array when nothing changed keeps this effect from looping
       return changed ? next : ns;
     });
-  }, [selectedEntityId, selectedAncestors, nodes, setNodes]);
+  }, [selectedEntityId, selectedAncestors, nodes, setNodes, multiSelect]);
 
   // Fit (or restore the saved viewport) only once React Flow has measured every node of this canvas.
   // `useNodesInitialized` can stay true across canvas switches, so check measurements directly.

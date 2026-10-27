@@ -91,6 +91,15 @@ test('draw a planned box, connect it, rename with undo/redo; drift is marked', a
   await ghost.getByRole('button', { name: 'Adopt HTTP flow' }).click();
   await expect(page.locator('.edge-label.wb-flow.undrawn', { hasText: /^HTTP/ })).toHaveCount(0);
 
+  // a drawn flow is selected by its label; Delete removes it and Ctrl+Z brings it back
+  await drawn.click();
+  await page.keyboard.press('Delete');
+  await expect(page.locator('.edge-label.wb-flow', { hasText: 'REST' })).toHaveCount(0);
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('.edge-label.wb-flow', { hasText: 'REST' })).toContainText(
+    'drawn, not found in code',
+  );
+
   // inline rename: double-click the label
   await box.locator('.node-label').dblclick();
   const rename = page.getByRole('textbox', { name: 'Rename New API service' });

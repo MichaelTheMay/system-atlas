@@ -86,6 +86,8 @@ export interface DesignEdits {
   moveTo(nodes: ProjectionNodeDto[], parentId: string | undefined): Promise<void>;
   /** Drawn elements are deleted; detected boxes are hidden (suppress override). */
   remove(nodes: ProjectionNodeDto[]): Promise<void>;
+  /** Delete drawn flows (by element id). */
+  removeFlows(flows: { elementId: string; label: string }[]): Promise<void>;
   accept(elementId: string): Promise<void>;
   reject(elementId: string): Promise<void>;
   /** Drawn subsystems a box can move into (accepted ones). */
@@ -673,6 +675,27 @@ export function DesignEditsProvider({
     [run, deleteStep, hideStep],
   );
 
+  const removeFlows = useCallback(
+    (flows: { elementId: string; label: string }[]) =>
+      run(
+        async () => {
+          const steps: Step[] = [];
+          for (const f of flows) {
+            const st = await deleteStep(`delete ${f.label} flow`, f.elementId);
+            if (st) steps.push(st);
+          }
+          if (!steps.length) return null;
+          return steps.length === 1 ? steps[0]! : compound('delete flows', steps);
+        },
+        {
+          text: `Deleted the drawn flow${flows.length > 1 ? 's' : ''}.`,
+          tone: 'info',
+          undoable: true,
+        },
+      ),
+    [run, deleteStep],
+  );
+
   const accept = useCallback(
     (elementId: string) =>
       run(
@@ -801,6 +824,7 @@ export function DesignEditsProvider({
     group,
     moveTo,
     remove,
+    removeFlows,
     accept,
     reject,
     subsystems: elements.filter((e) => e.body.kind === 'subsystem' && e.status === 'active'),

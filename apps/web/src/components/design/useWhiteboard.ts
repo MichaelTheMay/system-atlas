@@ -138,14 +138,22 @@ export function useWhiteboard({
         .filter((n) => n.selected)
         .map((n) => n.data)
         .filter((n) => isDetectedBox(n) || !!n.designElementId);
-      if (!sel.length) return;
+      // a selected drawn flow (a code flow is not the person's to delete)
+      const flows = flow
+        .getEdges()
+        .filter((x) => x.selected)
+        .map((x) => x.data as { designElementId?: string; drawn?: boolean; label?: string })
+        .filter((d) => d.drawn && d.designElementId)
+        .map((d) => ({ elementId: d.designElementId!, label: d.label ?? 'flow' }));
+      if (!sel.length && !flows.length) return;
       e.preventDefault();
-      void ed.remove(sel);
+      if (sel.length) void ed.remove(sel);
+      else void ed.removeFlows(flows);
       clearSelection();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editMode, ed, clearSelection]);
+  }, [editMode, ed, clearSelection, flow]);
 
   return {
     place,
