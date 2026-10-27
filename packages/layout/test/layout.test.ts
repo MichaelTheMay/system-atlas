@@ -41,4 +41,52 @@ describe('elk layout', () => {
     expect(g1.y).toBeGreaterThanOrEqual(g.y);
     expect(r.positions.a).toMatchObject({ x: 999, y: 7 });
   });
+
+  it('keeps a known map stable: fixed nodes stay put and new nodes take free space', async () => {
+    const engine = createElkLayoutEngine();
+    const before = await engine.layout(graph);
+    // remember every top-level position, then add a node connected into the middle of the graph
+    const fixed = Object.fromEntries(
+      ['a', 'b', 'c', 'g'].map((id) => [
+        id,
+        { x: before.positions[id]!.x, y: before.positions[id]!.y },
+      ]),
+    );
+    const after = await engine.layout({
+      nodes: [
+        ...graph.nodes.map((n) => (fixed[n.id] ? { ...n, fixed: fixed[n.id] } : n)),
+        { id: 'new', width: 120, height: 40 },
+      ],
+      edges: [
+        ...graph.edges,
+        { id: 'e4', source: 'b', target: 'new' },
+        { id: 'e5', source: 'new', target: 'g1' },
+      ],
+    });
+    for (const id of ['a', 'b', 'c', 'g']) expect(after.positions[id]).toMatchObject(fixed[id]!);
+    // a fixed group carries its children: same offset inside the group as before
+    expect(after.positions.g1!.x - after.positions.g!.x).toBe(
+      before.positions.g1!.x - before.positions.g!.x,
+    );
+    const n = after.positions.new!;
+    for (const id of ['a', 'b', 'c', 'g']) {
+      const q = after.positions[id]!;
+      const overlaps =
+        n.x < q.x + q.width && q.x < n.x + n.width && n.y < q.y + q.height && q.y < n.y + n.height;
+      expect(overlaps, `new overlaps ${id}`).toBe(false);
+    }
+    // deterministic
+    const again = await engine.layout({
+      nodes: [
+        { id: 'new', width: 120, height: 40 },
+        ...graph.nodes.map((x) => (fixed[x.id] ? { ...x, fixed: fixed[x.id] } : x)).reverse(),
+      ],
+      edges: [
+        ...graph.edges,
+        { id: 'e4', source: 'b', target: 'new' },
+        { id: 'e5', source: 'new', target: 'g1' },
+      ],
+    });
+    expect(again.positions).toEqual(after.positions);
+  });
 });

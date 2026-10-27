@@ -145,6 +145,7 @@ select:focus-visible,
   display: flex;
   flex-direction: column;
   min-width: 0;
+  position: relative;
 }
 .canvas-header {
   height: 44px;
@@ -153,6 +154,13 @@ select:focus-visible,
   padding: 0 16px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
+  overflow: hidden;
+}
+/* long status badges shrink (full text in their title) instead of spilling into the inspector */
+.canvas-header .badge {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .crumbs {
   font-weight: 600;
@@ -453,6 +461,7 @@ select:focus-visible,
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 .icon-btn {
   font: inherit;
@@ -1377,4 +1386,78 @@ select:focus-visible,
 }
 .audit-detail {
   word-break: break-word;
+}
+
+/* Rename issues (M01c) */
+button.badge.issues {
+  flex-shrink: 0;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid #e3b341;
+  background: #fff6db;
+  color: #7a5a00;
+  cursor: pointer;
+}
+.issues-panel {
+  position: absolute;
+  top: 52px;
+  right: 12px;
+  z-index: 20;
+  width: min(560px, calc(100% - 24px));
+  max-height: calc(100% - 64px);
+  overflow: auto;
+  background: #fff;
+  border: 1px solid var(--line, #dde1e8);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(20, 28, 45, 0.16);
+  padding: 14px 16px;
+}
+.issues-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.issues-panel h2 {
+  font-size: 15px;
+  margin: 0;
+}
+.issues-panel ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.issues-panel .issue {
+  border-top: 1px solid var(--line, #dde1e8);
+  padding: 10px 0;
+}
+.issues-panel h3 {
+  font-size: 13px;
+  margin: 0 0 4px;
+}
+.issues-panel .issue-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0;
+}
+.issues-panel code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.issues-panel select {
+  font: inherit;
+  font-size: 12px;
+  min-width: 0;
+}
+.issues-panel .action {
+  padding: 4px 10px;
+}
+.issues-panel .linked {
+  margin: 4px 0;
+  font-size: 12px;
+}
+
+.canvas-header .icon-btn {
+  white-space: nowrap;
 }

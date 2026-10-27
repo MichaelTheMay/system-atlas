@@ -11,6 +11,7 @@ export function emptyOverlay(viewId: string): ViewOverlay {
     profileId: LOCAL_PROFILE,
     entityPositions: {},
     nodePositions: {},
+    autoPositions: {},
     pinnedIds: [],
     annotations: [],
     displayOverrides: {},
@@ -44,6 +45,9 @@ export function getOverlay(
       Object.entries(o.entityPositions).map(([id, p]) => [remap(id), p]),
     ),
     pinnedIds: [...new Set(o.pinnedIds.map(remap))],
+    autoPositions: Object.fromEntries(
+      Object.entries(o.autoPositions).map(([id, p]) => [id.startsWith('ent_') ? remap(id) : id, p]),
+    ),
     annotations: o.annotations.map((a) =>
       a.targetId?.startsWith('ent_') ? { ...a, targetId: remap(a.targetId) } : a,
     ),

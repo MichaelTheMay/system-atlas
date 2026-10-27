@@ -70,6 +70,40 @@ paths:
       responses:
         '202': { description: Job accepted (id, state) }
         '404': { description: Unknown worktree }
+  /api/v1/projects/{id}/issues:
+    get:
+      summary: Reconciliation issues (ambiguous or possible renames) of a project, newest first
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string, enum: [open, all] } }
+      responses:
+        '200':
+          { description: '{ issues } with kind, status, detail (from, to, fromIds, toIds, links)' }
+  /api/v1/issues/{id}/resolve:
+    post:
+      summary: >-
+        Link one old/new candidate pair as a user-accepted rename alias (pins, notes and positions
+        follow it; human claims follow from the next scan), or dismiss the issue. The issue resolves
+        once every old candidate is linked.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - {
+                    type: object,
+                    required: [action, fromId, toId],
+                    properties:
+                      { action: { const: link }, fromId: { type: string }, toId: { type: string } },
+                  }
+                - { type: object, required: [action], properties: { action: { const: dismiss } } }
+      responses:
+        '200': { description: '{ ok, issue, aliases }' }
+        '400': { description: Invalid body or ids that are not candidates of this issue }
+        '404': { description: Unknown issue }
+        '409': { description: Issue not open, or a candidate already linked }
   /api/v1/worktrees/{id}/watch:
     get:
       summary: Whether the daemon watches this worktree, with watched directory count, debounce and pending changes

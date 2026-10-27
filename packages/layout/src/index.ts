@@ -12,7 +12,7 @@ const ELK: ElkCtor =
  * graph always produces the same positions; LAYOUT_VERSION is recorded with results so a
  * change of engine/options is detectable rather than silently reshuffling user canvases.
  */
-export const LAYOUT_VERSION = 'elkjs-0.12.0/layered-or-rectpacking/v4';
+export const LAYOUT_VERSION = 'elkjs-0.12.0/layered-or-rectpacking/v5';
 
 export interface LayoutNodeInput {
   id: string;
@@ -20,7 +20,11 @@ export interface LayoutNodeInput {
   height: number;
   /** Compound parent within the same canvas (e.g. a boundary group). */
   parentId?: string;
-  /** Fixed position from a user overlay; the engine treats it as a hint for pinned nodes. */
+  /**
+   * Fixed top-left position (a user pin, or where the node was last laid out). Fixed nodes keep
+   * it exactly and carry their children along; other top-level nodes are placed so they do not
+   * overlap them, which keeps a known map stable when nodes are added (plan §9).
+   */
   fixed?: { x: number; y: number };
 }
 
@@ -105,9 +109,78 @@ export function createElkLayoutEngine(injected?: ElkApi): LayoutEngine {
         }
       };
       walk(out, 0, 0);
-      for (const n of nodes)
-        if (n.fixed && positions[n.id]) Object.assign(positions[n.id]!, n.fixed);
+      anchor(nodes, positions);
       return { version: LAYOUT_VERSION, positions };
     },
   };
+}
+
+const GAP = 24;
+
+/** Moves fixed top-level nodes (and their descendants) to their positions, then moves other top-level nodes off them. */
+function anchor(nodes: LayoutNodeInput[], positions: LayoutResult['positions']) {
+  const children = new Map<string, string[]>();
+  for (const n of nodes)
+    if (n.parentId) children.set(n.parentId, [...(children.get(n.parentId) ?? []), n.id]);
+  const shift = (id: string, dx: number, dy: number) => {
+    const p = positions[id];
+    if (p) {
+      p.x += dx;
+      p.y += dy;
+    }
+    for (const c of children.get(id) ?? []) shift(c, dx, dy);
+  };
+  const top = nodes.filter((n) => !n.parentId && positions[n.id]);
+  const placed: { x: number; y: number; width: number; height: number }[] = [];
+  for (const n of top) {
+    if (!n.fixed) continue;
+    const p = positions[n.id]!;
+    shift(n.id, n.fixed.x - p.x, n.fixed.y - p.y);
+    placed.push(p);
+  }
+  if (placed.length === 0) return; // nothing fixed: plain deterministic ELK layout
+  const free = (x: number, y: number, w: number, h: number) =>
+    placed.every(
+      (q) =>
+        x >= q.x + q.width + GAP ||
+        q.x >= x + w + GAP ||
+        y >= q.y + q.height + GAP ||
+        q.y >= y + h + GAP,
+    );
+  const fresh = top
+    .filter((n) => !n.fixed)
+    .map((n) => n.id)
+    .sort(
+      (a, b) =>
+        positions[a]!.y - positions[b]!.y || positions[a]!.x - positions[b]!.x || (a < b ? -1 : 1),
+    );
+  for (const id of fresh) {
+    const p = positions[id]!;
+    const spot = nearestFree(p, free);
+    shift(id, spot.x - p.x, spot.y - p.y);
+    placed.push(p);
+  }
+}
+
+/** Closest free top-left position to `p` on a GAP-sized grid, searched ring by ring (deterministic). */
+function nearestFree(
+  p: { x: number; y: number; width: number; height: number },
+  free: (x: number, y: number, w: number, h: number) => boolean,
+): { x: number; y: number } {
+  if (free(p.x, p.y, p.width, p.height)) return p;
+  for (let r = 1; r <= 400; r++) {
+    const ring: [number, number][] = [];
+    for (let dx = -r; dx <= r; dx++)
+      for (let dy = -r; dy <= r; dy++)
+        if (Math.max(Math.abs(dx), Math.abs(dy)) === r) ring.push([dx, dy]);
+    ring.sort(
+      (a, b) => a[0] ** 2 + a[1] ** 2 - (b[0] ** 2 + b[1] ** 2) || a[1] - b[1] || a[0] - b[0],
+    );
+    for (const [dx, dy] of ring) {
+      const x = p.x + dx * GAP;
+      const y = p.y + dy * GAP;
+      if (free(x, y, p.width, p.height)) return { x, y };
+    }
+  }
+  return p;
 }

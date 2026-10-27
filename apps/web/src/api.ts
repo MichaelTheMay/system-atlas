@@ -264,6 +264,8 @@ export interface OverlayDto {
   profileId: string;
   entityPositions: Record<string, { x: number; y: number }>;
   nodePositions: Record<string, { x: number; y: number }>;
+  /** Last automatic positions of top-level nodes; absent in overlays saved before M01c. */
+  autoPositions?: Record<string, { x: number; y: number }>;
   pinnedIds: string[];
   annotations: { id: string; targetId?: string; text: string; createdAt: string }[];
   displayOverrides: Record<string, { label?: string; collapsed?: boolean; hidden?: boolean }>;
@@ -379,4 +381,36 @@ export interface PreviewUrlDto {
   viewer: 'raw' | 'text';
   expiresAt: string;
   artifact: ArtifactDto;
+}
+
+export interface IssueDto {
+  id: string;
+  projectId: string;
+  snapshotId: string;
+  kind: 'ambiguous-rename' | 'possible-rename' | string;
+  status: 'open' | 'resolved' | 'dismissed';
+  detail: {
+    reason?: string;
+    name?: string;
+    from?: string[];
+    to?: string[];
+    fromIds?: string[];
+    toIds?: string[];
+    links?: { fromId: string; toId: string; at: string }[];
+  };
+  createdAt: string;
+}
+
+export async function resolveIssueApi(
+  token: string,
+  issueId: string,
+  body: { action: 'link'; fromId: string; toId: string } | { action: 'dismiss' },
+): Promise<void> {
+  const res = await fetch(`/api/v1/issues/${issueId}/resolve`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok)
+    throw new Error(((await res.json()) as { error?: string }).error ?? `HTTP ${res.status}`);
 }

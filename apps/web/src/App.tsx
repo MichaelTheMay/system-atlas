@@ -17,6 +17,7 @@ import {
 } from './api.ts';
 import { CanvasView, type Location, type Selection } from './components/CanvasView.tsx';
 import { CatalogNav } from './components/CatalogNav.tsx';
+import { IssuesPanel } from './components/IssuesPanel.tsx';
 import { Inspector } from './components/Inspector.tsx';
 import { ListView } from './components/ListView.tsx';
 import { useOverlay } from './useOverlay.ts';
@@ -54,6 +55,7 @@ export function App() {
   const [worktreeId, setWorktreeId] = useState('');
   const [summary, setSummary] = useState<SnapshotSummary | null | undefined>(undefined);
   const [watching, setWatching] = useState(false);
+  const [issuesOpen, setIssuesOpen] = useState(false);
   const [catalog, setCatalog] = useState<CatalogDto | null>(null);
   const [scan, setScan] = useState<{ state: 'idle' | 'running' | 'failed'; message?: string }>({
     state: 'idle',
@@ -162,6 +164,8 @@ export function App() {
     for (const ev of batch) {
       if (ev.type === 'project.registered') void loadProjects();
       if (ev.type.startsWith('run.')) setOutputsRefresh((k) => k + 1);
+      // linking a rename changes counts and where pins resolve
+      if (ev.type === 'issue.resolved') refresh = true;
       if (ev.data.worktreeId !== worktreeId) continue;
       if (ev.type === 'scan.started') setScan({ state: 'running' });
       if (ev.type === 'snapshot.published') {
@@ -426,6 +430,16 @@ export function App() {
                 {listMode ? 'Canvas' : 'List'}
               </button>
             )}
+            {root === 'architecture' && projection && !listMode && (
+              <button
+                type="button"
+                className="icon-btn"
+                title="Lay out unpinned nodes again. Nodes otherwise keep their place when the map changes."
+                onClick={() => editOverlay((o) => ({ ...o, autoPositions: {} }))}
+              >
+                Re-layout
+              </button>
+            )}
             {viewSnapshotId && root === 'architecture' && (
               <span className="badge historical" title={viewSnapshotId}>
                 viewing an earlier snapshot ({viewSnapshotId.slice(5, 13)}){' '}
@@ -433,6 +447,17 @@ export function App() {
                   back to latest
                 </button>
               </span>
+            )}
+            {summary && summary.openIssues > 0 && (
+              <button
+                type="button"
+                className="badge issues"
+                aria-expanded={issuesOpen}
+                onClick={() => setIssuesOpen((o) => !o)}
+              >
+                {summary.openIssues} rename {summary.openIssues === 1 ? 'issue' : 'issues'} to
+                review
+              </button>
             )}
             {summary && (
               <span className={`badge ${summary.snapshot.state}`} title={summary.snapshot.id}>
@@ -444,6 +469,17 @@ export function App() {
             )}
           </div>
         </header>
+        {issuesOpen && worktree && token && (
+          <IssuesPanel
+            token={token}
+            projectId={worktree.project.id}
+            onClose={() => setIssuesOpen(false)}
+            onChanged={() => {
+              void refreshSnapshot();
+              setRefreshKey((k) => k + 1);
+            }}
+          />
+        )}
         {root === 'outputs' ? (
           worktree && token ? (
             <OutputsView
