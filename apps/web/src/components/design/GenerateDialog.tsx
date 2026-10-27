@@ -192,6 +192,7 @@ export function GenerateDialog({
           <select
             aria-label="Runtime"
             value={runtime}
+            disabled={!settings}
             onChange={(e) => setRuntime(e.target.value as RuntimeId)}
           >
             {RUNTIMES.map((r) => (
@@ -301,7 +302,7 @@ export function GenerateDialog({
         <button
           type="button"
           className="action"
-          disabled={busy || !consented || !available || !estimate || overBudget}
+          disabled={busy || !settings || !consented || !available || !estimate || overBudget}
           onClick={() => void run()}
         >
           Generate

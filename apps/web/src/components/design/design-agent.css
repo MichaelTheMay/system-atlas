@@ -12,6 +12,10 @@
   gap: 14px;
   z-index: 6;
 }
+/* a long copilot scrolls inside its panel instead of growing the page */
+.canvas:has(.copilot) {
+  min-height: 0;
+}
 .copilot-head {
   display: flex;
   align-items: center;

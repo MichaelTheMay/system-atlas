@@ -403,7 +403,8 @@ export function CopilotPanel({
   };
 
   const askJob = jobs.active && jobs.active.job.kind !== 'generate' ? jobs.active : null;
-  const running = !!jobs.active && !isTerminal(jobs.active.job.state);
+  // asks wait for a running job, and for the settings (the configured runtime) to load
+  const running = (!!jobs.active && !isTerminal(jobs.active.job.state)) || !settings;
   const shown = suggestions.filter((s) => !dismissed.has(s.id));
 
   if (!design)
