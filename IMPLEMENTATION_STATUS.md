@@ -6,7 +6,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**I02 — VS Code integration** (Phase 4). Phase 3 was closed out in PR #19.
+**I04 — Skena/JSON Canvas bridge**, then the Go and Java analyzers (Phase 4). I03 is in PR #20. I02 was dropped at the user's request.
 
 ## Tickets (plan §17)
 
@@ -27,8 +27,8 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 | M01 | Watcher and incremental invalidation              | A05,A07     | done        | PRs #13, #14, #15                      |
 | M02 | Model proposal validation, cache and budget       | M01         | done        | PRs #17, #18 (view proposals deferred) |
 | I01 | MCP and generic event SDK                         | E01,A06     | done        | PR #16                                 |
-| I02 | VS Code integration                               | I01         | not started |                                        |
-| I03 | OTLP subset and bundle importer                   | E04         | not started |                                        |
+| I02 | VS Code integration                               | I01         | dropped     | user decision 2026-10-26               |
+| I03 | OTLP subset and bundle importer                   | E04         | done        | PR #20                                 |
 | I04 | Skena/JSON Canvas bridge                          | I01,A07     | not started |                                        |
 | H01 | Retention, recovery, export and performance       | E04,M01     | not started |                                        |
 
@@ -86,7 +86,17 @@ Known Phase 3 gaps, recorded rather than claimed:
 
 Phase 3 complete 2026-10-26 (tag `phase-3`).
 
-Phases 4–5: see plan §15.
+### Phase 4 — integrations and wider language support
+
+- [x] An external instrumented agent records a run through public tools. `mcp.test.ts` records through stdio MCP; `localDaemon` and `recorderFor` do the same for the generic SDK.
+- [x] Late and duplicate events reconcile. Re-importing a trace or bundle reopens the same run: duplicates dedupe and late spans or events are appended under their parents (`import.test.ts`). Store-level deduplication is covered by `store.test.ts`.
+- [~] A VS Code workspace opens the correct worktree. **Dropped by user decision (2026-10-26)**; I02 will not be built.
+- [ ] Supported JSON Canvas exports open in the selected renderer with relative asset links (I04).
+- [ ] Unsupported export features are disclosed (I04).
+- [x] OTLP incompatibilities produce diagnostics, not silently dropped evidence. Each case in `fixtures/otlp/` yields a diagnostic, and warnings become capture gaps on the run (`import.test.ts`).
+- [ ] Go and Java/JVM analyzer coverage, with capability reports.
+
+Phase 5: see plan §15.
 
 ## Ticket evidence
 
@@ -390,6 +400,17 @@ Changes:
   - zero calls during watcher churn.
 - Tried by hand: `atlas enrich` (disabled, configure, run, cached, status) and the Inspector button, screenshot inspected.
 - **Deferred (M02c):** `atlas_propose_view` and the suppress/pin UI for proposed views. Subsystem groupings can be proposed as `subsystem` claims meanwhile.
+
+### I03 (2026-10-26): OTLP/JSON trace and run bundle import
+
+- `atlas import <file|dir> [--root]` handles two formats:
+  - **OTLP/JSON traces** (documented subset): one run per trace, spans become nested steps or tool calls, and every incompatibility is a diagnostic and a capture gap.
+  - **Atlas run bundle v1**: local event IDs with parents, and artifacts confined to the bundle with symlinks resolved.
+- Imported runs use `binding: none`, so they are never linked to a snapshot and carry an `imported` gap. `externalRef` (migration `0008`) makes re-imports reopen the same run with deduplication and late events appended.
+- Runs' real start and end times are kept.
+- The Steps tab now nests child steps under their parents, and it recognizes completions that point at their start event (the unpaired imported tool calls showed "no completion recorded").
+- Tests: `import.test.ts` has 4 tests covering the mapping, diagnostics, re-import deduplication, late append, refusals, and bundle escapes and missing files.
+- Tried by hand: imported both fixtures into the demo instance and inspected the run detail screenshot. Before the end-time fix the duration showed 365 days and the steps were flat.
 
 ## Environment record (2026-10-26)
 

@@ -164,6 +164,63 @@ export class IngestClient {
     }
   }
 
+  /**
+   * Send events with caller-chosen producer event ids (importers: stable ids make re-imports
+   * dedupe). Returns the stored id per input (accepted or the earlier duplicate) or undefined
+   * with the rejection recorded.
+   */
+  async sendBatch(
+    events: (EventDraft & { producerEventId: string; sequence?: number })[],
+  ): Promise<{
+    ids: (string | undefined)[];
+    accepted: number;
+    duplicates: number;
+    rejected: string[];
+  }> {
+    const ids: (string | undefined)[] = new Array(events.length).fill(undefined);
+    let accepted = 0;
+    let duplicates = 0;
+    const rejected: string[] = [];
+    for (let start = 0; start < events.length; start += 500) {
+      const chunk = events.slice(start, start + 500).map((e) => ({
+        ...e,
+        producerId: this.producerId,
+        occurredAt: e.occurredAt ?? new Date().toISOString(),
+        payload: e.payload ?? {},
+      }));
+      type R = {
+        accepted: { index: number; id: string }[];
+        duplicates: { index: number; id: string }[];
+        rejected: { index: number; error: string }[];
+      };
+      // the route answers 400 when every event of a batch is rejected; that is still per-event data
+      const res = await fetch(`${this.target.baseUrl}/api/v1/runs/${this.target.runId}/events`, {
+        method: 'POST',
+        headers: this.headers({ 'content-type': 'application/json' }),
+        body: JSON.stringify(chunk),
+      });
+      const r = (await res.json()) as Partial<R> & { error?: string };
+      if (!r.accepted) {
+        for (const e of chunk) {
+          const msg = `event ${e.type} ${e.producerEventId}: ${r.error ?? `HTTP ${res.status}`}`;
+          rejected.push(msg);
+          this.failures.push(msg);
+        }
+        continue;
+      }
+      for (const a of r.accepted) ids[start + a.index] = a.id;
+      for (const d of r.duplicates ?? []) ids[start + d.index] = d.id;
+      accepted += r.accepted.length;
+      duplicates += r.duplicates?.length ?? 0;
+      for (const x of r.rejected ?? []) {
+        const msg = `event ${chunk[x.index]?.type} ${chunk[x.index]?.producerEventId}: ${x.error}`;
+        rejected.push(msg);
+        this.failures.push(msg);
+      }
+    }
+    return { ids, accepted, duplicates, rejected };
+  }
+
   /** Upload a file as an artifact: hash locally, reserve, stream bytes (skipped when deduplicated). */
   async uploadFile(
     path: string,
@@ -239,6 +296,8 @@ export class IngestClient {
       exitCode?: number;
       signal?: string;
       captureGaps?: { kind: string; detail: string }[];
+      /** When the run really ended (imports); defaults to now. */
+      endAt?: string;
     } = {},
   ) {
     await this.flush();
@@ -252,6 +311,7 @@ export class IngestClient {
       status,
       exitCode: extra.exitCode,
       signal: extra.signal,
+      endAt: extra.endAt,
       captureGaps: gaps.length ? gaps : undefined,
     });
   }

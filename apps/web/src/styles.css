@@ -1492,3 +1492,8 @@ button.badge.issues {
   outline: 2px dashed var(--accent);
   outline-offset: 2px;
 }
+.step-list.nested {
+  margin: 4px 0 2px 18px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}

@@ -573,9 +573,57 @@ program
   );
 program
   .command('import')
-  .argument('<bundle>')
-  .description('Import a run bundle')
-  .action(notYet('import', 'I03'));
+  .argument('<source>', 'an OTLP/JSON trace file (.json / .jsonl) or an Atlas run bundle directory')
+  .option('--root <path>', 'project the evidence belongs to', '.')
+  .option('--json', 'machine-readable output')
+  .description(
+    'Import approved evidence: OpenTelemetry traces (documented subset) or an Atlas run bundle. Imported runs are not linked to a snapshot.',
+  )
+  .action(async (source: string, opts: { root: string; json?: boolean }) => {
+    const src = resolve(source);
+    const st = statSync(src, { throwIfNoEntry: false });
+    if (!st) {
+      console.error(`not found: ${src}`);
+      process.exitCode = 1;
+      return;
+    }
+    const { daemon } = await ensureDaemon(paths);
+    const target = { baseUrl: daemon.baseUrl, token: daemon.rec.token };
+    const rootPath = resolve(opts.root);
+    const { importBundle, importOtlp, BUNDLE_MANIFEST } = await import('@atlas/adapters');
+    if (st.isDirectory()) {
+      if (!statSync(`${src}/${BUNDLE_MANIFEST}`, { throwIfNoEntry: false })) {
+        console.error(`${src} has no ${BUNDLE_MANIFEST}: not an Atlas run bundle`);
+        process.exitCode = 1;
+        return;
+      }
+      const r = await importBundle({ daemon: target, rootPath, bundleDir: src });
+      if (opts.json) return console.log(JSON.stringify(r, null, 2));
+      if (r.runId)
+        console.log(
+          `${r.existing ? 'updated' : 'imported'} run ${r.runId}: ${r.events.accepted} new event(s), ${r.events.duplicates} already present, ${r.events.rejected} rejected; ` +
+            `${r.artifacts.uploaded} artifact(s), ${r.artifacts.missing} missing, ${r.artifacts.refused} refused`,
+        );
+      for (const d of r.diagnostics) console.log(`  ${d.severity}: ${d.message}`);
+      if (!r.runId) process.exitCode = 1;
+      return;
+    }
+    const { readFile } = await import('node:fs/promises');
+    const r = await importOtlp({
+      daemon: target,
+      rootPath,
+      text: await readFile(src, 'utf8'),
+      source: src,
+    });
+    if (opts.json) return console.log(JSON.stringify(r, null, 2));
+    for (const x of r.runs)
+      console.log(
+        `${x.existing ? 'updated' : 'imported'} trace ${x.traceId} as run ${x.runId} (${x.status}): ${x.spans} span(s); ` +
+          `${x.events.accepted} new event(s), ${x.events.duplicates} already present, ${x.events.rejected} rejected`,
+      );
+    for (const d of r.diagnostics) console.log(`  ${d.severity}: ${d.code}: ${d.message}`);
+    if (r.runs.length === 0) process.exitCode = 1;
+  });
 program
   .command('export')
   .option('--snapshot <id>')

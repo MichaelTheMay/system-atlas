@@ -141,57 +141,73 @@ function Steps({ detail }: { detail: RunDetailDto }) {
       (
         byParent.get(e.parentEventId) ?? byParent.set(e.parentEventId, []).get(e.parentEventId)!
       ).push(e);
-  const steps = detail.events.filter(
-    (e) =>
-      e.type === 'step.started' || e.type === 'tool.call.requested' || e.type === 'run.started',
+  const isStep = (e: EventDto) =>
+    e.type === 'step.started' || e.type === 'tool.call.requested' || e.type === 'run.started';
+  const steps = detail.events.filter(isStep);
+  const stepIds = new Set(steps.map((s) => s.id));
+  // a step whose parent is another step is drawn inside it (spans, nested SDK steps)
+  const top = steps.filter((s) => !s.parentEventId || !stepIds.has(s.parentEventId));
+
+  const stateOf = (s: EventDto): 'failed' | 'done' | 'unknown' => {
+    const kids = byParent.get(s.id) ?? [];
+    if (kids.some((k) => k.type === 'step.failed')) return 'failed';
+    const toolEnd =
+      s.type === 'tool.call.requested'
+        ? (kids.find((k) => k.type === 'tool.call.completed') ??
+          detail.events.find(
+            (e) =>
+              e.type === 'tool.call.completed' &&
+              !e.parentEventId &&
+              e.payload.tool === s.payload.tool &&
+              (e.sequence ?? 0) > (s.sequence ?? 0),
+          ))
+        : undefined;
+    if (toolEnd) return toolEnd.payload.ok === false ? 'failed' : 'done';
+    if (kids.some((k) => k.type === 'step.completed' || k.type === 'command.exit')) return 'done';
+    return s.type === 'run.started' ? 'done' : 'unknown';
+  };
+  const errorOf = (s: EventDto) => {
+    const kids = byParent.get(s.id) ?? [];
+    const end = kids.find(
+      (k) =>
+        k.type === 'step.failed' || (k.type === 'tool.call.completed' && k.payload.ok === false),
+    );
+    return end ? String(end.payload.error ?? '') : '';
+  };
+
+  const render = (list: EventDto[], depth: number) => (
+    <ol className={depth ? 'step-list nested' : 'step-list'}>
+      {list.map((s) => {
+        const state = stateOf(s);
+        const error = state === 'failed' ? errorOf(s) : '';
+        const children = (byParent.get(s.id) ?? []).filter(isStep);
+        return (
+          <li key={s.id} className={`step st-${state}`}>
+            <span className="step-mark" aria-hidden>
+              {state === 'failed' ? '✗' : state === 'done' ? '✓' : '…'}
+            </span>
+            <span className="step-name">
+              {s.type === 'tool.call.requested'
+                ? `tool: ${String(s.payload.tool)}`
+                : s.type === 'run.started'
+                  ? 'run started'
+                  : String(s.payload.name)}
+            </span>
+            <span className="muted"> {state === 'unknown' ? 'no completion recorded' : state}</span>
+            {error && <pre className="excerpt">{error}</pre>}
+            {children.length > 0 && render(children, depth + 1)}
+          </li>
+        );
+      })}
+    </ol>
   );
+
   return (
     <div className="steps">
       {steps.length === 0 && (
         <p className="empty-note">No step events were recorded for this run.</p>
       )}
-      <ol className="step-list">
-        {steps.map((s) => {
-          const kids = byParent.get(s.id) ?? [];
-          const failed = kids.find((k) => k.type === 'step.failed');
-          const done = kids.find((k) => k.type === 'step.completed' || k.type === 'command.exit');
-          const toolDone =
-            s.type === 'tool.call.requested'
-              ? detail.events.find(
-                  (e) =>
-                    e.type === 'tool.call.completed' &&
-                    e.payload.tool === s.payload.tool &&
-                    (e.sequence ?? 0) > (s.sequence ?? 0),
-                )
-              : undefined;
-          const state = failed
-            ? 'failed'
-            : done || toolDone
-              ? 'done'
-              : s.type === 'run.started'
-                ? 'done'
-                : 'unknown';
-          return (
-            <li key={s.id} className={`step st-${state}`}>
-              <span className="step-mark" aria-hidden>
-                {state === 'failed' ? '✗' : state === 'done' ? '✓' : '…'}
-              </span>
-              <span className="step-name">
-                {s.type === 'tool.call.requested'
-                  ? `tool: ${String(s.payload.tool)}`
-                  : s.type === 'run.started'
-                    ? 'run started'
-                    : String(s.payload.name)}
-              </span>
-              <span className="muted">
-                {' '}
-                {state === 'unknown' ? 'no completion recorded' : state}
-              </span>
-              {failed && <pre className="excerpt">{String(failed.payload.error ?? '')}</pre>}
-            </li>
-          );
-        })}
-      </ol>
+      {render(top, 0)}
       {detail.assertions.length > 0 && (
         <>
           <h3 className="sub">Assertions</h3>
