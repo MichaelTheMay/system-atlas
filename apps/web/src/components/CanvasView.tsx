@@ -43,6 +43,8 @@ interface Props {
   /** Owner chain of the selected entity, nearest first, for canvases that only show an owner. */
   selectedAncestors?: string[];
   onProjection(p: ProjectionDto | null, overlay: OverlayDto | null): void;
+  /** Design lens: double-clicking a box opens the architecture canvas that realizes it. */
+  onRealizedBy?(canvasId: string, entityId?: string): void;
   overlayRef: React.MutableRefObject<OverlayDto | null>;
   persist(mutate: (o: OverlayDto) => OverlayDto): void;
   overlayDirty(): boolean;
@@ -97,6 +99,7 @@ export function CanvasView(props: Props) {
     overlayRef,
     persist,
     overlayDirty,
+    onRealizedBy,
   } = props;
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<AtlasNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -320,8 +323,9 @@ export function CanvasView(props: Props) {
     (n: ProjectionNodeDto) => {
       if (n.focus !== undefined) onNavigate({ canvasId: location.canvasId, focus: n.focus });
       else if (n.openCanvasId) onNavigate({ canvasId: n.openCanvasId });
+      else if (n.realizedByCanvasId && onRealizedBy) onRealizedBy(n.realizedByCanvasId, n.entityId);
     },
-    [location.canvasId, onNavigate],
+    [location.canvasId, onNavigate, onRealizedBy],
   );
 
   return (

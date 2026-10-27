@@ -625,6 +625,7 @@ export function App() {
                 selectedEntityId={selection?.type === 'node' ? selection.node.entityId : undefined}
                 selectedAncestors={selectedAncestors}
                 onProjection={onProjection}
+                onRealizedBy={openRealizedBy}
                 overlayRef={overlayRef}
                 persist={persist}
                 overlayDirty={isDirty}

@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
@@ -37,7 +37,48 @@ async function scanFixture(request: APIRequestContext, name: string) {
     await new Promise((r) => setTimeout(r, 50));
     job = await (await request.get(`/api/v1/jobs/${job.id}`, { headers: auth })).json();
   }
-  return { wt, projectId: reg.project.id as string, snapshotId: job.snapshotId as string };
+  return {
+    wt,
+    root,
+    projectId: reg.project.id as string,
+    snapshotId: job.snapshotId as string,
+  };
+}
+
+/** An agent proposes grouping the api and worker packages into a "Backend" subsystem. */
+async function proposeBackend(request: APIRequestContext, snapshotId: string) {
+  const cat = await (
+    await request.get(`/api/v1/snapshots/${snapshotId}/canvases`, { headers: auth })
+  ).json();
+  const rootId = cat.canvases.find((c: { lens: string }) => c.lens === 'design-system').id;
+  const proj = await (
+    await request.get(`/api/v1/snapshots/${snapshotId}/canvases/${rootId}/projection`, {
+      headers: auth,
+    })
+  ).json();
+  const entityOf = (label: string) =>
+    proj.nodes.find((n: { label: string }) => n.label === label).entityId as string;
+  const proposed = await (
+    await request.post('/api/v1/proposals/claims', {
+      headers: auth,
+      data: {
+        snapshotId,
+        origin: 'model',
+        modelMetadata: {
+          provider: 'mcp-client',
+          model: 'test-agent',
+          promptTemplateVersion: 'agent-authored',
+        },
+        claims: ['api', 'worker'].map((p) => ({
+          subjectId: entityOf(p),
+          predicate: 'subsystem',
+          value: 'Backend',
+          citations: [{ path: `packages/${p}/package.json`, startLine: 1, endLine: 1 }],
+        })),
+      },
+    })
+  ).json();
+  expect(proposed.accepted).toHaveLength(2);
 }
 
 async function openDesign(page: Page, wt: string) {
@@ -92,6 +133,10 @@ test('the System design root draws archetype boxes and flows, and a box opens th
   // each root keeps its own place: going back to System design shows the whiteboard again
   await page.getByRole('button', { name: /^System design/ }).click();
   await expect(page.getByRole('main')).toHaveAccessibleName('System design canvas: System design');
+  // double-clicking a box is the shortcut for Realized by
+  await node(page, 'api').dblclick();
+  await expect(page.getByRole('main')).toHaveAccessibleName('Architecture canvas: @reports/api');
+  await expect(page.getByRole('region', { name: 'Entity details' })).toContainText('@reports/api');
 });
 
 test('an agent-proposed subsystem appears live as proposed, can be promoted and suppressed', async ({
@@ -102,39 +147,7 @@ test('an agent-proposed subsystem appears live as proposed, can be promoted and 
   await openDesign(page, wt);
   await expect(node(page, 'api')).toBeVisible();
 
-  // package entities behind the api and worker boxes
-  const cat = await (
-    await request.get(`/api/v1/snapshots/${snapshotId}/canvases`, { headers: auth })
-  ).json();
-  const rootId = cat.canvases.find((c: { lens: string }) => c.lens === 'design-system').id;
-  const proj = await (
-    await request.get(`/api/v1/snapshots/${snapshotId}/canvases/${rootId}/projection`, {
-      headers: auth,
-    })
-  ).json();
-  const entityOf = (label: string) =>
-    proj.nodes.find((n: { label: string }) => n.label === label).entityId as string;
-  const proposed = await (
-    await request.post('/api/v1/proposals/claims', {
-      headers: auth,
-      data: {
-        snapshotId,
-        origin: 'model',
-        modelMetadata: {
-          provider: 'mcp-client',
-          model: 'test-agent',
-          promptTemplateVersion: 'agent-authored',
-        },
-        claims: ['api', 'worker'].map((p) => ({
-          subjectId: entityOf(p),
-          predicate: 'subsystem',
-          value: 'Backend',
-          citations: [{ path: `packages/${p}/package.json`, startLine: 1, endLine: 1 }],
-        })),
-      },
-    })
-  ).json();
-  expect(proposed.accepted).toHaveLength(2);
+  await proposeBackend(request, snapshotId);
 
   // live (SSE): the child canvas and its whiteboard box appear without a reload or rescan
   const views = page.getByRole('list', { name: 'Views' });
@@ -177,4 +190,43 @@ test('an agent-proposed subsystem appears live as proposed, can be promoted and 
   await expect(views.getByRole('button', { name: /^Backend/ })).toHaveAccessibleName(
     'Backend accepted',
   );
+});
+
+test('promoting a pinned subsystem whose cited file changed shows the validator reasons', async ({
+  page,
+  request,
+}) => {
+  const { wt, root, projectId, snapshotId } = await scanFixture(request, 'design-stale');
+  await openDesign(page, wt);
+  await expect(node(page, 'api')).toBeVisible();
+  await proposeBackend(request, snapshotId);
+  const views = page.getByRole('list', { name: 'Views' });
+  await views.getByRole('button', { name: /^Backend/ }).click();
+  await expect(page.getByRole('main')).toHaveAccessibleName('System design canvas: Backend');
+  const info = page.getByRole('region', { name: 'Canvas details' });
+  await info.getByRole('button', { name: 'Pin' }).click();
+  await expect(info.getByRole('button', { name: 'Unpin' })).toBeVisible();
+
+  // the api claim cites packages/api/package.json: change that file and rescan
+  const pkg = join(root, 'packages/api/package.json');
+  writeFileSync(pkg, JSON.stringify({ ...JSON.parse(readFileSync(pkg, 'utf8')), private: true }));
+  let job = await (await request.post(`/api/v1/worktrees/${wt}/scans`, { headers: auth })).json();
+  while (job.state === 'queued' || job.state === 'running') {
+    await new Promise((r) => setTimeout(r, 50));
+    job = await (await request.get(`/api/v1/jobs/${job.id}`, { headers: auth })).json();
+  }
+  expect(job.snapshotId).not.toBe(snapshotId);
+
+  // pinned, so the subsystem survives the rescan and says why
+  await expect(info).toContainText('Pinned: kept while its evidence changed.');
+  await info.getByRole('button', { name: 'Promote' }).click();
+  await expect(info.getByRole('status')).toContainText('Promotion refused by the claim validator');
+  await expect(info.getByRole('list', { name: 'Validator reasons' })).toContainText(
+    'packages/api/package.json',
+  );
+  // nothing was forced: no promote override is recorded
+  const overrides = await (
+    await request.get(`/api/v1/projects/${projectId}/overrides`, { headers: auth })
+  ).json();
+  expect(overrides.overrides.map((o: { action: string }) => o.action)).toEqual(['pin']);
 });

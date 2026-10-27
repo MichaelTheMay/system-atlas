@@ -71,6 +71,7 @@ export function DesignViewControls({
   provenance,
   subsystemPath,
   onSuppressed,
+  only,
 }: {
   ctx: DesignContext;
   canvasId: string;
@@ -78,6 +79,8 @@ export function DesignViewControls({
   provenance?: Provenance;
   subsystemPath: string;
   onSuppressed?(): void;
+  /** Restrict to one action (the "Suppressed here" list only offers Unsuppress). */
+  only?: OverrideAction;
 }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
@@ -140,27 +143,32 @@ export function DesignViewControls({
   return (
     <div className="design-controls" role="group" aria-label={`View controls for ${title}`}>
       <div className="design-buttons">
-        <button
-          type="button"
-          className="action-sm"
-          aria-pressed={pinned}
-          disabled={disabled}
-          title="Keep this subsystem when the evidence of its claims changes (it is marked stale instead of dropped)."
-          onClick={() => void send('pin', !pinned)}
-        >
-          {pinned ? 'Unpin' : 'Pin'}
-        </button>
-        <button
-          type="button"
-          className="action-sm"
-          aria-pressed={suppressed}
-          disabled={disabled}
-          title="Hide this subsystem from the design views. Claims and code facts are kept."
-          onClick={() => void send('suppress', !suppressed)}
-        >
-          {suppressed ? 'Unsuppress' : 'Suppress'}
-        </button>
-        {provenance === 'proposed' && (
+        {/* pin keeps claim-based subsystems whose evidence changed; detected ones have no claims */}
+        {provenance !== 'detected' && (!only || only === 'pin') && (
+          <button
+            type="button"
+            className="action-sm"
+            aria-pressed={pinned}
+            disabled={disabled}
+            title="Keep this subsystem when the evidence of its claims changes (it is marked stale instead of dropped)."
+            onClick={() => void send('pin', !pinned)}
+          >
+            {pinned ? 'Unpin' : 'Pin'}
+          </button>
+        )}
+        {(!only || only === 'suppress') && (
+          <button
+            type="button"
+            className="action-sm"
+            aria-pressed={suppressed}
+            disabled={disabled}
+            title="Hide this subsystem from the design views. Claims and code facts are kept."
+            onClick={() => void send('suppress', !suppressed)}
+          >
+            {suppressed ? 'Unsuppress' : 'Suppress'}
+          </button>
+        )}
+        {provenance === 'proposed' && !only && (
           <button
             type="button"
             className="action-sm primary"
@@ -183,8 +191,8 @@ export function DesignViewControls({
       {rejected.length > 0 && (
         <ul className="plain-list rejections" aria-label="Validator reasons">
           {rejected.map((r) => (
-            <li key={r.subjectId}>
-              <code>{r.subjectId}</code>: {r.reasons.join('; ')}
+            <li key={r.subjectId} title={`Claim subject ${r.subjectId}`}>
+              {r.reasons.join('; ')}
             </li>
           ))}
         </ul>
@@ -248,15 +256,13 @@ export function DesignBoxInfo({
           >
             Open {node.label}
           </button>
-          {prov !== 'detected' && (
-            <DesignViewControls
-              ctx={ctx}
-              canvasId={node.openCanvasId!}
-              title={node.label}
-              provenance={prov}
-              subsystemPath={subsystemPathOf(projection, node.label)}
-            />
-          )}
+          <DesignViewControls
+            ctx={ctx}
+            canvasId={node.openCanvasId!}
+            title={node.label}
+            provenance={prov}
+            subsystemPath={subsystemPathOf(projection, node.label)}
+          />
         </>
       )}
       {node.realizedByCanvasId && onRealizedBy && (
@@ -313,7 +319,7 @@ export function DesignCanvasInfo({
       {prov && <p className="muted small">{PROVENANCE_TEXT[prov]}</p>}
       <h4 className="sub">Why this canvas?</h4>
       <p>{projection.relevanceReason}</p>
-      {subsystem && prov !== 'detected' && (
+      {subsystem && (
         <>
           <h4 className="sub">View controls</h4>
           <DesignViewControls
@@ -347,7 +353,14 @@ export function DesignCanvasInfo({
             {hidden.map((c) => (
               <li key={c.id}>
                 {c.title} <ProvenanceBadge provenance={c.provenance} />
-                <DesignViewControls ctx={ctx} canvasId={c.id} title={c.title} subsystemPath="" />
+                <DesignViewControls
+                  ctx={ctx}
+                  canvasId={c.id}
+                  title={c.title}
+                  provenance={c.provenance}
+                  subsystemPath=""
+                  only="suppress"
+                />
               </li>
             ))}
           </ul>
@@ -355,7 +368,7 @@ export function DesignCanvasInfo({
       )}
       <p className="muted hint">
         Boxes are views over detected code, not new facts. Hover a box for why it got its archetype;
-        double-click a subsystem to open it.
+        double-click a subsystem to open it, or a box to open the code that realizes it.
       </p>
     </section>
   );

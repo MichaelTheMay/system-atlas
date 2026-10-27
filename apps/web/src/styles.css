@@ -1719,3 +1719,11 @@ button.badge.issues {
 .insp p > .prov:first-child {
   margin-left: 0;
 }
+.rejections {
+  overflow-wrap: anywhere;
+}
+.rejections li {
+  border-left: 2px solid #d9a640;
+  padding-left: 8px;
+  margin: 4px 0;
+}
