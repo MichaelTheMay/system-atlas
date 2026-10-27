@@ -10,3 +10,4 @@ export * from './search.ts';
 export * from './proposals.ts';
 export * from './overrides.ts';
 export * from './design-elements.ts';
+export * from './boards.ts';

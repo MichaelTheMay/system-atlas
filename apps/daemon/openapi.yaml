@@ -455,6 +455,58 @@ paths:
       responses:
         '200': { description: '{ projectId, overrides: [{ targetId, action, createdAt }] }' }
         '404': { description: Unknown project }
+  /api/v1/design/board-templates:
+    get:
+      summary: Starter design boards (D03)
+      responses:
+        '200': { description: '{ templates: [{ id, name, description, componentCount }] }' }
+  /api/v1/projects/{id}/boards:
+    get:
+      summary: Design boards of a project (D03; design-first whiteboards, view data only)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: '{ projectId, boards: DesignBoardSummary[] }' }
+        '404': { description: Unknown project }
+    post:
+      summary: Create a board (blank, from a template, or with a given document); publishes design.board.changed
+      description: Body is DesignBoardCreate (packages/schema/src/design-board.ts). Boards nest at most three levels via parentBoardId.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        {
+          required: true,
+          content: { application/json: { schema: { type: object, required: [name] } } },
+        }
+      responses:
+        '201': { description: The stored DesignBoard (revision 0) }
+        '400': { description: Invalid body, unknown template, or nesting too deep }
+        '404': { description: Unknown project }
+  /api/v1/boards/{boardId}:
+    get:
+      summary: One board with its document (Excalidraw scene + component registry)
+      parameters: [{ name: boardId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: DesignBoard }
+        '404': { description: Unknown board }
+    patch:
+      summary: Save a board with optimistic concurrency; publishes design.board.changed
+      description: Body is DesignBoardPatch { name?, document?, revision }. A stale revision is a 409 carrying the stored board as `current`.
+      parameters: [{ name: boardId, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        {
+          required: true,
+          content: { application/json: { schema: { type: object, required: [revision] } } },
+        }
+      responses:
+        '200': { description: The stored DesignBoard (revision + 1) }
+        '400': { description: Invalid document }
+        '404': { description: Unknown board }
+        '409': { description: Revision conflict }
+    delete:
+      summary: Delete a board and its internals boards; publishes design.board.changed
+      parameters: [{ name: boardId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: '{ deleted: string[] }' }
+        '404': { description: Unknown board }
   /api/v1/projects/{id}/design/elements:
     get:
       summary: User-authored design elements of a project (D02a; boxes, flows, sticky notes, subsystems)
