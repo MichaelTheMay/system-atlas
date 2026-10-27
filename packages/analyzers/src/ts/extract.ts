@@ -135,29 +135,339 @@ interface Consumer {
   ev: EvidenceRef;
 }
 
-interface QueueUse {
-  from: string;
-  kind: 'publishes' | 'subscribes';
-  nameExpr: ts.Expression;
-  sf: ts.SourceFile;
+/**
+ * Everything the TS/JS analyzer needs from one file's syntax, as plain data. It depends only on
+ * the file's path and bytes, so it is cached by (analyzer version, path, sha256) and only changed
+ * files are re-parsed (plan §9 incremental analysis). `ops` are recorded in AST visit order and
+ * replayed by `resolveTs`, which keeps the output identical to a single combined pass.
+ */
+export interface TsFacts {
   path: string;
-  ev: EvidenceRef;
+  sha256: string;
+  role: string;
+  lines: number;
+  symbols: EntityObservation[];
+  consts: [string, string][];
+  hasServerTypes: boolean;
+  imports: {
+    spec: string;
+    ev: EvidenceRef;
+    typeOnly: boolean;
+    names: { local: string; imported: string }[];
+  }[];
+  ops: TsOp[];
+}
+
+export type TsOp =
+  | { t: 'import'; spec: string; ev: EvidenceRef }
+  | { t: 'route'; method: string; path: string; recv: string; ev: EvidenceRef }
+  | { t: 'route-object'; method: string; url: string; ev: EvidenceRef }
+  | { t: 'consumer'; method: string; shape: string; ev: EvidenceRef }
+  | { t: 'sql'; sql: string; ev: EvidenceRef }
+  | { t: 'ui'; path: string; ev: EvidenceRef }
+  | {
+      t: 'queue';
+      kind: 'publishes' | 'subscribes';
+      lit?: string;
+      ident?: string;
+      text: string;
+      ev: EvidenceRef;
+    };
+
+export interface TsResolveInput {
+  facts: TsFacts[];
+  packageJsons: TsInput['packageJsons'];
+  tsconfigs: TsInput['tsconfigs'];
+  manifestDirs: string[];
+}
+
+/** Parse one file and record its syntax facts. Pure: depends only on the file's path and bytes. */
+export function factsOf(f: TsInput['files'][number]): TsFacts {
+  const sf = ts.createSourceFile(f.path, f.text, ts.ScriptTarget.Latest, true, scriptKind(f.path));
+  const key = moduleKey(f.path);
+  const facts: TsFacts = {
+    path: f.path,
+    sha256: f.sha256,
+    role: f.role,
+    lines: sf.getLineAndCharacterOfPosition(sf.end).line + 1,
+    symbols: [],
+    consts: [],
+    hasServerTypes: SERVER_TYPES.test(sf.text),
+    imports: [],
+    ops: [],
+  };
+  for (const st of sf.statements) {
+    const exported = hasModifier(st, ts.SyntaxKind.ExportKeyword);
+    if (ts.isVariableStatement(st)) {
+      for (const d of st.declarationList.declarations) {
+        if (
+          ts.isIdentifier(d.name) &&
+          d.initializer &&
+          (ts.isStringLiteral(d.initializer) || ts.isNoSubstitutionTemplateLiteral(d.initializer))
+        ) {
+          facts.consts.push([d.name.text, d.initializer.text]);
+        }
+        if (exported && ts.isIdentifier(d.name))
+          facts.symbols.push(symbol(f, sf, d.name.text, d, 'variable', key));
+      }
+    } else if (
+      exported &&
+      (ts.isFunctionDeclaration(st) ||
+        ts.isClassDeclaration(st) ||
+        ts.isInterfaceDeclaration(st) ||
+        ts.isTypeAliasDeclaration(st) ||
+        ts.isEnumDeclaration(st))
+    ) {
+      const name =
+        st.name?.text ?? (hasModifier(st, ts.SyntaxKind.DefaultKeyword) ? 'default' : undefined);
+      if (name)
+        facts.symbols.push(
+          symbol(
+            f,
+            sf,
+            name,
+            st,
+            ts.SyntaxKind[st.kind].replace('Declaration', '').toLowerCase(),
+            key,
+          ),
+        );
+    }
+  }
+
+  const ev = (node: ts.Node): EvidenceRef => {
+    const s = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+    const e = sf.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
+    return {
+      path: f.path,
+      contentHash: f.sha256,
+      startLine: s,
+      endLine: e,
+      excerpt: linesOf(sf)
+        .slice(s - 1, Math.min(e, s + 2))
+        .join('\n')
+        .slice(0, 400),
+    };
+  };
+  for (const st of sf.statements) {
+    if (ts.isImportDeclaration(st) && ts.isStringLiteral(st.moduleSpecifier)) {
+      const names: { local: string; imported: string }[] = [];
+      const nb = st.importClause?.namedBindings;
+      if (nb && ts.isNamedImports(nb))
+        for (const el of nb.elements)
+          names.push({ local: el.name.text, imported: (el.propertyName ?? el.name).text });
+      facts.imports.push({
+        spec: st.moduleSpecifier.text,
+        ev: ev(st),
+        typeOnly: !!st.importClause?.isTypeOnly,
+        names,
+      });
+    } else if (
+      ts.isExportDeclaration(st) &&
+      st.moduleSpecifier &&
+      ts.isStringLiteral(st.moduleSpecifier)
+    ) {
+      facts.imports.push({
+        spec: st.moduleSpecifier.text,
+        ev: ev(st),
+        typeOnly: st.isTypeOnly,
+        names: [],
+      });
+    }
+  }
+
+  const ops = facts.ops;
+  const collectRouteObjects = (arr: ts.ArrayLiteralExpression, prefix: string) => {
+    for (const el of arr.elements) {
+      if (!ts.isObjectLiteralExpression(el)) continue;
+      const p = stringProp(el, 'path');
+      const full =
+        p === undefined ? prefix : p.startsWith('/') ? p : `${prefix.replace(/\/$/, '')}/${p}`;
+      if (p !== undefined) ops.push({ t: 'ui', path: full || '/', ev: ev(el) });
+      const children = el.properties.find(
+        (x) => ts.isPropertyAssignment(x) && ts.isIdentifier(x.name) && x.name.text === 'children',
+      );
+      if (
+        children &&
+        ts.isPropertyAssignment(children) &&
+        ts.isArrayLiteralExpression(children.initializer)
+      )
+        collectRouteObjects(children.initializer, full);
+    }
+  };
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      const arg0 = node.arguments[0];
+      // dynamic import / require
+      if (
+        (callee.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(callee) && callee.text === 'require')) &&
+        arg0 &&
+        ts.isStringLiteralLike(arg0)
+      ) {
+        ops.push({ t: 'import', spec: arg0.text, ev: ev(node) });
+      }
+      // HTTP route declarations: <receiver>.<method>('/path', ...)
+      if (
+        ts.isPropertyAccessExpression(callee) &&
+        HTTP_METHODS.has(callee.name.text) &&
+        arg0 &&
+        ts.isStringLiteralLike(arg0) &&
+        arg0.text.startsWith('/')
+      ) {
+        const receiver = callee.expression;
+        const recv = ts.isIdentifier(receiver)
+          ? receiver.text
+          : ts.isPropertyAccessExpression(receiver)
+            ? receiver.name.text
+            : '';
+        const method =
+          callee.name.text === 'all'
+            ? 'ANY'
+            : callee.name.text === 'del'
+              ? 'DELETE'
+              : callee.name.text.toUpperCase();
+        ops.push({ t: 'route', method, path: arg0.text, recv, ev: ev(node) });
+      }
+      // fastify app.route({ method, url })
+      if (
+        ts.isPropertyAccessExpression(callee) &&
+        callee.name.text === 'route' &&
+        arg0 &&
+        ts.isObjectLiteralExpression(arg0)
+      ) {
+        const method = stringProp(arg0, 'method');
+        const url = stringProp(arg0, 'url') ?? stringProp(arg0, 'path');
+        if (method && url)
+          ops.push({ t: 'route-object', method: method.toUpperCase(), url, ev: ev(node) });
+      }
+      // HTTP consumers: fetch('/x', { method }) and axios.<method>('/x')
+      const isFetch = ts.isIdentifier(callee) && callee.text === 'fetch';
+      const isAxios =
+        ts.isPropertyAccessExpression(callee) &&
+        ts.isIdentifier(callee.expression) &&
+        ['axios', 'http', 'client', 'api'].includes(callee.expression.text) &&
+        HTTP_METHODS.has(callee.name.text);
+      if ((isFetch || isAxios) && arg0) {
+        const url = urlTemplate(arg0);
+        if (url && url.startsWith('/')) {
+          let method = 'GET';
+          if (isAxios) method = (callee as ts.PropertyAccessExpression).name.text.toUpperCase();
+          else if (node.arguments[1] && ts.isObjectLiteralExpression(node.arguments[1]))
+            method = (stringProp(node.arguments[1], 'method') ?? 'GET').toUpperCase();
+          ops.push({ t: 'consumer', method, shape: routeShape(url), ev: ev(node) });
+        }
+      }
+      // SQL text passed to query-like calls
+      const calleeName = ts.isPropertyAccessExpression(callee)
+        ? callee.name.text
+        : ts.isIdentifier(callee)
+          ? callee.text
+          : '';
+      if (SQL_CALLEES.has(calleeName) && arg0) {
+        const sql = ts.isStringLiteralLike(arg0)
+          ? arg0.text
+          : ts.isTemplateExpression(arg0)
+            ? arg0.head.text + arg0.templateSpans.map((s) => ` ? ${s.literal.text}`).join('')
+            : undefined;
+        if (sql && looksLikeSql(sql)) ops.push({ t: 'sql', sql, ev: ev(node) });
+      }
+      // react-router data routers / useRoutes
+      if (
+        ts.isIdentifier(callee) &&
+        /^(create(Browser|Hash|Memory|Static)Router|useRoutes)$/.test(callee.text) &&
+        arg0 &&
+        ts.isArrayLiteralExpression(arg0)
+      ) {
+        collectRouteObjects(arg0, '');
+      }
+    }
+    if (
+      ts.isTaggedTemplateExpression(node) &&
+      ts.isIdentifier(node.tag) &&
+      node.tag.text === 'sql'
+    ) {
+      const t = node.template;
+      const sql = ts.isNoSubstitutionTemplateLiteral(t)
+        ? t.text
+        : t.head.text + t.templateSpans.map((s) => ` ? ${s.literal.text}`).join('');
+      if (looksLikeSql(sql)) ops.push({ t: 'sql', sql, ev: ev(node) });
+    }
+    // BullMQ-style queues (kept only when the file imports a queue library; decided at resolve time)
+    if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.arguments?.[0]) {
+      const cls = node.expression.text;
+      const kind =
+        cls === 'Queue' || cls === 'FlowProducer'
+          ? 'publishes'
+          : cls === 'Worker' || cls === 'QueueEvents'
+            ? 'subscribes'
+            : undefined;
+      if (kind) {
+        const nameExpr = node.arguments[0];
+        ops.push({
+          t: 'queue',
+          kind,
+          lit: ts.isStringLiteralLike(nameExpr) ? nameExpr.text : undefined,
+          ident: ts.isIdentifier(nameExpr) ? nameExpr.text : undefined,
+          text: nameExpr.getText(sf).slice(0, 60),
+          ev: ev(node),
+        });
+      }
+    }
+    // <Route path="/x" />
+    if (
+      (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
+      ts.isIdentifier(node.tagName) &&
+      node.tagName.text === 'Route'
+    ) {
+      for (const a of node.attributes.properties) {
+        if (
+          ts.isJsxAttribute(a) &&
+          ts.isIdentifier(a.name) &&
+          a.name.text === 'path' &&
+          a.initializer &&
+          ts.isStringLiteral(a.initializer)
+        ) {
+          ops.push({ t: 'ui', path: a.initializer.text, ev: ev(node) });
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return facts;
 }
 
 export function extractTs(input: TsInput): AnalyzerOutput {
+  return resolveTs({
+    facts: input.files.map(factsOf),
+    packageJsons: input.packageJsons,
+    tsconfigs: input.tsconfigs,
+    manifestDirs: input.manifestDirs,
+  });
+}
+
+/** Whole-repository step over cached per-file facts: module resolution, endpoints, queues, consumers. */
+export function resolveTs(input: TsResolveInput): AnalyzerOutput {
   const out: AnalyzerOutput = { entities: [], relations: [], diagnostics: [], handled: [] };
-  const fileSet = new Map(input.files.map((f) => [f.path, f]));
+  const fileSet = new Map(input.facts.map((f) => [f.path, f]));
   const pkgs = parsePackages(input.packageJsons, out);
   const aliases = parseTsconfigs(input.tsconfigs, out);
   const externals = new Map<string, EvidenceRef>();
   const endpoints = new Map<string, { pkgDir: string; method: string; shape: string }>();
+  const uiKeys = new Set<string>();
+  const queueKeys = new Set<string>();
   const consumers: Consumer[] = [];
-  const queueUses: QueueUse[] = [];
-  /** exported string constants per module path, for queue/topic name resolution */
+  const queueUses: {
+    from: string;
+    path: string;
+    op: Extract<TsOp, { t: 'queue' }>;
+  }[] = [];
+  /** string constants per module path, for queue/topic name resolution */
   const constants = new Map<string, Map<string, string>>();
   /** import bindings per module: local name -> { module path, imported name } */
   const bindings = new Map<string, Map<string, { target: string; name: string }>>();
-  const sources = new Map<string, ts.SourceFile>();
+  const copy = (ev: EvidenceRef): EvidenceRef => ({ ...ev });
 
   const resolve = (
     from: string,
@@ -220,95 +530,33 @@ export function extractTs(input: TsInput): AnalyzerOutput {
     return { kind: 'external', name };
   };
 
-  // Pass 1: parse, declare modules and exported symbols, collect constants and bindings.
-  for (const f of input.files) {
-    const sf = ts.createSourceFile(
-      f.path,
-      f.text,
-      ts.ScriptTarget.Latest,
-      true,
-      scriptKind(f.path),
-    );
-    sources.set(f.path, sf);
+  // Pass 1: modules and exported symbols, constants.
+  for (const f of input.facts) {
     const key = moduleKey(f.path);
-    const lines = sf.getLineAndCharacterOfPosition(sf.end).line + 1;
     out.entities.push({
       key,
       kind: 'module',
       canonicalName: `ts:${f.path}`,
       displayName: f.path.slice(f.path.lastIndexOf('/') + 1),
       ownerKey: ownerKeyFor(f.path, input.manifestDirs),
-      attributes: { path: f.path, lines, test: f.role === 'test' },
-      evidence: [{ path: f.path, contentHash: f.sha256, startLine: 1, endLine: lines }],
+      attributes: { path: f.path, lines: f.lines, test: f.role === 'test' },
+      evidence: [{ path: f.path, contentHash: f.sha256, startLine: 1, endLine: f.lines }],
     });
     out.handled.push({ path: f.path, support: 'deep' });
-    const consts = new Map<string, string>();
-    constants.set(f.path, consts);
+    constants.set(f.path, new Map(f.consts));
     bindings.set(f.path, new Map());
-    for (const st of sf.statements) {
-      const exported = hasModifier(st, ts.SyntaxKind.ExportKeyword);
-      if (ts.isVariableStatement(st)) {
-        for (const d of st.declarationList.declarations) {
-          if (
-            ts.isIdentifier(d.name) &&
-            d.initializer &&
-            (ts.isStringLiteral(d.initializer) || ts.isNoSubstitutionTemplateLiteral(d.initializer))
-          ) {
-            consts.set(d.name.text, d.initializer.text);
-          }
-          if (exported && ts.isIdentifier(d.name))
-            out.entities.push(symbol(f, sf, d.name.text, d, 'variable', key));
-        }
-      } else if (
-        exported &&
-        (ts.isFunctionDeclaration(st) ||
-          ts.isClassDeclaration(st) ||
-          ts.isInterfaceDeclaration(st) ||
-          ts.isTypeAliasDeclaration(st) ||
-          ts.isEnumDeclaration(st))
-      ) {
-        const name =
-          st.name?.text ?? (hasModifier(st, ts.SyntaxKind.DefaultKeyword) ? 'default' : undefined);
-        if (name)
-          out.entities.push(
-            symbol(
-              f,
-              sf,
-              name,
-              st,
-              ts.SyntaxKind[st.kind].replace('Declaration', '').toLowerCase(),
-              key,
-            ),
-          );
-      }
-    }
+    for (const sym of f.symbols) out.entities.push({ ...sym, evidence: sym.evidence.map(copy) });
   }
 
   // Pass 2: imports, routes, consumers, queues, SQL, UI routes.
-  for (const f of input.files) {
-    const sf = sources.get(f.path)!;
+  for (const f of input.facts) {
     const from = moduleKey(f.path);
     const pkgDir = nearestPackageDir(f.path, input.manifestDirs) ?? '';
-    const ev = (node: ts.Node): EvidenceRef => {
-      const s = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
-      const e = sf.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
-      return {
-        path: f.path,
-        contentHash: f.sha256,
-        startLine: s,
-        endLine: e,
-        excerpt: sf.text
-          .split('\n')
-          .slice(s - 1, Math.min(e, s + 2))
-          .join('\n')
-          .slice(0, 400),
-      };
-    };
     const importedLibs = new Set<string>();
     const seenImport = new Set<string>();
     const addImport = (
       spec: string,
-      node: ts.Node,
+      ev: EvidenceRef,
       typeOnly: boolean,
       names: { local: string; imported: string }[],
     ) => {
@@ -317,7 +565,7 @@ export function extractTs(input: TsInput): AnalyzerOutput {
       if (r.kind === 'external') {
         importedLibs.add(r.name);
         const toKey = `ext:npm:${r.name}`;
-        if (!externals.has(toKey)) externals.set(toKey, ev(node));
+        if (!externals.has(toKey)) externals.set(toKey, copy(ev));
         if (!seenImport.has(toKey))
           out.relations.push({
             fromKey: from,
@@ -326,7 +574,7 @@ export function extractTs(input: TsInput): AnalyzerOutput {
             qualifiers: typeOnly ? { typeOnly: 'true' } : undefined,
             confidence: 'exact',
             resolved: true,
-            evidence: [ev(node)],
+            evidence: [copy(ev)],
           });
         seenImport.add(toKey);
         return;
@@ -338,7 +586,7 @@ export function extractTs(input: TsInput): AnalyzerOutput {
           kind: 'imports',
           confidence: 'heuristic',
           resolved: false,
-          evidence: [ev(node)],
+          evidence: [copy(ev)],
         });
         return;
       }
@@ -355,197 +603,31 @@ export function extractTs(input: TsInput): AnalyzerOutput {
         qualifiers: typeOnly ? { typeOnly: 'true' } : undefined,
         confidence: 'resolved',
         resolved: true,
-        evidence: [ev(node)],
+        evidence: [copy(ev)],
       });
     };
-
-    for (const st of sf.statements) {
-      if (ts.isImportDeclaration(st) && ts.isStringLiteral(st.moduleSpecifier)) {
-        const names: { local: string; imported: string }[] = [];
-        const nb = st.importClause?.namedBindings;
-        if (nb && ts.isNamedImports(nb))
-          for (const el of nb.elements)
-            names.push({ local: el.name.text, imported: (el.propertyName ?? el.name).text });
-        addImport(st.moduleSpecifier.text, st, !!st.importClause?.isTypeOnly, names);
-      } else if (
-        ts.isExportDeclaration(st) &&
-        st.moduleSpecifier &&
-        ts.isStringLiteral(st.moduleSpecifier)
-      ) {
-        addImport(st.moduleSpecifier.text, st, st.isTypeOnly, []);
-      }
-    }
-    const serverFile = SERVER_LIBS.some((l) => importedLibs.has(l)) || SERVER_TYPES.test(sf.text);
+    for (const im of f.imports) addImport(im.spec, im.ev, im.typeOnly, im.names);
+    const serverFile = SERVER_LIBS.some((l) => importedLibs.has(l)) || f.hasServerTypes;
     const queueLib = [...importedLibs].some((l) => QUEUE_LIBS.has(l));
     const routerLib = [...importedLibs].some((l) => ROUTER_LIBS.has(l));
 
-    const visit = (node: ts.Node) => {
-      if (ts.isCallExpression(node)) {
-        const callee = node.expression;
-        const arg0 = node.arguments[0];
-        // dynamic import / require
-        if (
-          (callee.kind === ts.SyntaxKind.ImportKeyword ||
-            (ts.isIdentifier(callee) && callee.text === 'require')) &&
-          arg0 &&
-          ts.isStringLiteralLike(arg0)
-        ) {
-          addImport(arg0.text, node, false, []);
-        }
-        // HTTP route declarations: <receiver>.<method>('/path', ...)
-        if (
-          ts.isPropertyAccessExpression(callee) &&
-          HTTP_METHODS.has(callee.name.text) &&
-          arg0 &&
-          ts.isStringLiteralLike(arg0) &&
-          arg0.text.startsWith('/')
-        ) {
-          const receiver = callee.expression;
-          const recvName = ts.isIdentifier(receiver)
-            ? receiver.text
-            : ts.isPropertyAccessExpression(receiver)
-              ? receiver.name.text
-              : '';
-          if (serverFile || ROUTE_RECEIVERS.has(recvName)) {
-            const method =
-              callee.name.text === 'all'
-                ? 'ANY'
-                : callee.name.text === 'del'
-                  ? 'DELETE'
-                  : callee.name.text.toUpperCase();
-            addEndpoint(pkgDir, method, arg0.text, node, serverFile ? 'resolved' : 'heuristic');
-          }
-        }
-        // fastify app.route({ method, url })
-        if (
-          ts.isPropertyAccessExpression(callee) &&
-          callee.name.text === 'route' &&
-          arg0 &&
-          ts.isObjectLiteralExpression(arg0) &&
-          serverFile
-        ) {
-          const method = stringProp(arg0, 'method');
-          const url = stringProp(arg0, 'url') ?? stringProp(arg0, 'path');
-          if (method && url) addEndpoint(pkgDir, method.toUpperCase(), url, node, 'resolved');
-        }
-        // HTTP consumers: fetch('/x', { method }) and axios.<method>('/x')
-        const isFetch = ts.isIdentifier(callee) && callee.text === 'fetch';
-        const isAxios =
-          ts.isPropertyAccessExpression(callee) &&
-          ts.isIdentifier(callee.expression) &&
-          ['axios', 'http', 'client', 'api'].includes(callee.expression.text) &&
-          HTTP_METHODS.has(callee.name.text);
-        if ((isFetch || isAxios) && arg0) {
-          const url = urlTemplate(arg0);
-          if (url && url.startsWith('/')) {
-            let method = 'GET';
-            if (isAxios) method = (callee as ts.PropertyAccessExpression).name.text.toUpperCase();
-            else if (node.arguments[1] && ts.isObjectLiteralExpression(node.arguments[1]))
-              method = (stringProp(node.arguments[1], 'method') ?? 'GET').toUpperCase();
-            consumers.push({ from, method, shape: routeShape(url), ev: ev(node) });
-          }
-        }
-        // SQL text passed to query-like calls
-        const calleeName = ts.isPropertyAccessExpression(callee)
-          ? callee.name.text
-          : ts.isIdentifier(callee)
-            ? callee.text
-            : '';
-        if (SQL_CALLEES.has(calleeName) && arg0) {
-          const sql = ts.isStringLiteralLike(arg0)
-            ? arg0.text
-            : ts.isTemplateExpression(arg0)
-              ? arg0.head.text + arg0.templateSpans.map((s) => ` ? ${s.literal.text}`).join('')
-              : undefined;
-          if (sql && looksLikeSql(sql)) addSql(sql, node);
-        }
-        // react-router data routers / useRoutes
-        if (
-          ts.isIdentifier(callee) &&
-          /^(create(Browser|Hash|Memory|Static)Router|useRoutes)$/.test(callee.text) &&
-          arg0 &&
-          ts.isArrayLiteralExpression(arg0)
-        ) {
-          collectRouteObjects(arg0, '', routerLib ? 'resolved' : 'heuristic');
-        }
-      }
-      if (
-        ts.isTaggedTemplateExpression(node) &&
-        ts.isIdentifier(node.tag) &&
-        node.tag.text === 'sql'
-      ) {
-        const t = node.template;
-        const sql = ts.isNoSubstitutionTemplateLiteral(t)
-          ? t.text
-          : t.head.text + t.templateSpans.map((s) => ` ? ${s.literal.text}`).join('');
-        if (looksLikeSql(sql)) addSql(sql, node);
-      }
-      // BullMQ-style queues
-      if (
-        ts.isNewExpression(node) &&
-        queueLib &&
-        ts.isIdentifier(node.expression) &&
-        node.arguments?.[0]
-      ) {
-        const cls = node.expression.text;
-        if (cls === 'Queue' || cls === 'FlowProducer')
-          queueUses.push({
-            from,
-            kind: 'publishes',
-            nameExpr: node.arguments[0],
-            sf,
-            path: f.path,
-            ev: ev(node),
-          });
-        if (cls === 'Worker' || cls === 'QueueEvents')
-          queueUses.push({
-            from,
-            kind: 'subscribes',
-            nameExpr: node.arguments[0],
-            sf,
-            path: f.path,
-            ev: ev(node),
-          });
-      }
-      // <Route path="/x" />
-      if (
-        (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
-        ts.isIdentifier(node.tagName) &&
-        node.tagName.text === 'Route'
-      ) {
-        for (const a of node.attributes.properties) {
-          if (
-            ts.isJsxAttribute(a) &&
-            ts.isIdentifier(a.name) &&
-            a.name.text === 'path' &&
-            a.initializer &&
-            ts.isStringLiteral(a.initializer)
-          ) {
-            addUi(a.initializer.text, node, routerLib ? 'resolved' : 'heuristic');
-          }
-        }
-      }
-      ts.forEachChild(node, visit);
-    };
-
     const addEndpoint = (
-      dir: string,
       method: string,
       path: string,
-      node: ts.Node,
+      ev: EvidenceRef,
       confidence: 'resolved' | 'heuristic',
     ) => {
-      const key = `endpoint:${dir || '.'}:${method} ${path}`;
+      const key = `endpoint:${pkgDir || '.'}:${method} ${path}`;
       if (!endpoints.has(key)) {
-        endpoints.set(key, { pkgDir: dir, method, shape: routeShape(path) });
+        endpoints.set(key, { pkgDir, method, shape: routeShape(path) });
         out.entities.push({
           key,
           kind: 'endpoint',
           canonicalName: `${method} ${path}`,
           displayName: `${method} ${path}`,
           ownerKey: from,
-          attributes: { method, path, package: dir || '.' },
-          evidence: [ev(node)],
+          attributes: { method, path, package: pkgDir || '.' },
+          evidence: [copy(ev)],
         });
       }
       out.relations.push({
@@ -554,12 +636,13 @@ export function extractTs(input: TsInput): AnalyzerOutput {
         kind: 'exposes',
         confidence,
         resolved: true,
-        evidence: [ev(node)],
+        evidence: [copy(ev)],
       });
     };
-    const addUi = (path: string, node: ts.Node, confidence: 'resolved' | 'heuristic') => {
+    const addUi = (path: string, ev: EvidenceRef, confidence: 'resolved' | 'heuristic') => {
       const key = `ui:${pkgDir || '.'}:${path}`;
-      if (!out.entities.some((e) => e.key === key)) {
+      if (!uiKeys.has(key)) {
+        uiKeys.add(key);
         out.entities.push({
           key,
           kind: 'ui-surface',
@@ -567,7 +650,7 @@ export function extractTs(input: TsInput): AnalyzerOutput {
           displayName: path,
           ownerKey: from,
           attributes: { path, package: pkgDir || '.' },
-          evidence: [ev(node)],
+          evidence: [copy(ev)],
         });
       }
       out.relations.push({
@@ -576,10 +659,10 @@ export function extractTs(input: TsInput): AnalyzerOutput {
         kind: 'exposes',
         confidence,
         resolved: true,
-        evidence: [ev(node)],
+        evidence: [copy(ev)],
       });
     };
-    const addSql = (sql: string, node: ts.Node) => {
+    const addSql = (sql: string, ev: EvidenceRef) => {
       const refs = sqlTableRefs(sql);
       for (const t of refs.writes)
         out.relations.push({
@@ -588,7 +671,7 @@ export function extractTs(input: TsInput): AnalyzerOutput {
           kind: 'writes',
           confidence: 'heuristic',
           resolved: true,
-          evidence: [ev(node)],
+          evidence: [copy(ev)],
         });
       for (const t of refs.reads)
         out.relations.push({
@@ -597,66 +680,71 @@ export function extractTs(input: TsInput): AnalyzerOutput {
           kind: 'reads',
           confidence: 'heuristic',
           resolved: true,
-          evidence: [ev(node)],
+          evidence: [copy(ev)],
         });
     };
-    const collectRouteObjects = (
-      arr: ts.ArrayLiteralExpression,
-      prefix: string,
-      confidence: 'resolved' | 'heuristic',
-    ) => {
-      for (const el of arr.elements) {
-        if (!ts.isObjectLiteralExpression(el)) continue;
-        const p = stringProp(el, 'path');
-        const full =
-          p === undefined ? prefix : p.startsWith('/') ? p : `${prefix.replace(/\/$/, '')}/${p}`;
-        if (p !== undefined) addUi(full || '/', el, confidence);
-        const children = el.properties.find(
-          (x) =>
-            ts.isPropertyAssignment(x) && ts.isIdentifier(x.name) && x.name.text === 'children',
-        );
-        if (
-          children &&
-          ts.isPropertyAssignment(children) &&
-          ts.isArrayLiteralExpression(children.initializer)
-        )
-          collectRouteObjects(children.initializer, full, confidence);
+
+    for (const op of f.ops) {
+      switch (op.t) {
+        case 'import':
+          addImport(op.spec, op.ev, false, []);
+          break;
+        case 'route':
+          if (serverFile || ROUTE_RECEIVERS.has(op.recv))
+            addEndpoint(op.method, op.path, op.ev, serverFile ? 'resolved' : 'heuristic');
+          break;
+        case 'route-object':
+          if (serverFile) addEndpoint(op.method, op.url, op.ev, 'resolved');
+          break;
+        case 'consumer':
+          consumers.push({ from, method: op.method, shape: op.shape, ev: copy(op.ev) });
+          break;
+        case 'sql':
+          addSql(op.sql, op.ev);
+          break;
+        case 'ui':
+          addUi(op.path, op.ev, routerLib ? 'resolved' : 'heuristic');
+          break;
+        case 'queue':
+          if (queueLib) queueUses.push({ from, path: f.path, op });
+          break;
       }
-    };
-    visit(sf);
+    }
   }
 
   // Queue names: string literal, local constant, or imported constant.
   for (const q of queueUses) {
-    const name = constValue(q.nameExpr, q.path, constants, bindings);
+    const name =
+      q.op.lit ?? (q.op.ident ? constValue(q.op.ident, q.path, constants, bindings) : undefined);
     if (name) {
       const key = `queue:${name}`;
-      if (!out.entities.some((e) => e.key === key)) {
+      if (!queueKeys.has(key)) {
+        queueKeys.add(key);
         out.entities.push({
           key,
           kind: 'queue',
           canonicalName: `queue:${name}`,
           displayName: name,
           attributes: { name },
-          evidence: [q.ev],
+          evidence: [copy(q.op.ev)],
         });
       }
       out.relations.push({
         fromKey: q.from,
         toKey: key,
-        kind: q.kind,
+        kind: q.op.kind,
         confidence: 'resolved',
         resolved: true,
-        evidence: [q.ev],
+        evidence: [copy(q.op.ev)],
       });
     } else {
       out.relations.push({
         fromKey: q.from,
-        toKey: `unresolved:queue name ${q.nameExpr.getText(q.sf).slice(0, 60)}`,
-        kind: q.kind,
+        toKey: `unresolved:queue name ${q.op.text}`,
+        kind: q.op.kind,
         confidence: 'heuristic',
         resolved: false,
-        evidence: [q.ev],
+        evidence: [copy(q.op.ev)],
       });
     }
   }
@@ -734,6 +822,14 @@ export function extractTs(input: TsInput): AnalyzerOutput {
 
 export const moduleKey = (path: string) => `ts:module:${path}`;
 
+/** `text.split('\n')`, computed once per file (evidence excerpts are cut from it many times). */
+const lineCache = new WeakMap<ts.SourceFile, string[]>();
+function linesOf(sf: ts.SourceFile): string[] {
+  let l = lineCache.get(sf);
+  if (!l) lineCache.set(sf, (l = sf.text.split('\n')));
+  return l;
+}
+
 function symbol(
   f: { path: string; sha256: string },
   sf: ts.SourceFile,
@@ -757,7 +853,7 @@ function symbol(
         contentHash: f.sha256,
         startLine: s,
         endLine: e,
-        excerpt: sf.text.split('\n')[s - 1]?.slice(0, 300),
+        excerpt: linesOf(sf)[s - 1]?.slice(0, 300),
       },
     ],
   };
@@ -798,16 +894,14 @@ function urlTemplate(node: ts.Expression): string | undefined {
 }
 
 function constValue(
-  expr: ts.Expression,
+  ident: string,
   path: string,
   constants: Map<string, Map<string, string>>,
   bindings: Map<string, Map<string, { target: string; name: string }>>,
 ): string | undefined {
-  if (ts.isStringLiteralLike(expr)) return expr.text;
-  if (!ts.isIdentifier(expr)) return undefined;
-  const local = constants.get(path)?.get(expr.text);
+  const local = constants.get(path)?.get(ident);
   if (local) return local;
-  const b = bindings.get(path)?.get(expr.text);
+  const b = bindings.get(path)?.get(ident);
   return b ? constants.get(b.target)?.get(b.name) : undefined;
 }
 

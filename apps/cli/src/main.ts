@@ -90,7 +90,8 @@ program
   .description('Start/attach the local daemon and print the UI URL for a project')
   .argument('[path]', 'project root', '.')
   .option('--browser', 'open the URL in the default browser')
-  .action(async (path: string, opts: { browser?: boolean }) => {
+  .option('--no-watch', 'do not watch the project for changes')
+  .action(async (path: string, opts: { browser?: boolean; watch: boolean }) => {
     const root = resolve(path);
     if (!statSync(root, { throwIfNoEntry: false })?.isDirectory()) {
       console.error(`not a directory: ${root}`);
@@ -107,6 +108,13 @@ program
       `${reg.created.worktree ? 'registered' : 'already registered'}: ${reg.project.displayName} (${reg.project.id}), worktree ${reg.worktree.id}` +
         (reg.worktree.git?.branch ? ` on branch ${reg.worktree.git.branch}` : ''),
     );
+    if (opts.watch) {
+      const w = await daemon.api<{ status: { directories: number } | null }>(
+        `/worktrees/${reg.worktree.id}/watch`,
+        { method: 'PUT', body: JSON.stringify({ enabled: true }) },
+      );
+      if (w.status) console.log('watching for changes; stop with: atlas watch --off');
+    }
     const url = uiUrl(daemon.baseUrl, daemon.rec.token);
     console.log(`open: ${url}`);
     if (opts.browser) spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
@@ -245,9 +253,91 @@ program
   });
 program
   .command('watch')
-  .argument('[path]')
-  .description('Watch and incrementally update')
-  .action(notYet('watch', 'M01'));
+  .description('Watch a project and publish a new snapshot after edits (Ctrl-C stops watching)')
+  .argument('[path]', 'project root', '.')
+  .option('--detach', 'leave the daemon watching and return immediately')
+  .option('--off', 'stop watching this project')
+  .action(async (path: string, opts: { detach?: boolean; off?: boolean }) => {
+    const root = resolve(path);
+    if (!statSync(root, { throwIfNoEntry: false })?.isDirectory()) {
+      console.error(`not a directory: ${root}`);
+      process.exitCode = 1;
+      return;
+    }
+    const { daemon } = await ensureDaemon(paths);
+    const reg = await daemon.api<Registration>('/projects', {
+      method: 'POST',
+      body: JSON.stringify({ rootPath: root }),
+    });
+    const wt = reg.worktree.id;
+    const setWatch = (enabled: boolean) =>
+      daemon.api<{ status: { directories: number; debounceMs: number } | null }>(
+        `/worktrees/${wt}/watch`,
+        { method: 'PUT', body: JSON.stringify({ enabled }) },
+      );
+    if (opts.off) {
+      await setWatch(false);
+      console.log(`stopped watching ${root}`);
+      return;
+    }
+    const { status } = await setWatch(true);
+    console.log(`watching ${root} (${status!.debounceMs} ms debounce); Ctrl-C stops watching`);
+    if (opts.detach) return;
+
+    const ctrl = new AbortController();
+    const stop = () => {
+      ctrl.abort();
+      void setWatch(false)
+        .catch(() => undefined)
+        .then(() => {
+          console.log('stopped watching');
+          process.exit(0);
+        });
+    };
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+    const time = () => new Date().toLocaleTimeString();
+    const res = await fetch(`${daemon.baseUrl}/api/v1/stream`, {
+      headers: { authorization: `Bearer ${daemon.rec.token}` },
+      signal: ctrl.signal,
+    });
+    const decoder = new TextDecoder();
+    let buf = '';
+    try {
+      for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+        buf += decoder.decode(chunk, { stream: true });
+        let i: number;
+        while ((i = buf.indexOf('\n\n')) >= 0) {
+          const block = buf.slice(0, i);
+          buf = buf.slice(i + 2);
+          const type = /^event: (.*)$/m.exec(block)?.[1];
+          const data = /^data: (.*)$/m.exec(block)?.[1];
+          if (!type || !data) continue;
+          const d = JSON.parse(data) as Record<string, unknown>;
+          if (d.worktreeId !== wt) continue;
+          if (type === 'watch.changed') {
+            const sample = (d.sample as string[]).slice(0, 3).join(', ');
+            console.log(
+              `${time()} ${String(d.changes)} change(s): ${sample}${Number(d.changes) > 3 ? ', …' : ''}`,
+            );
+          } else if (type === 'snapshot.published') {
+            if (d.noop) {
+              console.log(`${time()} no effective change`);
+              continue;
+            }
+            const snap = await daemon.api<SnapshotSummary>(`/worktrees/${wt}/snapshot`);
+            console.log(
+              `${time()} snapshot ${snap.snapshot.id} ${snap.snapshot.state}: ${describeChanges(snap.changes)}`,
+            );
+          } else if (type === 'scan.failed') {
+            console.log(`${time()} scan failed: ${String(d.error)}`);
+          }
+        }
+      }
+    } catch (e) {
+      if (!ctrl.signal.aborted) throw e;
+    }
+  });
 program
   .command('views')
   .description('Generated canvases')

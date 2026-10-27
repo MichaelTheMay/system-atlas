@@ -70,6 +70,29 @@ paths:
       responses:
         '202': { description: Job accepted (id, state) }
         '404': { description: Unknown worktree }
+  /api/v1/worktrees/{id}/watch:
+    get:
+      summary: Whether the daemon watches this worktree, with watched directory count, debounce and pending changes
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: '{ watching, status }' }
+        '404': { description: Unknown worktree }
+    put:
+      summary: >-
+        Start or stop watching. While watching, edits are coalesced (750 ms quiet period, capped
+        wait) into scans that queue behind a running scan instead of cancelling it. SSE events -
+        watch.enabled, watch.changed, then scan.* and snapshot.published (noop when nothing changed).
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              { type: object, required: [enabled], properties: { enabled: { type: boolean } } }
+      responses:
+        '200': { description: '{ watching, status }' }
+        '400': { description: 'Body is not { enabled: boolean }' }
+        '404': { description: Unknown worktree }
   /api/v1/jobs/{id}:
     get:
       summary: Job status (queued, running, succeeded, failed, cancelled) with snapshot id and counts

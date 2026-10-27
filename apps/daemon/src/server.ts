@@ -13,6 +13,7 @@ import {
 } from '@atlas/graph';
 import { projectView, type Catalog, type PlannerGraph } from '@atlas/planner';
 import { defaultAnalyzers, type Analyzer } from '@atlas/analyzers';
+import { WatchManager, type WatchOptions } from './watcher.ts';
 import { JobRunner } from './jobs.ts';
 import { canvasForEntity, entityDetails, readSource, relationDetails } from './routes/inspect.ts';
 import { getOverlay, putOverlay } from './routes/overlays.ts';
@@ -43,12 +44,15 @@ export interface ServerOptions {
   previewOrigin?: () => string | undefined;
   /** Signs a preview path for an artifact (provided by the preview server). */
   signPreview?: (artifactId: string, kind: 'a' | 'v') => { path: string; expiresAt: string };
+  /** Watcher timing (tests use short debounces). */
+  watch?: WatchOptions;
 }
 
 export interface AtlasServer {
   app: FastifyInstance;
   bus: EventBus;
   jobs: JobRunner;
+  watches: WatchManager;
   startedAt: string;
 }
 
@@ -88,8 +92,11 @@ export function buildServer(opts: ServerOptions): AtlasServer {
       return { url: `${origin}${signed.path}`, expiresAt: signed.expiresAt };
     },
   });
+  const watches = new WatchManager(opts.db, jobs, bus, opts.watch);
+  app.addHook('onClose', async () => watches.closeAll());
   bus.subscribe((m) => {
     if (m.type !== 'snapshot.published') return;
+    watches.refresh(String(m.data.worktreeId));
     const snap = getSnapshot(opts.db, String(m.data.snapshotId));
     if (snap)
       runs.onSnapshotPublished({
@@ -141,6 +148,7 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     startedAt,
     dataDir: opts.dataDir,
     node: process.version,
+    watching: watches.list(),
   }));
 
   app.get(`${API_PREFIX}/projects`, async () => ({ projects: listProjects(opts.db) }));
@@ -174,6 +182,32 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     if (!wt) return reply.code(404).send({ error: 'unknown_worktree' });
     return reply.code(202).send(jobs.enqueueScan(wt));
   });
+
+  app.get<{ Params: { id: string } }>(`${API_PREFIX}/worktrees/:id/watch`, async (req, reply) => {
+    if (!getWorktree(opts.db, req.params.id))
+      return reply.code(404).send({ error: 'unknown_worktree' });
+    return {
+      watching: !!watches.status(req.params.id),
+      status: watches.status(req.params.id) ?? null,
+    };
+  });
+
+  app.put<{ Params: { id: string }; Body: { enabled?: unknown } }>(
+    `${API_PREFIX}/worktrees/:id/watch`,
+    async (req, reply) => {
+      const wt = getWorktree(opts.db, req.params.id);
+      if (!wt) return reply.code(404).send({ error: 'unknown_worktree' });
+      if (typeof req.body?.enabled !== 'boolean')
+        return reply.code(400).send({ error: 'expected { enabled: boolean }' });
+      if (!req.body.enabled) {
+        watches.disable(wt.id);
+        return { watching: false, status: null };
+      }
+      const status = watches.enable(wt);
+      bus.publish({ type: 'watch.enabled', data: { worktreeId: wt.id } });
+      return { watching: true, status };
+    },
+  );
 
   app.get<{ Params: { id: string } }>(`${API_PREFIX}/jobs/:id`, async (req, reply) => {
     const job = jobs.get(req.params.id);
@@ -415,5 +449,5 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     return reply.send(await readStatic(hit.file));
   });
 
-  return { app, bus, jobs, startedAt };
+  return { app, bus, jobs, watches, startedAt };
 }

@@ -1,3 +1,6 @@
+import { cpSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { E2E_TOKEN } from '../../../playwright.config.ts';
 
@@ -18,8 +21,19 @@ test('connects to the daemon with a fragment token and strips it from the URL', 
   expect(page.url()).not.toContain('token');
 });
 
-test('switches between the Architecture and Outputs & Audit roots', async ({ page }) => {
+test('switches between the Architecture and Outputs & Audit roots', async ({ page, request }) => {
+  // a project of its own, so runs recorded by other tests cannot appear here
+  const rootPath = join(mkdtempSync(join(tmpdir(), 'atlas-e2e-shell-')), 'no-runs');
+  cpSync(new URL('../../../fixtures/elixir-unsupported', import.meta.url).pathname, rootPath, {
+    recursive: true,
+  });
+  const reg = await request.post('/api/v1/projects', {
+    headers: { authorization: `Bearer ${E2E_TOKEN}` },
+    data: { rootPath },
+  });
+  const worktreeId = (await reg.json()).worktree.id as string;
   await page.goto(`/#token=${E2E_TOKEN}`);
+  await page.getByRole('combobox', { name: 'Project' }).selectOption(worktreeId);
   await page.getByRole('button', { name: /Outputs & Audit/ }).click();
   await expect(page.getByRole('main')).toHaveAccessibleName('Outputs & Audit canvas');
   await expect(page.getByRole('heading', { name: 'No runs recorded yet' })).toBeVisible();

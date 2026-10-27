@@ -33,7 +33,8 @@ PATH, `pnpm --dir /path/to/system-atlas atlas <command>` does the same from any 
 
 ```bash
 cd /path/to/your/repo
-atlas open .        # starts the local daemon, registers the repo, prints the UI URL
+atlas open .        # starts the local daemon, registers and watches the repo, prints the UI URL
+atlas watch .       # follow updates in the terminal; Ctrl-C stops watching (--detach, --off)
 atlas scan .        # analyzes the repo and prints the snapshot, changes and coverage gaps
 atlas views list .  # the generated canvas catalog
 atlas status --json

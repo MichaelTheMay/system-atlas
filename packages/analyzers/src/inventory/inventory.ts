@@ -67,6 +67,15 @@ function atlasIgnore(root: string): Ignore {
   return ig;
 }
 
+/**
+ * Atlas's own exclusion rules (built-in excludes plus `.atlasignore`) for a root. Watchers use it
+ * to avoid watching dependency and build folders; gitignore rules are applied by the scan itself.
+ */
+export function createExcludeMatcher(root: string): (relPath: string, isDir: boolean) => boolean {
+  const ig = atlasIgnore(root);
+  return (rel, isDir) => rel !== '' && ig.ignores(isDir ? `${rel}/` : rel);
+}
+
 interface Candidate {
   path: string;
   /** git reported a submodule or nested repository directory. */
