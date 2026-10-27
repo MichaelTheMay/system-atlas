@@ -568,19 +568,30 @@ export function createAtlasMcpServer(opts: AtlasMcpOptions): McpServer {
       // the daemon validates at most 25 claims per proposal
       for (let off = 0; off < items.length; off += 25) {
         const chunk = items.slice(off, off + 25);
-        const r = await api<{
+        let r: {
           proposalId: string;
           accepted: { index: number }[];
           rejected: { index: number; reasons: string[] }[];
-        }>('/proposals/claims', {
-          method: 'POST',
-          body: JSON.stringify({
+        };
+        try {
+          r = await api('/proposals/claims', {
+            method: 'POST',
+            body: JSON.stringify({
+              snapshotId,
+              origin: 'model',
+              claims: chunk.map((c) => c.claim),
+              modelMetadata: meta,
+            }),
+          });
+        } catch (e) {
+          // earlier batches are stored: report them, and stop at the first refused batch
+          if (off === 0) throw e;
+          return {
             snapshotId,
-            origin: 'model',
-            claims: chunk.map((c) => c.claim),
-            modelMetadata: meta,
-          }),
-        });
+            subsystems: out,
+            error: `${(e as Error).message}; ${items.length - off} claims were not submitted`,
+          };
+        }
         for (const s of new Set(chunk.map((c) => c.item.s))) {
           out[s]!.proposalIds.push(r.proposalId);
         }
