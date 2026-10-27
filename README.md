@@ -65,6 +65,15 @@ atlas run -o out/report.json -- node scripts/build-report.js
 
 This records logs, exit code, declared outputs and any SDK assertions. See [`docs/evidence.md`](docs/evidence.md).
 
+## Export
+
+```bash
+atlas export -o ./atlas-export            # every view as linked JSON Canvas files, plus a sidecar
+atlas export -o ./run-export --run run_…  # a run with its screenshots and outputs
+```
+
+See [`docs/export.md`](docs/export.md) for what maps and what is disclosed as not mapping.
+
 ## Connect a coding agent
 
 ```bash

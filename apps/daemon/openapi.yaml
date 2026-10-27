@@ -365,6 +365,7 @@ paths:
   /api/v1/artifacts/{id}/preview-url:
     get:
       summary: Short-lived signed URL on the isolated preview origin for available bytes
+      description: raw=1 always signs the raw-bytes URL (exports); otherwise JSON, CSV and text get the escaped viewer page.
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
       responses: { '200': { description: OK }, '409': { description: Bytes pending or missing } }
   /api/v1/runs/{id}/finish:

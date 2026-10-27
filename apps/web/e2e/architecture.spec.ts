@@ -29,6 +29,15 @@ async function scanFixture(request: APIRequestContext): Promise<string> {
     await new Promise((r) => setTimeout(r, 100));
     job = await (await request.get(`/api/v1/jobs/${job.id}`, { headers: auth })).json();
   }
+  // another spec may scan the same fixture at the same time; a newer scan supersedes (cancels) an
+  // older one by design, so what matters is that a snapshot gets published
+  if (job.state === 'cancelled') {
+    for (let i = 0; i < 100; i++) {
+      const snap = await request.get(`/api/v1/worktrees/${worktreeId}/snapshot`, { headers: auth });
+      if (snap.ok()) return worktreeId;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
   expect(job.state).toBe('succeeded');
   return worktreeId;
 }

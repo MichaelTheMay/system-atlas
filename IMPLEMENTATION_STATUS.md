@@ -6,31 +6,31 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**I04 — Skena/JSON Canvas bridge**, then the Go and Java analyzers (Phase 4). I03 is in PR #20. I02 was dropped at the user's request.
+**Go and Java/JVM analyzers** (Phase 4). I04 is in PR #21.
 
 ## Tickets (plan §17)
 
-| ID  | Ticket                                            | Depends on  | Status      | PR / evidence                          |
-| --- | ------------------------------------------------- | ----------- | ----------- | -------------------------------------- |
-| A00 | Repository bootstrap, GitHub remote, branch rules | —           | done        | bootstrap commit on `main`             |
-| A01 | Bootstrap workspace, contracts and ADRs           | —           | not started |                                        |
-| A02 | Project/worktree identity and SQLite migrations   | A01         | not started |                                        |
-| A03 | Inventory and coverage report                     | A02         | not started |                                        |
-| A04 | TS/JS and Python analyzers                        | A03         | not started |                                        |
-| A05 | Semantic identity and snapshot reconciler         | A04         | not started |                                        |
-| A06 | View planner and canvas navigation                | A05         | done        | PR #6; see A06 evidence                |
-| A07 | React Flow, layout worker, overlays and inspector | A06         | done        | PR #7; see A07 evidence                |
-| E01 | Run/event/artifact store and ingestion            | A02         | done        | PR #8; see E01 evidence                |
-| E02 | Process wrapper and output registration           | E01         | done        | PR #9; see E02 evidence                |
-| E03 | Playwright capture helper                         | E01         | done        | PR #10; see E03 evidence               |
-| E04 | Output canvases and isolated preview renderer     | E02,E03,A07 | done        | PR #11; see E04 evidence               |
-| M01 | Watcher and incremental invalidation              | A05,A07     | done        | PRs #13, #14, #15                      |
-| M02 | Model proposal validation, cache and budget       | M01         | done        | PRs #17, #18 (view proposals deferred) |
-| I01 | MCP and generic event SDK                         | E01,A06     | done        | PR #16                                 |
-| I02 | VS Code integration                               | I01         | dropped     | user decision 2026-10-26               |
-| I03 | OTLP subset and bundle importer                   | E04         | done        | PR #20                                 |
-| I04 | Skena/JSON Canvas bridge                          | I01,A07     | not started |                                        |
-| H01 | Retention, recovery, export and performance       | E04,M01     | not started |                                        |
+| ID  | Ticket                                            | Depends on  | Status      | PR / evidence                                |
+| --- | ------------------------------------------------- | ----------- | ----------- | -------------------------------------------- |
+| A00 | Repository bootstrap, GitHub remote, branch rules | —           | done        | bootstrap commit on `main`                   |
+| A01 | Bootstrap workspace, contracts and ADRs           | —           | not started |                                              |
+| A02 | Project/worktree identity and SQLite migrations   | A01         | not started |                                              |
+| A03 | Inventory and coverage report                     | A02         | not started |                                              |
+| A04 | TS/JS and Python analyzers                        | A03         | not started |                                              |
+| A05 | Semantic identity and snapshot reconciler         | A04         | not started |                                              |
+| A06 | View planner and canvas navigation                | A05         | done        | PR #6; see A06 evidence                      |
+| A07 | React Flow, layout worker, overlays and inspector | A06         | done        | PR #7; see A07 evidence                      |
+| E01 | Run/event/artifact store and ingestion            | A02         | done        | PR #8; see E01 evidence                      |
+| E02 | Process wrapper and output registration           | E01         | done        | PR #9; see E02 evidence                      |
+| E03 | Playwright capture helper                         | E01         | done        | PR #10; see E03 evidence                     |
+| E04 | Output canvases and isolated preview renderer     | E02,E03,A07 | done        | PR #11; see E04 evidence                     |
+| M01 | Watcher and incremental invalidation              | A05,A07     | done        | PRs #13, #14, #15                            |
+| M02 | Model proposal validation, cache and budget       | M01         | done        | PRs #17, #18 (view proposals deferred)       |
+| I01 | MCP and generic event SDK                         | E01,A06     | done        | PR #16                                       |
+| I02 | VS Code integration                               | I01         | dropped     | user decision 2026-10-26                     |
+| I03 | OTLP subset and bundle importer                   | E04         | done        | PR #20                                       |
+| I04 | Skena/JSON Canvas bridge                          | I01,A07     | done        | PR #21 (JSON Canvas export; no Skena bridge) |
+| H01 | Retention, recovery, export and performance       | E04,M01     | not started |                                              |
 
 ## Phase acceptance checklists (plan §15)
 
@@ -91,8 +91,8 @@ Phase 3 complete 2026-10-26 (tag `phase-3`).
 - [x] An external instrumented agent records a run through public tools. `mcp.test.ts` records through stdio MCP; `localDaemon` and `recorderFor` do the same for the generic SDK.
 - [x] Late and duplicate events reconcile. Re-importing a trace or bundle reopens the same run: duplicates dedupe and late spans or events are appended under their parents (`import.test.ts`). Store-level deduplication is covered by `store.test.ts`.
 - [~] A VS Code workspace opens the correct worktree. **Dropped by user decision (2026-10-26)**; I02 will not be built.
-- [ ] Supported JSON Canvas exports open in the selected renderer with relative asset links (I04).
-- [ ] Unsupported export features are disclosed (I04).
+- [x] Supported JSON Canvas exports open in the selected renderer with relative asset links. View and run canvases render in json-canvas-viewer 4.3.2 with no errors or failed requests, labels and links visible, and the copied chart image loaded (`export.test.ts`; screenshots inspected).
+- [x] Unsupported export features are disclosed. Fixed disclosures and per-view or per-run ones are printed and written to the sidecar (`export.test.ts`, `docs/export.md`).
 - [x] OTLP incompatibilities produce diagnostics, not silently dropped evidence. Each case in `fixtures/otlp/` yields a diagnostic, and warnings become capture gaps on the run (`import.test.ts`).
 - [ ] Go and Java/JVM analyzer coverage, with capability reports.
 
@@ -411,6 +411,23 @@ Changes:
 - The Steps tab now nests child steps under their parents, and it recognizes completions that point at their start event (the unpaired imported tool calls showed "no completion recorded").
 - Tests: `import.test.ts` has 4 tests covering the mapping, diagnostics, re-import deduplication, late append, refusals, and bundle escapes and missing files.
 - Tried by hand: imported both fixtures into the demo instance and inspected the run detail screenshot. Before the end-time fix the duration showed 365 days and the steps were flat.
+
+### I04 (2026-10-26): JSON Canvas and Mermaid export
+
+- `atlas export -o <new dir> [--view …] [--run …] [--format canvas|mermaid] [--include-logs]`.
+- **Pure converters** in `@atlas/export`: views and runs to JSON Canvas, views to Mermaid, and a JSON Canvas 1.0 validator.
+- **Views:**
+  - positions follow the user's map (pins, then remembered layout);
+  - text nodes carry status and notes;
+  - drill-down is a root-relative link to the child view's `.canvas` file;
+  - a versioned sidecar maps nodes and edges to Atlas IDs.
+- **Runs:** artifacts come only from the isolated preview origin (`preview-url?raw=1`) and are hash-verified. HTML, SVG and unknown types are never copied, and logs only on request.
+- **Bugs found by rendering with json-canvas-viewer:**
+  - file paths must be root-relative, as in a vault; the image was broken;
+  - SDK tool calls pair by name and order;
+  - text nodes clipped their last line.
+- **Tests:** `export.test.ts`, 3 tests: valid linked views opened in the renderer, run export with verified bytes and exclusions, Mermaid, and refusal to write into a non-empty directory.
+- **Skena bridge:** not built. Skena is a VS Code extension, and VS Code was dropped by the user.
 
 ## Environment record (2026-10-26)
 

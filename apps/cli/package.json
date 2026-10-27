@@ -16,6 +16,8 @@
     "@atlas/agent-api": "workspace:*",
     "@atlas/analyzers": "workspace:*",
     "@atlas/daemon": "workspace:*",
+    "@atlas/export": "workspace:*",
+    "@atlas/layout": "workspace:*",
     "@atlas/schema": "workspace:*",
     "@modelcontextprotocol/server": "2.4.0",
     "commander": "15.0.0"

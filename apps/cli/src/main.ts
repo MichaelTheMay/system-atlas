@@ -71,15 +71,6 @@ program
   .description('System Atlas: local architecture and execution-evidence workspace')
   .version('0.1.0');
 
-function notYet(cmd: string, ticket: string) {
-  return () => {
-    console.error(
-      `atlas ${cmd}: not implemented yet (ticket ${ticket}; see IMPLEMENTATION_STATUS.md)`,
-    );
-    process.exitCode = 2;
-  };
-}
-
 function uiUrl(baseUrl: string, token: string) {
   // Token travels in the fragment, which browsers never send to servers or in Referer.
   return `${baseUrl}/#token=${token}`;
@@ -626,9 +617,51 @@ program
   });
 program
   .command('export')
-  .option('--snapshot <id>')
-  .option('--output <path>')
-  .description('Export a bundle')
-  .action(notYet('export', 'H01'));
+  .description(
+    'Export views as linked JSON Canvas files (or Mermaid) and runs as canvases with their artifacts; see docs/export.md',
+  )
+  .argument('[path]', 'project root', '.')
+  .requiredOption('-o, --output <dir>', 'new or empty directory to write to')
+  .option('--snapshot <id>', 'snapshot to export views from (default: latest)')
+  .option('--view <ids...>', 'canvas ids or titles (default: every view of the snapshot)')
+  .option('--run <ids...>', 'run ids to export')
+  .option('--format <format>', 'canvas (JSON Canvas 1.0) or mermaid (views only)', 'canvas')
+  .option('--include-logs', 'also copy log artifacts (they may contain secrets)')
+  .action(
+    async (
+      path: string,
+      opts: {
+        output: string;
+        snapshot?: string;
+        view?: string[];
+        run?: string[];
+        format: string;
+        includeLogs?: boolean;
+      },
+    ) => {
+      if (opts.format !== 'canvas' && opts.format !== 'mermaid') {
+        console.error('--format must be canvas or mermaid');
+        process.exitCode = 1;
+        return;
+      }
+      const { daemon } = await ensureDaemon(paths);
+      const { exportToDir } = await import('./export.ts');
+      const r = await exportToDir({
+        daemon: { baseUrl: daemon.baseUrl, token: daemon.rec.token },
+        rootPath: resolve(path),
+        output: resolve(opts.output),
+        snapshotId: opts.snapshot,
+        views: opts.view,
+        runs: opts.run,
+        format: opts.format,
+        includeLogs: opts.includeLogs,
+      });
+      console.log(`wrote ${r.files.length} file(s) to ${r.output}`);
+      console.log('not carried by the export format:');
+      for (const d of [...new Set(r.disclosures)]) console.log(`  - ${d}`);
+      for (const p of r.problems) console.log(`  problem: ${p}`);
+      if (r.problems.length) process.exitCode = 1;
+    },
+  );
 
 await program.parseAsync();

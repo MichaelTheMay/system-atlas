@@ -1,7 +1,4 @@
-/**
- * @atlas/export — JSON Canvas, Mermaid and static bundle exports (plan §13).
- *
- * Not implemented yet: ticket I04 in IMPLEMENTATION_STATUS.md. This module only reserves
- * the package boundary so dependency direction is fixed from the start.
- */
-export const PACKAGE_STATUS = { name: '@atlas/export', ticket: 'I04', implemented: false } as const;
+/** @atlas/export — JSON Canvas and Mermaid exports (plan §13). See docs/export.md. */
+export * from './jsoncanvas.ts';
+export * from './mermaid.ts';
+export const SIDECAR_FORMAT = { format: 'atlas-export-sidecar', version: 1 } as const;
