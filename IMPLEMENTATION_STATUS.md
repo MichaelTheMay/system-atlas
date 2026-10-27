@@ -450,7 +450,7 @@ A third workspace, `design`: whiteboard canvases derived on demand from the sema
 
 | Part   | What                                                                                                                                                           | PR / status |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| wave 0 | Contracts: `Workspace`, `DesignLens`, `CanvasSpec.provenance`, `Archetype`, `Provenance`, `view_overrides` table                                               | #24, merged |
+| wave 0 | Contracts: `Workspace`, `DesignLens`, `CanvasSpec.provenance`, `Archetype`, `Provenance` (the `view_overrides` table already existed in migration 0001)        | #24, merged |
 | D01a   | `planDesign` / `projectDesign`: archetypes with reasons, flow labels, subsystem canvases from normalized `/` paths (depth 3), context ports, realized-by links | #27, merged |
 | D01b   | Daemon plans design canvases on read and replans on claim, issue and override events; override routes; promote through the validator; `atlas_propose_view`     | #25, merged |
 | D01c   | Web UI: design root, whiteboard theme, provenance badges, realized-by navigation, pin/suppress/promote                                                         | in progress |
@@ -463,7 +463,7 @@ D01d evidence (commands run in the D01d worktree):
   - `pnpm exec vitest run apps/cli/test/export.test.ts`: 3 passed.
   - The test asserts that `views/system-design.canvas` exists, that every realized-by link resolves to an exported non-design canvas, and that json-canvas-viewer renders it with no page errors or failed requests.
   - Screenshot inspected. The first render clipped the link line, so design boxes are now taller.
-- **Demo:** `ATLAS_DATA_DIR=$(mktemp -d) ATLAS_RUNTIME_DIR=$(mktemp -d) pnpm demo`. After the runs, it rescans and proposes "Research backend" (`@research/api` and `@research/worker`) through `POST /api/v1/proposals/claims`. The claims are `origin: model`, labeled with model `demo-mock` (no model is called), and cite the packages' scan evidence ids. Output:
+- **Demo:** `ATLAS_DATA_DIR=<dir> ATLAS_RUNTIME_DIR=<dir> pnpm demo`, with two fresh `mktemp -d` directories. After the runs, it rescans and proposes "Research backend" (`@research/api` and `@research/worker`) through `POST /api/v1/proposals/claims`. The claims are `origin: model`, labeled with model `demo-mock` (no model is called), and cite the packages' scan evidence ids. Output:
   `system design: "Research backend" (proposed): Proposed by demo-mock: groups 2 box(es) (@research/api, @research/worker).`
   - The root projection then showed web (client), research-jobs (queue), Third-party libraries (library) and a "Research backend" subsystem box (api-service, proposed) with `enqueue` and `uses` flows.
   - The subsystem canvas showed @research/api (api-service) and @research/worker (worker), with two context ports.

@@ -138,5 +138,5 @@ if (!sub) throw new Error('demo: the proposed design subsystem is not in the cat
 console.log(`system design: "${sub.title}" (${sub.provenance}): ${sub.relevanceReason}`);
 
 console.log(
-  `\nOpen: ${daemon.baseUrl}/#token=${daemon.rec.token}\nThen choose "research-demo": System design, Architecture, and Outputs & Audit.`,
+  `\nOpen: ${daemon.baseUrl}/#token=${daemon.rec.token}\nThen choose "research-demo": Architecture and Outputs & Audit (System design once the D01c UI lands).`,
 );

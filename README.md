@@ -55,7 +55,7 @@ The demo is local only and uses fake data. It does the following:
 2. Runs its report worker twice through `atlas run`. One run fails an assertion despite exit code 0.
 3. Captures a browser journey with real screenshots, including a failing step and a missing screenshot.
 4. Proposes one subsystem, "Research backend", as a mock agent through the claim API, citing the scan's evidence. No model is called.
-5. Prints the UI link. Open it, choose **research-demo**, and explore **System design**, **Architecture** and **Outputs & Audit**.
+5. Prints the UI link. Open it, choose **research-demo**, and explore **Architecture** and **Outputs & Audit**. The **System design** root appears in the UI once D01c lands; until then its canvases are in the catalog API and in `atlas export`.
 
 ## System design
 

@@ -207,9 +207,9 @@ A deployable "runs" a package when its entrypoints call into the package, or whe
      - its code reaches endpoints through imports;
      - it imports an HTTP server framework, such as express, fastify, hono, Nest, chi, gin, Flask, FastAPI or Spring Boot;
      - it is a `main` in a package that exposes endpoints.
-   - A CLI-like entrypoint makes it a `client`. That means `cli`, `cmd` or `command` in its target or name, or a box named `cli`. Command-line programs are clients.
+   - A CLI-like entrypoint makes it a `client`: `cli`, `cmd` or `command` in the entrypoint target, or `cli` in the entrypoint name or the box label. Command-line programs are clients.
    - Otherwise it is a `worker`, a background process.
-6. Named like a front end (web, ui, frontend, client, browser, spa): `client`. The reason says whether it calls endpoints or is only a name heuristic.
+6. Named like a front end (web, ui, frontend, client, browser, spa): `client`. When the label or sublabel matches and the box calls endpoints of other boxes, the reason says so; otherwise only the label is checked and the reason says it is a name heuristic.
 7. Imported, depended on or called by other boxes: `library`.
 8. Calls endpoints of other boxes: `client`.
 9. Otherwise: `service`, a generic component.
@@ -255,7 +255,7 @@ Overrides are presentation decisions keyed on stable canvas ids. They are stored
   - Every change publishes `views.changed`, so open views update.
 - **Suppress.** The subsystem canvas stays in the catalog with state `suppressed`. Its parent draws the member boxes directly instead of one subsystem box.
 - **Pin.** When cited evidence changes, claims become `stale` and normally stop counting.
-  - A pinned subsystem keeps its stale claims.
+  - A pinned subsystem keeps its stale claims. The pin applies to the canvas of the claim's full path: pinning a parent does not keep the stale claims of nested subsystems.
   - Its reason gains "Pinned: kept while its evidence changed."
   - Its state is `stale` when every contributing claim is stale.
 - **Promote** needs `snapshotId` and `subsystemPath`. It re-proposes every matching model claim, for that path or nested beneath it, as a human claim citing the same evidence. The validator checks them again; nothing is forced.
