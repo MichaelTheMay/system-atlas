@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/server.ts",
     "./main": "./src/main.ts",
-    "./discovery": "./src/discovery.ts"
+    "./discovery": "./src/discovery.ts",
+    "./preview": "./src/preview.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

@@ -34,6 +34,12 @@ test('one selection across views: the selected entity stays selected in every vi
     await new Promise((r) => setTimeout(r, 50));
     job = await (await request.get(`/api/v1/jobs/${job.id}`, { headers: auth })).json();
   }
+  // a concurrent scan of the same fixture may supersede this one; wait for the published snapshot
+  await expect
+    .poll(async () =>
+      (await request.get(`/api/v1/worktrees/${wt}/snapshot`, { headers: auth })).ok(),
+    )
+    .toBe(true);
   await page.goto(`/#token=${E2E_TOKEN}`);
   await page.getByRole('combobox', { name: 'Project' }).selectOption(wt);
   await page.getByRole('button', { name: 'Project structure component', exact: true }).click();

@@ -287,18 +287,24 @@ export function registerRunRoutes(
     return a ?? reply.code(404).send({ error: 'unknown_artifact' });
   });
 
-  app.get<{ Params: { id: string } }>(`${prefix}/artifacts/:id/preview-url`, async (req, reply) => {
-    const a = getArtifact(db, req.params.id);
-    if (!a) return reply.code(404).send({ error: 'unknown_artifact' });
-    if (a.bytesState !== 'available')
-      return reply.code(409).send({ error: `bytes ${a.bytesState}`, artifact: a });
-    const textLike = /^(application\/json|text\/(csv|plain|markdown))$/.test(a.mediaType);
-    return {
-      artifact: a,
-      viewer: textLike ? 'text' : 'raw',
-      ...deps.previewUrl(a.id, textLike ? 'v' : 'a'),
-    };
-  });
+  app.get<{ Params: { id: string }; Querystring: { raw?: string } }>(
+    `${prefix}/artifacts/:id/preview-url`,
+    async (req, reply) => {
+      const a = getArtifact(db, req.params.id);
+      if (!a) return reply.code(404).send({ error: 'unknown_artifact' });
+      if (a.bytesState !== 'available')
+        return reply.code(409).send({ error: `bytes ${a.bytesState}`, artifact: a });
+      // raw=1 (exports): the exact bytes, still only from the isolated preview origin
+      const textLike =
+        req.query.raw !== '1' &&
+        /^(application\/json|text\/(csv|plain|markdown))$/.test(a.mediaType);
+      return {
+        artifact: a,
+        viewer: textLike ? 'text' : 'raw',
+        ...deps.previewUrl(a.id, textLike ? 'v' : 'a'),
+      };
+    },
+  );
 
   return {
     /** Called after a snapshot is published: bind runs that executed against exactly that tree. */
