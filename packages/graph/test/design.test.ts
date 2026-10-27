@@ -114,7 +114,7 @@ describe('system design lens: baseline', () => {
     expect(n.has('reports')).toBe(false);
     for (const node of p.nodes) {
       expect(node.archetypeReason).toBeTruthy();
-      if (node.kind !== 'aggregate') expect(node.entityId).toBeTruthy();
+      expect(node.entityId).toBeTruthy();
     }
 
     expect(flow(p, 'web', 'api')?.flow).toBe('HTTP');
@@ -186,6 +186,7 @@ describe('system design lens: baseline', () => {
       const p = projectDesign(g, merged(arch, d), root(d).id);
       expect(p.nodes.length).toBeGreaterThan(0);
       expect(p.nodes.length).toBeLessThanOrEqual(12);
+      for (const node of p.nodes) expect(node.entityId).toBeTruthy();
     }
   });
 

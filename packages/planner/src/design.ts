@@ -585,13 +585,14 @@ function buildUnits(g: PlannerGraph, nav: Nav): Unit[] {
   if (extMembers.length)
     units.push({
       key: 'libraries',
+      anchorId: ext[0]!.id,
       label: 'Third-party libraries',
       sublabel: `${ext.length} package(s)`,
       nodeKind: 'aggregate',
       members: extMembers.sort(),
       archetype: 'library',
       reason: `${ext.length} third-party package(s) imported or declared as dependencies.`,
-      realizedBy: [],
+      realizedBy: [ext[0]!.id],
       code: false,
     });
   for (const e of ofKind('external-system'))
