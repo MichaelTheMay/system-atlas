@@ -12,6 +12,13 @@ import {
   type SourceDto,
 } from '../api.ts';
 import type { Location, Selection } from './CanvasView.tsx';
+import { isDesignLens } from './design/archetypes.tsx';
+import {
+  DesignBoxInfo,
+  DesignCanvasInfo,
+  useOverrides,
+  type DesignContext,
+} from './design/DesignInspector.tsx';
 
 interface Props {
   token: string;
@@ -31,6 +38,13 @@ interface Props {
   worktreeId?: string;
   /** Configured model provider ("none" hides the action). */
   enrichmentProvider?: string;
+  /** Design lens: project of the view overrides, and the latest snapshot promote validates against. */
+  projectId?: string;
+  latestSnapshotId?: string;
+  /** Design lens: suppressed canvases, listed under their parent so they can be restored. */
+  suppressedCanvases?: CanvasSpecDto[];
+  /** Design lens: open the architecture canvas that realizes a box, with its entity selected. */
+  onRealizedBy?(canvasId: string, entityId?: string): void;
 }
 
 const CLAIM_LABELS: Record<string, string> = {
@@ -55,6 +69,21 @@ export function Inspector(p: Props) {
   useEffect(() => {
     setSource(null);
   }, [p.selection, p.projection?.viewId]);
+  const overrides = useOverrides(
+    p.token,
+    isDesignLens(p.projection?.lens) ? p.projectId : undefined,
+    p.claimsKey ?? 0,
+  );
+  const designCtx: DesignContext = {
+    token: p.token,
+    projectId: p.projectId,
+    latestSnapshotId: p.latestSnapshotId,
+    historical: !!p.latestSnapshotId && p.snapshotId !== p.latestSnapshotId,
+    overrides,
+    onChanged: () => undefined, // views.changed over SSE refreshes the catalog and these overrides
+  };
+  const design = p.projection && isDesignLens(p.projection.lens) ? p.projection : null;
+  const openCanvas = (canvasId: string) => p.onNavigate({ canvasId });
   return (
     <aside className="inspector" aria-label="Inspector">
       <h2>Inspector</h2>
@@ -66,8 +95,32 @@ export function Inspector(p: Props) {
           {...source}
           onClose={() => setSource(null)}
         />
+      ) : !p.selection && design ? (
+        <DesignCanvasInfo
+          projection={design}
+          spec={p.spec}
+          ctx={designCtx}
+          hidden={(p.suppressedCanvases ?? []).filter((c) => c.ownerCanvasId === design.canvasId)}
+          onOpenCanvas={openCanvas}
+        />
       ) : !p.selection ? (
         <CanvasInfo {...p} />
+      ) : p.selection.type === 'node' && design && p.selection.node.archetype ? (
+        <>
+          <DesignBoxInfo
+            node={p.selection.node}
+            ctx={designCtx}
+            projection={design}
+            onOpenCanvas={openCanvas}
+            onRealizedBy={p.onRealizedBy}
+          />
+          {p.selection.node.kind !== 'cluster' && p.selection.node.entityId && (
+            <details className="insp-more">
+              <summary>Code evidence and claims</summary>
+              <EntityInfo {...p} entityId={p.selection.node.entityId} onSource={setSource} />
+            </details>
+          )}
+        </>
       ) : p.selection.type === 'edge' ? (
         <EdgeInfo
           token={p.token}
