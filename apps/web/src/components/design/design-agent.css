@@ -1,0 +1,357 @@
+/* D02b: design copilot panel, Generate design dialog, review sheet and design-agent settings. */
+
+.copilot {
+  width: 320px;
+  flex: 0 0 320px;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+  padding: 12px 14px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  z-index: 6;
+}
+.copilot-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.copilot-head h2 {
+  margin: 0;
+}
+.da-h {
+  font-size: 12.5px;
+  font-weight: 600;
+  margin: 0 0 6px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.copilot-list,
+.da-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.copilot-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fbfcfd;
+}
+.copilot-item p {
+  margin: 0 0 2px;
+}
+.copilot-title {
+  font-weight: 600;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.da-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
+}
+.action-sm.primary {
+  background: var(--accent);
+  color: #fff;
+}
+.action-sm:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.copilot-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0;
+}
+.copilot-chip {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  cursor: pointer;
+  color: var(--text);
+}
+.copilot-chip[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.copilot-asks {
+  display: flex;
+  flex-wrap: wrap;
+}
+.ask-result {
+  margin-top: 8px;
+  border: 1px dashed #8a6fd1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #faf8ff;
+}
+.ask-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.ask-body p {
+  margin: 4px 0;
+}
+.ask-cites {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 0;
+}
+.ask-cites code {
+  font-size: 11.5px;
+}
+.da-agent {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #6544c2;
+  background: #efeafd;
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+.da-error {
+  color: var(--error);
+  font-size: 12.5px;
+}
+.da-log {
+  margin: 4px 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--muted);
+  max-height: 160px;
+  overflow: auto;
+}
+.da-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  vertical-align: -1px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .da-spinner {
+    animation: da-spin 0.8s linear infinite;
+  }
+}
+@keyframes da-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- modal ---------------------------------------------------------------------------------- */
+.da-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 26, 38, 0.38);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 6vh 16px;
+  z-index: 50;
+  overflow: auto;
+}
+.da-modal {
+  position: relative;
+  width: min(520px, 100%);
+  background: var(--panel);
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 48px rgba(20, 26, 38, 0.22);
+  padding: 18px 20px 16px;
+}
+.da-modal.wide {
+  width: min(680px, 100%);
+}
+.da-modal h2 {
+  margin-bottom: 8px;
+}
+.da-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+.da-modal p {
+  margin: 6px 0;
+}
+.da-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+  margin: 12px 0;
+}
+.da-grid select,
+.da-grid input,
+.da-row input {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  width: 100%;
+}
+.da-grid input:disabled {
+  color: var(--muted);
+  background: #f3f4f6;
+}
+.da-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.da-row .action-sm {
+  margin: 0;
+  white-space: nowrap;
+}
+.da-choice,
+.da-runtimes {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.da-choice legend,
+.da-runtimes legend {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 4px;
+}
+.da-estimate {
+  background: #f6f8fb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 10px 0;
+  font-size: 13px;
+}
+.da-footer {
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.da-footer .action-sm {
+  margin: 0;
+}
+.da-consent {
+  border: 1px solid #e6c98f;
+  background: #fffaf0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 10px 0;
+  font-size: 13px;
+}
+.da-consent h3 {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+}
+.da-consent ul {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+}
+.da-runtime {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 6px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.da-runtime.on {
+  background: var(--accent-soft);
+}
+.da-runtime input {
+  margin-top: 3px;
+}
+.da-runtime-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.da-runtime-name {
+  font-weight: 600;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.da-avail {
+  font-size: 12px;
+}
+.da-avail.ok {
+  color: var(--ok);
+}
+.da-avail.no {
+  color: var(--muted);
+}
+.da-runtime .link {
+  margin-left: 6px;
+}
+.da-settings .field {
+  margin: 10px 0;
+}
+
+/* ---- review sheet --------------------------------------------------------------------------- */
+.da-review {
+  margin-top: 8px;
+}
+.da-review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.da-level {
+  margin-top: 10px;
+}
+.da-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.da-item-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.da-item > .da-buttons {
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+.da-item-title {
+  font-weight: 600;
+}
+.da-item-main .muted {
+  flex-basis: 100%;
+}
+.nav-settings {
+  margin-top: auto;
+}
