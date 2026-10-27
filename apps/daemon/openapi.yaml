@@ -104,6 +104,32 @@ paths:
         '400': { description: Invalid body or ids that are not candidates of this issue }
         '404': { description: Unknown issue }
         '409': { description: Issue not open, or a candidate already linked }
+  /api/v1/worktrees/{id}/freshness:
+    get:
+      summary: Whether the working tree differs from the latest snapshot (hashes eligible files; no scan)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: '{ snapshotId, snapshotDigest, currentDigest, changed }' }
+        '404': { description: Unknown worktree }
+  /api/v1/snapshots/{id}/search:
+    get:
+      summary: Entity search by name prefix (FTS5; user input is reduced to quoted prefix terms)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: q, in: query, required: true, schema: { type: string, maxLength: 200 } }
+        - { name: kind, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+      responses:
+        '200': { description: '{ hits: [{ id, kind, displayName, canonicalName, path? }] }' }
+        '404': { description: Unknown snapshot }
+        '410': { description: Snapshot was compacted }
+  /api/v1/artifacts/{id}:
+    get:
+      summary: Artifact metadata (never bytes; previews go through signed URLs on the isolated origin)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Artifact }
+        '404': { description: Unknown artifact }
   /api/v1/worktrees/{id}/watch:
     get:
       summary: Whether the daemon watches this worktree, with watched directory count, debounce and pending changes

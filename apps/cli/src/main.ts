@@ -252,6 +252,31 @@ program
     if (c.gaps.length > 15) console.log(`    … ${c.gaps.length - 15} more (use --json)`);
   });
 program
+  .command('mcp')
+  .description(
+    'Serve the Atlas MCP tools over stdio for a coding agent, scoped to one project (see docs/agents.md)',
+  )
+  .argument('[path]', 'project root', '.')
+  .action(async (path: string) => {
+    // stdout carries the MCP protocol: diagnostics go to stderr only
+    const root = resolve(path);
+    if (!statSync(root, { throwIfNoEntry: false })?.isDirectory()) {
+      process.stderr.write(`atlas mcp: not a directory: ${root}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    const { daemon } = await ensureDaemon(paths);
+    const { createAtlasMcpServer } = await import('@atlas/agent-api');
+    const { StdioServerTransport } = await import('@modelcontextprotocol/server/stdio');
+    const server = createAtlasMcpServer({
+      daemon: { baseUrl: daemon.baseUrl, token: daemon.rec.token },
+      rootPath: root,
+    });
+    await server.connect(new StdioServerTransport());
+    process.stderr.write(`atlas mcp: serving ${root} via daemon pid ${daemon.rec.pid}\n`);
+  });
+
+program
   .command('watch')
   .description('Watch a project and publish a new snapshot after edits (Ctrl-C stops watching)')
   .argument('[path]', 'project root', '.')

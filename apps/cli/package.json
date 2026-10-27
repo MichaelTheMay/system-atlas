@@ -12,11 +12,13 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@atlas/schema": "workspace:*",
-    "commander": "15.0.0",
-    "@atlas/daemon": "workspace:*",
+    "@atlas/adapters": "workspace:*",
+    "@atlas/agent-api": "workspace:*",
     "@atlas/analyzers": "workspace:*",
-    "@atlas/adapters": "workspace:*"
+    "@atlas/daemon": "workspace:*",
+    "@atlas/schema": "workspace:*",
+    "@modelcontextprotocol/server": "2.4.0",
+    "commander": "15.0.0"
   },
   "bin": {
     "atlas": "./src/main.ts"

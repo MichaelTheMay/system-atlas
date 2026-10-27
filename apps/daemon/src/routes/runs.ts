@@ -239,6 +239,11 @@ export function registerRunRoutes(
     return { ...d, links };
   });
 
+  app.get<{ Params: { id: string } }>(`${prefix}/artifacts/:id`, async (req, reply) => {
+    const a = getArtifact(db, req.params.id);
+    return a ?? reply.code(404).send({ error: 'unknown_artifact' });
+  });
+
   app.get<{ Params: { id: string } }>(`${prefix}/artifacts/:id/preview-url`, async (req, reply) => {
     const a = getArtifact(db, req.params.id);
     if (!a) return reply.code(404).send({ error: 'unknown_artifact' });

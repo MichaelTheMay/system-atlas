@@ -6,3 +6,4 @@ export * from './coverage.ts';
 export * from './scan.ts';
 export * from './reconcile.ts';
 export * from './issues.ts';
+export * from './search.ts';

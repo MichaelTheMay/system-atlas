@@ -61,6 +61,15 @@ export const EventType = z.enum([
 ]);
 export type EventType = z.infer<typeof EventType>;
 
+/** Payload of an `assertion.result` event; ingestion rejects anything else. */
+export const AssertionPayload = z.object({
+  outcome: z.enum(['pass', 'fail', 'unknown']),
+  description: z.string().min(1).max(2000),
+  source: z.enum(['test', 'human', 'adapter']).default('test'),
+  subjectArtifactId: z.string().optional(),
+});
+export type AssertionPayload = z.infer<typeof AssertionPayload>;
+
 /** plan §6 Event: immutable, deduped on (producerId, producerEventId). */
 export const Event = z.object({
   schemaVersion: z.literal(EXECUTION_SCHEMA_VERSION),
