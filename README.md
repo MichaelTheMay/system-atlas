@@ -65,6 +65,14 @@ atlas run -o out/report.json -- node scripts/build-report.js
 
 This records logs, exit code, declared outputs and any SDK assertions. See [`docs/evidence.md`](docs/evidence.md).
 
+## Connect a coding agent
+
+```bash
+claude mcp add atlas -- /path/to/system-atlas/bin/atlas mcp "$PWD"   # or any MCP client: atlas mcp <repo>
+```
+
+The agent can then read the map, search entities and evidence, and record its own runs as evidence. See [`docs/agents.md`](docs/agents.md).
+
 ## Develop
 
 ```bash

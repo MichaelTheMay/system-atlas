@@ -3,10 +3,12 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   getLatestSnapshot,
+  currentTreeDigest,
   getSnapshot,
   isCompacted,
   listIssues,
   resolveIssue,
+  searchEntities,
   getWorktree,
   listProjects,
   loadCatalog,
@@ -209,6 +211,23 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     return r;
   });
 
+  /** Whether the working tree differs from the latest snapshot (hashes the eligible files; no scan). */
+  app.get<{ Params: { id: string } }>(
+    `${API_PREFIX}/worktrees/:id/freshness`,
+    async (req, reply) => {
+      const wt = getWorktree(opts.db, req.params.id);
+      if (!wt) return reply.code(404).send({ error: 'unknown_worktree' });
+      const latest = getLatestSnapshot(opts.db, wt.id);
+      const currentDigest = await currentTreeDigest(wt.rootPath);
+      return {
+        snapshotId: latest?.snapshot.id ?? null,
+        snapshotDigest: latest?.snapshot.dirtyTreeDigest ?? null,
+        currentDigest,
+        changed: latest?.snapshot.dirtyTreeDigest !== currentDigest,
+      };
+    },
+  );
+
   app.get<{ Params: { id: string } }>(`${API_PREFIX}/worktrees/:id/watch`, async (req, reply) => {
     if (!getWorktree(opts.db, req.params.id))
       return reply.code(404).send({ error: 'unknown_worktree' });
@@ -381,6 +400,24 @@ export function buildServer(opts: ServerOptions): AtlasServer {
       if (compacted(req.params.id)) return reply.code(410).send({ error: 'compacted' });
       const d = entityDetails(opts.db, req.params.id, req.params.eid);
       return d ?? reply.code(404).send({ error: 'unknown_entity' });
+    },
+  );
+
+  app.get<{ Params: { id: string }; Querystring: { q?: string; kind?: string; limit?: string } }>(
+    `${API_PREFIX}/snapshots/:id/search`,
+    async (req, reply) => {
+      if (!snapshotExists(req.params.id))
+        return reply.code(404).send({ error: 'unknown_snapshot' });
+      if (compacted(req.params.id)) return reply.code(410).send({ error: 'compacted' });
+      const q = String(req.query.q ?? '').slice(0, 200);
+      const kind =
+        req.query.kind && /^[a-z-]{1,40}$/.test(req.query.kind) ? req.query.kind : undefined;
+      return {
+        hits: searchEntities(opts.db, req.params.id, q, {
+          kind,
+          limit: Number(req.query.limit) || 20,
+        }),
+      };
     },
   );
 

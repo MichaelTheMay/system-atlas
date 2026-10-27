@@ -1,4 +1,25 @@
+import { readFileSync } from 'node:fs';
+import { resolveAtlasPaths } from '@atlas/schema/node';
 import { IngestClient, type IngestTarget } from './client.ts';
+
+/**
+ * The local daemon from its discovery record (written 0600 by `atlas open` / `atlas daemon start`),
+ * for programs that record runs without being started by `atlas run`.
+ */
+export function localDaemon(env: NodeJS.ProcessEnv = process.env): {
+  baseUrl: string;
+  token: string;
+} {
+  const file = resolveAtlasPaths(env).discoveryFile;
+  let rec: { port?: number; token?: string };
+  try {
+    rec = JSON.parse(readFileSync(file, 'utf8')) as { port?: number; token?: string };
+  } catch {
+    throw new Error(`no running Atlas daemon (${file}); start one with: atlas open <project>`);
+  }
+  if (!rec.port || !rec.token) throw new Error(`invalid daemon discovery record: ${file}`);
+  return { baseUrl: `http://127.0.0.1:${rec.port}`, token: rec.token };
+}
 
 /** Create a run through the daemon API and return an ingest client bound to it (run token only). */
 export async function startRun(o: {

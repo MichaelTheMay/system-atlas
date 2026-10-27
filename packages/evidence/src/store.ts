@@ -13,6 +13,7 @@ import {
   Run,
   RunStatus,
   type Correlation,
+  AssertionPayload,
 } from '@atlas/schema';
 import { json, type Db } from '@atlas/store';
 import type { ObjectStore } from './objects.ts';
@@ -216,12 +217,7 @@ export const EventInput = z.object({
 });
 export type EventInput = z.input<typeof EventInput>;
 
-export const AssertionPayload = z.object({
-  outcome: z.enum(['pass', 'fail', 'unknown']),
-  description: z.string().min(1).max(2000),
-  source: z.enum(['test', 'human', 'adapter']).default('test'),
-  subjectArtifactId: z.string().optional(),
-});
+export { AssertionPayload };
 
 export interface AppendResult {
   accepted: { index: number; id: string }[];
@@ -252,6 +248,13 @@ export function appendEvents(db: Db, runId: string, inputs: unknown[]): AppendRe
         return out.rejected.push({
           index,
           error: 'payload too large; send large content as an artifact',
+        });
+      // an assertion that cannot be read would silently not count toward the task outcome
+      if (i.type === 'assertion.result' && !AssertionPayload.safeParse(i.payload).success)
+        return out.rejected.push({
+          index,
+          error:
+            'assertion.result payload needs { outcome: "pass" | "fail" | "unknown", description: string }',
         });
       const existing = db
         .prepare('SELECT id FROM events WHERE producer_id = ? AND producer_event_id = ?')

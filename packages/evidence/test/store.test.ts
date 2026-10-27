@@ -73,6 +73,24 @@ describe('runs and events', () => {
     expect(() => db.exec('DELETE FROM events')).toThrow(/append-only/);
   });
 
+  it('rejects assertion events it could not count, instead of storing them silently', () => {
+    const { run } = createRun(db, { projectId, adapter: 'test' });
+    const a = (id: string, payload: object) => ({
+      producerId: 'p1',
+      producerEventId: id,
+      type: 'assertion.result',
+      occurredAt: at(1),
+      payload,
+    });
+    const r = appendEvents(db, run.id, [
+      a('ok', { outcome: 'fail', description: 'reports are persisted' }),
+      a('bad', { name: 'x', passed: false }),
+    ]);
+    expect(r.accepted).toHaveLength(1);
+    expect(r.rejected).toEqual([{ index: 1, error: expect.stringMatching(/outcome/) }]);
+    expect(getRunDetail(db, run.id)!.events.map((e) => e.producerEventId)).toEqual(['ok']);
+  });
+
   it('redacts secrets in payloads and records explicit entity correlations', () => {
     const { run } = createRun(db, {
       projectId,

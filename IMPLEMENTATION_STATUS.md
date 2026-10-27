@@ -6,7 +6,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**I01 — MCP and generic event SDK** (Phase 3, after M01 was completed in PRs #13 to #15).
+**M02 — Model proposal validation, cache and budget** (Phase 3). I01 is in PR #16.
 
 ## Tickets (plan §17)
 
@@ -26,7 +26,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 | E04 | Output canvases and isolated preview renderer     | E02,E03,A07 | done        | PR #11; see E04 evidence   |
 | M01 | Watcher and incremental invalidation              | A05,A07     | done        | PRs #13, #14, #15          |
 | M02 | Model proposal validation, cache and budget       | M01         | not started |                            |
-| I01 | MCP and generic event SDK                         | E01,A06     | not started |                            |
+| I01 | MCP and generic event SDK                         | E01,A06     | done        | PR #16                     |
 | I02 | VS Code integration                               | I01         | not started |                            |
 | I03 | OTLP subset and bundle importer                   | E04         | not started |                            |
 | I04 | Skena/JSON Canvas bridge                          | I01,A07     | not started |                            |
@@ -319,6 +319,28 @@ Changes:
 - **Fixes found by looking at screenshots.**
   - The canvas header overflowed into the inspector when the issues badge appeared. Status badges now truncate.
   - The ambiguous-rename rows preselected the first candidate, which made a wrong one-click link easy.
+
+### I01 (2026-10-26): MCP server and generic event SDK
+
+- **`atlas mcp [path]`** is a stdio MCP server (`@modelcontextprotocol/server` 2.4.0) scoped to one project. It has 15 tools:
+  - reads: status, views, view, search, entity, evidence and refresh;
+  - run reads;
+  - run recording.
+
+  It has no filesystem, SQL or command tools. Reads paginate and trim excerpts and payloads. The server's instructions mark repository and run text as untrusted. Run ingest tokens stay in the server process, and only runs started in the same session can be written. Artifact paths must resolve, after symlinks, inside the project root.
+
+- **Daemon routes:** `GET /snapshots/:id/search` (FTS5, with FTS syntax neutralized), `GET /worktrees/:id/freshness`, `GET /artifacts/:id`.
+- **Generic SDK:** `localDaemon()` and `recorderFor(client)` let any Node program record a run without `atlas run`.
+- **Bug found:** malformed `assertion.result` payloads were stored but silently not counted toward the task outcome. Ingestion now rejects them with a message, and the MCP tool description documents the payload.
+- **Tests.** `apps/cli/test/mcp.test.ts` uses a real stdio client spawning `atlas mcp` against a daemon found through discovery. It checks:
+  - the tool list and the untrusted-content instructions;
+  - reading the map end to end;
+  - an agent run with explicit entity links, a failed assertion with process succeeded and task failed, and text and file artifacts;
+  - path traversal, symlink and absolute-path escapes refused;
+  - writes to runs from other sessions refused;
+  - the generic SDK path.
+
+  Also `search.test.ts` and the evidence assertion-rejection test.
 
 ## Environment record (2026-10-26)
 

@@ -30,7 +30,19 @@ export function recorderFromEnv(producer = `sdk:${process.pid}`): AtlasRecorder 
       flush: async () => {},
     };
   }
-  const c = new IngestClient(t, producer);
+  return recorderFor(new IngestClient(t, producer));
+}
+
+/**
+ * The same recorder API for a run the program started itself (generic event SDK):
+ *
+ *   const { client } = await startRun({ daemon: localDaemon(), rootPath, adapter: 'my-agent' });
+ *   const atlas = recorderFor(client);
+ *   await atlas.step('plan', () => plan());
+ *   await atlas.assert('tests pass', ok);
+ *   await client.finish('succeeded');
+ */
+export function recorderFor(c: IngestClient): AtlasRecorder {
   return {
     enabled: true,
     async step(name, fn, opts) {
