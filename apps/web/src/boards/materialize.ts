@@ -31,7 +31,7 @@ const GAP_X = 120;
 const GAP_Y = 48;
 
 export interface AtlasTag {
-  kind: 'component' | 'connection' | 'scenario-step' | 'frame';
+  kind: 'component' | 'connection' | 'scenario-step' | 'frame' | 'sticky';
   id: string;
 }
 export const atlasTag = (el: { customData?: unknown }): AtlasTag | undefined =>
@@ -69,6 +69,8 @@ export function materialize(doc: BoardDocument): BoardDocument {
       backgroundColor: fillFor(c),
       fillStyle: 'solid',
       strokeStyle: c.status === 'proposed' ? 'dashed' : 'solid',
+      // imported "as built" from code (D03 1b): drawn faded so it reads as a reference, not a design
+      opacity: c.origin.author === 'code' ? 60 : 100,
       label: { text: labelFor(c), fontSize: 14, textAlign: 'center', verticalAlign: 'middle' },
       customData: { atlas: { kind: 'component', id: c.id } satisfies AtlasTag },
     });
@@ -98,6 +100,7 @@ export function materialize(doc: BoardDocument): BoardDocument {
       strokeStyle: k.mode === 'async' ? 'dashed' : 'solid',
       startArrowhead: k.direction === 'bidirectional' ? 'arrow' : null,
       endArrowhead: 'arrow',
+      opacity: k.origin.author === 'code' ? 60 : 100, // "as built" from code: faded (D03 1b)
       ...(connectionLabel(k) ? { label: { text: connectionLabel(k), fontSize: 12 } } : {}),
       customData: { atlas: { kind: 'connection', id: k.id } satisfies AtlasTag },
     });

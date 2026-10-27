@@ -7,6 +7,7 @@ import {
   type BoardTemplateDto,
   type DesignBoardSummary,
 } from './api.ts';
+import { createBoardFromCode, fromCodeStatus } from './fromCode.ts';
 
 /** Board list and "New board" of a project (D03 wave 0). Wave 1 adds prompt and code starts. */
 export function BoardsHome({
@@ -24,6 +25,7 @@ export function BoardsHome({
   const [start, setStart] = useState('blank');
   const [confirmDelete, setConfirmDelete] = useState<string>();
   const [error, setError] = useState<string>();
+  const [fromCode, setFromCode] = useState(false);
   const reload = () =>
     listBoards(token, projectId)
       .then(setBoards)
@@ -31,9 +33,23 @@ export function BoardsHome({
   useEffect(() => {
     void reload();
     void listBoardTemplates(token).then(setTemplates);
+    // "From code" is offered only when the project has a snapshot to import
+    void fromCodeStatus(token, projectId)
+      .then((s) => setFromCode(s.available))
+      .catch(() => setFromCode(false));
   }, [token, projectId]);
 
   const create = async () => {
+    if (start === 'code') {
+      try {
+        const b = await createBoardFromCode(token, projectId, { name: name.trim() || undefined });
+        setName('');
+        onOpen(b.id);
+      } catch (e) {
+        setError(`Could not import from code: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      return;
+    }
     const tpl = templates.find((t) => t.id === start);
     const b = await createBoard(token, projectId, {
       name: name.trim() || tpl?.name || 'Untitled board',
@@ -62,6 +78,7 @@ export function BoardsHome({
           Start from
           <select value={start} onChange={(e) => setStart(e.target.value)}>
             <option value="blank">Blank board</option>
+            {fromCode && <option value="code">From code (as built, latest snapshot)</option>}
             {templates.map((t) => (
               <option key={t.id} value={t.id}>
                 Template: {t.name} ({t.componentCount} components)
