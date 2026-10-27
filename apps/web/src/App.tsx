@@ -74,6 +74,7 @@ export function App() {
     index: -1,
   });
   const [selection, setSelection] = useState<Selection>(null);
+  const [selectedAncestors, setSelectedAncestors] = useState<string[]>([]);
   const [projection, setProjection] = useState<ProjectionDto | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [listMode, setListMode] = useState(false);
@@ -89,7 +90,8 @@ export function App() {
     .find((w) => w.id === worktreeId);
 
   const navigate = useCallback((loc: Location) => {
-    setSelection(null);
+    // selection is an entity, not a node of one canvas: it follows the user across views
+    setSelection((s) => (s?.type === 'node' && s.node.entityId ? s : null));
     setHistory((h) => {
       const cur = h.stack[h.index];
       if (cur && cur.canvasId === loc.canvasId && cur.focus === loc.focus) return h;
@@ -274,6 +276,26 @@ export function App() {
   )?.id;
   const latestSnapshotId = summary?.snapshot.id;
   const snapshotId = viewSnapshotId ?? latestSnapshotId;
+  const selectedEntity = selection?.type === 'node' ? selection.node.entityId : undefined;
+
+  // owners of the selected entity, so canvases that only show an owner can point at it
+  useEffect(() => {
+    if (!token || !snapshotId || !selectedEntity) {
+      setSelectedAncestors([]);
+      return;
+    }
+    let cancelled = false;
+    api<{ owners: { id: string }[] }>(`/snapshots/${snapshotId}/entities/${selectedEntity}`, token)
+      .then((d) => {
+        if (!cancelled) setSelectedAncestors(d.owners.map((o) => o.id).reverse());
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedAncestors([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, snapshotId, selectedEntity]);
 
   return (
     <div className="shell">
@@ -529,6 +551,8 @@ export function App() {
                 refreshKey={refreshKey}
                 onNavigate={navigate}
                 onSelect={setSelection}
+                selectedEntityId={selection?.type === 'node' ? selection.node.entityId : undefined}
+                selectedAncestors={selectedAncestors}
                 onProjection={onProjection}
                 overlayRef={overlayRef}
                 persist={persist}
@@ -539,6 +563,7 @@ export function App() {
               // the canvas stays mounted underneath: it owns projection loading and navigation
               <ListView
                 projection={projection}
+                selectedEntityId={selection?.type === 'node' ? selection.node.entityId : undefined}
                 onSelect={(n) => setSelection({ type: 'node', node: n })}
                 onOpen={(n) =>
                   n.focus !== undefined
