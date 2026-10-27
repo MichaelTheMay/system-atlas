@@ -52,14 +52,31 @@ async function openDesignEditing(page: Page, wt: string) {
 }
 
 /** Drag a connection from the right handle of one box to the left handle of another. */
+/**
+ * Drags a connection from one box's source handle to another's target handle. A pointer drag in
+ * headless CI occasionally never reaches React Flow's onConnect (seen twice in a row on GitHub
+ * runners, never locally), so the drag is verified by the flow-label input it opens and retried.
+ */
 async function connect(page: Page, from: Locator, to: Locator) {
-  const a = (await from.locator('.react-flow__handle.source').boundingBox())!;
-  const b = (await to.locator('.react-flow__handle.target').boundingBox())!;
-  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
-  await page.mouse.down();
-  await page.mouse.move((a.x + b.x) / 2, (a.y + b.y) / 2, { steps: 8 });
-  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 });
-  await page.mouse.up();
+  for (let attempt = 1; ; attempt++) {
+    const a = (await from.locator('.react-flow__handle.source').boundingBox())!;
+    const b = (await to.locator('.react-flow__handle.target').boundingBox())!;
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move((a.x + b.x) / 2, (a.y + b.y) / 2, { steps: 10 });
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 10 });
+    await page.mouse.move(b.x + b.width / 2 + 1, b.y + b.height / 2, { steps: 2 });
+    await page.mouse.up();
+    try {
+      await expect(page.getByRole('textbox', { name: 'Flow label' })).toBeVisible({
+        timeout: 2500,
+      });
+      return;
+    } catch (e) {
+      if (attempt >= 3) throw e;
+      await page.keyboard.press('Escape');
+    }
+  }
 }
 
 test('draw a planned box, connect it, rename with undo/redo; drift is marked', async ({
