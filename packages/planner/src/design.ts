@@ -589,8 +589,7 @@ function designModel(g: PlannerGraph): DesignModel {
   const unitOf = new Map<string, Unit>();
   for (const u of units) for (const id of u.members) if (!unitOf.has(id)) unitOf.set(id, u);
   const rootCanvasId = canvasId(g.projectId, 'design', 'design-system', 'root');
-  const subId = (path: string[]) =>
-    canvasId(g.projectId, 'design', 'design-subsystem', path.join('/'));
+  const subId = (path: string[]) => designSubsystemCanvasId(g.projectId, path);
   const overrides = g.overrides ?? [];
   const has = (target: string, action: string) =>
     overrides.some((o) => o.targetId === target && o.action === action);
@@ -641,8 +640,13 @@ function designModel(g: PlannerGraph): DesignModel {
     for (const u of units) {
       const cands = byUnit.get(u.key);
       if (!cands) continue;
-      // acyclic navigation: a unit sits on exactly one path; the lexicographically first wins
-      const best = [...cands].sort((a, b) => a.path.join('/').localeCompare(b.path.join('/')))[0]!;
+      // acyclic navigation: a unit sits on exactly one path. A person's grouping beats an agent's
+      // proposal (D02a); among equals the lexicographically first path wins.
+      const best = [...cands].sort(
+        (a, b) =>
+          Number(b.origin === 'human') - Number(a.origin === 'human') ||
+          a.path.join('/').localeCompare(b.path.join('/')),
+      )[0]!;
       pathOfUnit.set(u.key, best.path);
     }
     // display casing: the first human claim, else the first claim (by id)
@@ -765,6 +769,11 @@ interface Layer {
 }
 
 const sameChain = (a: string[], b: string[]) => a.length === b.length && startsWith(a, b);
+
+/** Canvas id of a claim subsystem path (normalized segments: trimmed, collapsed, lowercase). */
+export function designSubsystemCanvasId(projectId: string, path: string[]): string {
+  return canvasId(projectId, 'design', 'design-subsystem', path.join('/'));
+}
 
 /** Element canvas ids: keyed on the element id, so they never collide with claim-path canvases. */
 export function designElementCanvasId(projectId: string, elementId: string): string {

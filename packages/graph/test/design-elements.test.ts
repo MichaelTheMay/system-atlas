@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, rmSync } from 'node:fs';
+import { appendFileSync, cpSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -23,6 +23,7 @@ import {
   listProposals,
   loadPlannerGraph,
   patchDesignElement,
+  proposeClaims,
   registerRoot,
   scanWorktree,
 } from '../src/index.ts';
@@ -506,5 +507,84 @@ describe('design elements (D02a)', () => {
       ).toMatchObject({ ownerCanvasId: root.id });
     for (const c of cat.canvases)
       expect(projectDesign(g, cat, c.id).breadcrumbs.length).toBeLessThan(4);
+  });
+  it('a person grouping a box wins over an agent proposal for it', async () => {
+    const t = await setup();
+    const proposed = await proposeClaims(t.db, {
+      snapshotId: t.snapshotId,
+      origin: 'model',
+      modelMetadata: { provider: 'mcp-client', model: 'test-model', promptTemplateVersion: 'x' },
+      claims: [
+        {
+          subjectId: t.worker,
+          predicate: 'subsystem',
+          value: 'Analytics',
+          citations: [{ path: 'packages/worker/src/main.ts', startLine: 1, endLine: 1 }],
+        },
+      ],
+    });
+    expect(ok(proposed).accepted).toHaveLength(1);
+    ok(
+      await groupIntoSubsystem(t.db, {
+        snapshotId: t.snapshotId,
+        path: 'Backend',
+        entityIds: [t.worker],
+      }),
+    );
+    const { cat } = t.view(t.snapshotId);
+    const backend = cat.canvases.find((c) => c.title === 'Backend')!;
+    expect(backend.provenance).toBe('accepted');
+    const inner = t.view(t.snapshotId, backend.id).p;
+    expect(node(inner, (n) => n.id === `box:${t.worker}`)?.kind).toBe('entity');
+  });
+
+  it('keeps user work independent of ghosts; rejecting by PATCH cascades like DELETE', async () => {
+    const t = await setup();
+    const real = (t.mod('packages/api/src/db.ts').attributes.evidenceIds as string[])[0]!;
+    const agent = { authorName: 'test-model', snapshotId: t.snapshotId, citations: [real] };
+    const ghost = ok(createDesignElement(t.db, t.projectId, box('Cache'), agent)).element;
+    // a person cannot hang a flow (or a box) off a ghost: accept it first
+    expect(
+      createDesignElement(t.db, t.projectId, {
+        body: { kind: 'flow', from: { entityId: t.api }, to: { elementId: ghost.id } },
+      }),
+    ).toMatchObject({ ok: false, status: 400, error: expect.stringContaining('accept it first') });
+    const ghostFlow = ok(
+      createDesignElement(
+        t.db,
+        t.projectId,
+        { body: { kind: 'flow', from: { entityId: t.api }, to: { elementId: ghost.id } } },
+        agent,
+      ),
+    ).element;
+    expect(
+      patchDesignElement(t.db, t.projectId, ghost.id, { status: 'rejected', revision: 3 }),
+    ).toMatchObject({ ok: false, status: 409 });
+    const rejected = ok(
+      patchDesignElement(t.db, t.projectId, ghost.id, { status: 'rejected', revision: 0 }),
+    ).element;
+    expect(rejected.status).toBe('rejected');
+    expect(getDesignElement(t.db, t.projectId, ghostFlow.id)!.status).toBe('rejected');
+    expect(listDesignElements(t.db, t.projectId)).toEqual([]);
+  });
+  it('keeps a grouping on the board (shown stale) when its cited manifest changes', async () => {
+    const t = await setup();
+    ok(
+      await groupIntoSubsystem(t.db, {
+        snapshotId: t.snapshotId,
+        path: 'Backend',
+        entityIds: [t.api],
+      }),
+    );
+    const before = t.view(t.snapshotId).cat.canvases.find((c) => c.title === 'Backend')!;
+    expect(before).toMatchObject({ state: 'cataloged', provenance: 'accepted' });
+    expect(listOverrides(t.db, t.projectId)).toContainEqual(
+      expect.objectContaining({ targetId: before.id, action: 'pin' }),
+    );
+    appendFileSync(join(t.root, 'packages/api/package.json'), '\n');
+    const next = await t.scan();
+    const after = t.view(next).cat.canvases.find((c) => c.title === 'Backend')!;
+    expect(after).toMatchObject({ id: before.id, state: 'stale', provenance: 'accepted' });
+    expect(after.relevanceReason).toContain('Pinned');
   });
 });

@@ -6,6 +6,7 @@ import {
   idSchema,
   newId,
 } from '@atlas/schema';
+import { designSubsystemCanvasId } from '@atlas/planner';
 import type { Db } from '@atlas/store';
 import { z } from 'zod';
 import { setOverride, subsystemSegments } from './overrides.ts';
@@ -125,22 +126,32 @@ function missingEntities(db: Db, projectId: string, ids: string[]): string[] {
  * Reference checks for a body: parents are live subsystem elements of the project (no cycles),
  * flow endpoints are live boxes/subsystems of the project or entities of its latest snapshots, and
  * bound entities exist. `selfId` is set for patches (an element can never be its own ancestor).
+ * A person's elements may only refer to accepted elements (`userOwned`): otherwise rejecting a
+ * ghost would take user work down with it.
  */
 function checkReferences(
   db: Db,
   projectId: string,
   body: DesignElementBody,
   bound: string[],
+  userOwned: boolean,
   selfId?: string,
 ): string[] {
   const reasons: string[] = [];
   const live = (id: string) => {
     const r = rowOf(db, projectId, id);
+    if (r?.status === 'proposed' && userOwned) {
+      reasons.push(`${id} is still a proposal: accept it first`);
+      return undefined;
+    }
     return r && r.status !== 'rejected' ? r : undefined;
   };
   if ((body.kind === 'box' || body.kind === 'subsystem') && body.parentId) {
     const p = live(body.parentId);
-    if (!p || p.kind !== 'subsystem')
+    if (!p) {
+      if (!reasons.length)
+        reasons.push(`parentId ${body.parentId} is not a subsystem element of this project`);
+    } else if (p.kind !== 'subsystem')
       reasons.push(`parentId ${body.parentId} is not a subsystem element of this project`);
     else if (selfId) {
       // walk up from the new parent: reaching selfId would make the navigation tree cyclic
@@ -165,7 +176,9 @@ function checkReferences(
       ['to', body.to],
     ] as const) {
       if ('elementId' in end) {
+        const n = reasons.length;
         const r = live(end.elementId);
+        if (!r && reasons.length > n) continue;
         if (!r || (r.kind !== 'box' && r.kind !== 'subsystem'))
           reasons.push(
             `${name}: ${end.elementId} is not a box or subsystem element of this project`,
@@ -203,7 +216,7 @@ export function createDesignElement(
   const parsed = DesignElementInput.safeParse(raw);
   if (!parsed.success) return { ok: false, status: 400, error: issues(parsed.error) };
   const { body, boundEntityIds } = parsed.data;
-  const reasons = checkReferences(db, projectId, body, boundEntityIds);
+  const reasons = checkReferences(db, projectId, body, boundEntityIds, !agent);
   let citations: string[] = [];
   if (agent) {
     const a = z
@@ -274,6 +287,20 @@ export function patchDesignElement(
   const parsed = DesignElementPatch.safeParse(raw);
   if (!parsed.success) return { ok: false, status: 400, error: issues(parsed.error) };
   const patch = parsed.data;
+  if (patch.status === 'rejected') {
+    // rejecting a proposal is a delete of agent work: same cascade and audit (other fields ignored)
+    const cur = rowOf(db, projectId, id);
+    if (!cur) return { ok: false, status: 404, error: 'unknown_design_element' };
+    if (cur.status !== 'proposed' || cur.author !== 'agent')
+      return {
+        ok: false,
+        status: 400,
+        error: `status cannot change from ${cur.status} to rejected`,
+      };
+    const r = deleteDesignElement(db, projectId, id, patch.revision);
+    if (!r.ok) return r;
+    return { ok: true, element: toElement(rowOf(db, projectId, id)!) };
+  }
   return db.transaction((): DesignResult<{ element: DesignElement }> => {
     const cur = rowOf(db, projectId, id);
     if (!cur) return { ok: false, status: 404, error: 'unknown_design_element' };
@@ -293,7 +320,7 @@ export function patchDesignElement(
         error: `status cannot change from ${cur.status} to ${status}`,
       };
     const bound = patch.boundEntityIds ?? current.boundEntityIds;
-    const reasons = checkReferences(db, projectId, body, bound, id);
+    const reasons = checkReferences(db, projectId, body, bound, cur.author === 'user', id);
     if (reasons.length) return { ok: false, status: 400, error: reasons.join('; ').slice(0, 800) };
     if (status === 'active' && cur.status === 'proposed') {
       const refs = references(body).filter((r) => rowOf(db, projectId, r)?.status !== 'active');
@@ -305,7 +332,6 @@ export function patchDesignElement(
           current,
         };
     }
-    if (status === 'rejected') auditReject(db, projectId, current);
     db.prepare(
       'UPDATE design_elements SET body = ?, bound_entity_ids = ?, status = ?, revision = revision + 1, updated_at = ? WHERE id = ?',
     ).run(
@@ -588,6 +614,20 @@ export async function groupIntoSubsystem(db: Db, raw: unknown): Promise<GroupOut
     const s = subjectOf.get<{ subject_id: string }>(input.snapshotId, id)?.subject_id;
     if (s && keep.has(s) && rejectClaim(db, id, `regrouped into ${value}`).ok) out.moved.push(id);
   }
+  // A person's grouping cites the boxes' analyzer evidence, so editing a cited file (a package
+  // manifest) makes it stale. Pinning its canvas keeps it on the board, shown stale, instead of
+  // dissolving it silently; unpinning it is an explicit choice.
+  if (keep.size)
+    setOverride(
+      db,
+      snap.project_id,
+      designSubsystemCanvasId(
+        snap.project_id,
+        segs.map((x) => x.toLowerCase()),
+      ),
+      'pin',
+      true,
+    );
   return out;
 }
 
