@@ -253,6 +253,7 @@ export function createAtlasMcpServer(opts: AtlasMcpOptions): McpServer {
           sublabel: n.sublabel,
           entityId: n.entityId,
           entityKind: n.entityKind,
+          archetype: n.archetype,
           lifecycle: n.lifecycle,
           change: n.change,
           opensView: n.openCanvasId,

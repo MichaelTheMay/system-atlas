@@ -1,4 +1,5 @@
 import type { DesignJobEvent, DesignJobRequest, DesignRuntimeId } from '@atlas/schema';
+import type { DesignToolset } from './design-tools.ts';
 
 /**
  * Design agent runtime contract (D02c). A runtime drives a model through Atlas's own MCP tools
@@ -23,8 +24,19 @@ export interface DesignRuntimeAvailability {
 }
 
 export interface DesignRuntimeContext {
+  jobId: string;
   projectId: string;
   rootPath: string;
+  /**
+   * In-process Atlas tools (the design-agent subset of the MCP server, bound to this project).
+   * Runtimes that drive a model in process (mock, anthropic-api) work only through these.
+   */
+  tools: DesignToolset;
+  /**
+   * How to start `atlas mcp <root>` as a stdio server, for runtimes that run an external agent
+   * (claude-code). Carries no tokens: `atlas mcp` finds the daemon through its discovery record.
+   */
+  atlasMcp?: { command: string; args: string[]; env?: Record<string, string> };
   /** Redacted, bounded system brief for the agent (prompt template versioned by the runner). */
   prompt: string;
   promptTemplateVersion: string;
@@ -37,6 +49,8 @@ export interface DesignRuntimeResult {
   /** What the runtime reported; absent fields stay unknown (never estimated here). */
   usage: { inputTokens?: number; outputTokens?: number; costUsd?: number };
   model?: string;
+  /** Copilot answer (name, explanation, suggestions); generate jobs leave it empty. */
+  output?: { text?: string; data?: unknown };
 }
 
 export interface DesignRuntime {

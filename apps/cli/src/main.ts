@@ -7,6 +7,7 @@ import { resolveAtlasPaths } from '@atlas/schema/node';
 import { isProcessAlive, readDiscovery } from '@atlas/daemon/discovery';
 import { ensureDaemon, findDaemon } from './client.ts';
 import { runDoctor } from './doctor.ts';
+import { registerDesignCommands } from './design.ts';
 
 interface CatalogResponse {
   snapshotId: string;
@@ -663,5 +664,7 @@ program
       if (r.problems.length) process.exitCode = 1;
     },
   );
+
+registerDesignCommands(program, paths);
 
 await program.parseAsync();
