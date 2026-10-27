@@ -6,32 +6,34 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**Waiting for the user's go-ahead** before planning the system-design lens (whiteboard root). It is proposed as the next ticket. L01 is in PR #22.
+**D01, the system-design lens**, is being finished: D01c (web UI) and D01d (docs, demo, export) are in review against `develop`. After that comes **D02**: interactive whiteboard, design copilot and on-demand generation, planned in `~/.claude/plans/execute-step-19-in-dapper-possum.md` (section "D02"). Its wave 0 contracts are merged (PR #26).
 
 ## Tickets (plan §17)
 
-| ID  | Ticket                                               | Depends on  | Status      | PR / evidence                                |
-| --- | ---------------------------------------------------- | ----------- | ----------- | -------------------------------------------- |
-| A00 | Repository bootstrap, GitHub remote, branch rules    | —           | done        | bootstrap commit on `main`                   |
-| A01 | Bootstrap workspace, contracts and ADRs              | —           | not started |                                              |
-| A02 | Project/worktree identity and SQLite migrations      | A01         | not started |                                              |
-| A03 | Inventory and coverage report                        | A02         | not started |                                              |
-| A04 | TS/JS and Python analyzers                           | A03         | not started |                                              |
-| A05 | Semantic identity and snapshot reconciler            | A04         | not started |                                              |
-| A06 | View planner and canvas navigation                   | A05         | done        | PR #6; see A06 evidence                      |
-| A07 | React Flow, layout worker, overlays and inspector    | A06         | done        | PR #7; see A07 evidence                      |
-| E01 | Run/event/artifact store and ingestion               | A02         | done        | PR #8; see E01 evidence                      |
-| E02 | Process wrapper and output registration              | E01         | done        | PR #9; see E02 evidence                      |
-| E03 | Playwright capture helper                            | E01         | done        | PR #10; see E03 evidence                     |
-| E04 | Output canvases and isolated preview renderer        | E02,E03,A07 | done        | PR #11; see E04 evidence                     |
-| M01 | Watcher and incremental invalidation                 | A05,A07     | done        | PRs #13, #14, #15                            |
-| M02 | Model proposal validation, cache and budget          | M01         | done        | PRs #17, #18 (view proposals deferred)       |
-| I01 | MCP and generic event SDK                            | E01,A06     | done        | PR #16                                       |
-| I02 | VS Code integration                                  | I01         | dropped     | user decision 2026-10-26                     |
-| I03 | OTLP subset and bundle importer                      | E04         | done        | PR #20                                       |
-| I04 | Skena/JSON Canvas bridge                             | I01,A07     | done        | PR #21 (JSON Canvas export; no Skena bridge) |
-| H01 | Retention, recovery, export and performance          | E04,M01     | not started |                                              |
-| L01 | Go and Java/JVM analyzers (Phase 4; not in plan §17) | A04         | done        | PR #22                                       |
+| ID  | Ticket                                               | Depends on  | Status      | PR / evidence                                                                   |
+| --- | ---------------------------------------------------- | ----------- | ----------- | ------------------------------------------------------------------------------- |
+| A00 | Repository bootstrap, GitHub remote, branch rules    | —           | done        | bootstrap commit on `main`                                                      |
+| A01 | Bootstrap workspace, contracts and ADRs              | —           | not started |                                                                                 |
+| A02 | Project/worktree identity and SQLite migrations      | A01         | not started |                                                                                 |
+| A03 | Inventory and coverage report                        | A02         | not started |                                                                                 |
+| A04 | TS/JS and Python analyzers                           | A03         | not started |                                                                                 |
+| A05 | Semantic identity and snapshot reconciler            | A04         | not started |                                                                                 |
+| A06 | View planner and canvas navigation                   | A05         | done        | PR #6; see A06 evidence                                                         |
+| A07 | React Flow, layout worker, overlays and inspector    | A06         | done        | PR #7; see A07 evidence                                                         |
+| E01 | Run/event/artifact store and ingestion               | A02         | done        | PR #8; see E01 evidence                                                         |
+| E02 | Process wrapper and output registration              | E01         | done        | PR #9; see E02 evidence                                                         |
+| E03 | Playwright capture helper                            | E01         | done        | PR #10; see E03 evidence                                                        |
+| E04 | Output canvases and isolated preview renderer        | E02,E03,A07 | done        | PR #11; see E04 evidence                                                        |
+| M01 | Watcher and incremental invalidation                 | A05,A07     | done        | PRs #13, #14, #15                                                               |
+| M02 | Model proposal validation, cache and budget          | M01         | done        | PRs #17, #18 (view proposals deferred)                                          |
+| I01 | MCP and generic event SDK                            | E01,A06     | done        | PR #16                                                                          |
+| I02 | VS Code integration                                  | I01         | dropped     | user decision 2026-10-26                                                        |
+| I03 | OTLP subset and bundle importer                      | E04         | done        | PR #20                                                                          |
+| I04 | Skena/JSON Canvas bridge                             | I01,A07     | done        | PR #21 (JSON Canvas export; no Skena bridge)                                    |
+| H01 | Retention, recovery, export and performance          | E04,M01     | not started |                                                                                 |
+| L01 | Go and Java/JVM analyzers (Phase 4; not in plan §17) | A04         | done        | PR #22                                                                          |
+| D01 | System-design lens (not in plan §17)                 | A06,M02     | in progress | wave 0 PR #24, D01a PR #27, D01b PR #25; D01c, D01d in review; see D01 evidence |
+| D02 | Whiteboard, design copilot, on-demand generation     | D01         | in progress | wave 0 contracts PR #26; plan file "D02" section                                |
 
 ## Phase acceptance checklists (plan §15)
 
@@ -452,6 +454,32 @@ Changes:
 - **CLI:** `atlas design generate [--depth] [--runtime] [--model] [--replace-proposals] [--yes]` prints the estimate and what leaves the machine (non-mock needs `--yes` or a TTY confirmation); `atlas design status`; `atlas doctor` reports `claude --version`.
 - **Tests:** runtime unit tests (mock determinism/depth/cap/copilot; claude-code against a fake `claude` on a private PATH incl. malformed lines, error result, crash, failed MCP server, cancel kills the child; anthropic with an injected fake client, key scrubbing, no-key refusal), daemon job tests (mock end to end → proposed `design-subsystem` canvases and a `design-agent` run; consent 403; key file 0600 never echoed; cancel; 409; budget 429 + ledger), CLI `design generate --runtime mock`. No real model call and no real `claude` run in tests. `pnpm check` exit 0 (210 tests). Generation never collects boxes inside accepted subsystems (tested with a human grouping).
 - **Gaps:** generation proposes claims only (`proposedElements` is 0; ghost design elements belong to wave 1a/2b); the token estimate is a rough formula; `claude-code` usage is not held to the API budget (it counts against the Claude plan); copilot output is kept in the run, not a dedicated column; the planner places a unit on the lexicographically first subsystem path regardless of claim origin (D01 owners), so the runtimes avoid proposing for accepted boxes; the CLI consent step also makes that runtime the configured default.
+
+### D01 (2026-10-26): system-design lens
+
+A third workspace, `design`: whiteboard canvases derived on demand from the semantic graph, `subsystem` claims and view overrides. They are views, never facts, and never persisted. See `docs/views.md` ("System design lens (D01)").
+
+| Part   | What                                                                                                                                                           | PR / status |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| wave 0 | Contracts: `Workspace`, `DesignLens`, `CanvasSpec.provenance`, `Archetype`, `Provenance` (the `view_overrides` table already existed in migration 0001)        | #24, merged |
+| D01a   | `planDesign` / `projectDesign`: archetypes with reasons, flow labels, subsystem canvases from normalized `/` paths (depth 3), context ports, realized-by links | #27, merged |
+| D01b   | Daemon plans design canvases on read and replans on claim, issue and override events; override routes; promote through the validator; `atlas_propose_view`     | #25, merged |
+| D01c   | Web UI: design root, whiteboard theme, provenance badges, realized-by navigation, pin/suppress/promote                                                         | in progress |
+| D01d   | Docs, demo proposal, export "Realized by" links                                                                                                                | this PR     |
+
+D01d evidence (commands run in the D01d worktree):
+
+- **Docs:** `docs/views.md` documents what `design.ts` actually does: archetype and infrastructure rules in order, flow labels, paths, titles, ports, caps, provenance, overrides, and the on-demand invariant. Also `docs/capabilities.md` (design-lens row; the "view proposals not implemented" note is removed), `docs/export.md` and the README.
+- **Export:** design boxes get an archetype/provenance line and a root-relative `[Realized by: <title> →](views/….canvas)` link. Design edges carry the flow label. Links to views outside the export are disclosed.
+  - `pnpm exec vitest run apps/cli/test/export.test.ts`: 3 passed.
+  - The test asserts that `views/system-design.canvas` exists, that every realized-by link resolves to an exported non-design canvas, and that json-canvas-viewer renders it with no page errors or failed requests.
+  - Screenshot inspected. The first render clipped the link line, so design boxes are now taller.
+- **Demo:** `ATLAS_DATA_DIR=<dir> ATLAS_RUNTIME_DIR=<dir> pnpm demo`, with two fresh `mktemp -d` directories. After the runs, it rescans and proposes "Research backend" (`@research/api` and `@research/worker`) through `POST /api/v1/proposals/claims`. The claims are `origin: model`, labeled with model `demo-mock` (no model is called), and cite the packages' scan evidence ids. Output:
+  `system design: "Research backend" (proposed): Proposed by demo-mock: groups 2 box(es) (@research/api, @research/worker).`
+  - The root projection then showed web (client), research-jobs (queue), Third-party libraries (library) and a "Research backend" subsystem box (api-service, proposed) with `enqueue` and `uses` flows.
+  - The subsystem canvas showed @research/api (api-service) and @research/worker (worker), with two context ports.
+  - The daemon was stopped with `atlas daemon stop`, using the same environment.
+- **Full check:** `pnpm -s format && pnpm check`: exit 0, 186 Vitest tests in 35 files. `pnpm e2e` was not run in this ticket because another agent was using the fixed port.
 
 ## Environment record (2026-10-26)
 

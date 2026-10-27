@@ -16,7 +16,8 @@ import {
 } from '@xyflow/react';
 import { api, type OverlayDto, type ProjectionDto, type ProjectionNodeDto } from '../api.ts';
 import { layoutInWorker } from '../layout.ts';
-import { NODE_SIZE, nodeTypes, type AtlasNodeData } from './nodes.tsx';
+import { DESIGN_NODE_SIZE, NODE_SIZE, nodeTypes, type AtlasNodeData } from './nodes.tsx';
+import { isDesignLens } from './design/archetypes.tsx';
 import { edgeTypes, type AtlasEdgeData } from './edges.tsx';
 
 export interface Location {
@@ -42,6 +43,8 @@ interface Props {
   /** Owner chain of the selected entity, nearest first, for canvases that only show an owner. */
   selectedAncestors?: string[];
   onProjection(p: ProjectionDto | null, overlay: OverlayDto | null): void;
+  /** Design lens: double-clicking a box opens the architecture canvas that realizes it. */
+  onRealizedBy?(canvasId: string, entityId?: string): void;
   overlayRef: React.MutableRefObject<OverlayDto | null>;
   persist(mutate: (o: OverlayDto) => OverlayDto): void;
   overlayDirty(): boolean;
@@ -53,6 +56,13 @@ function edgeLabel(kinds: Record<string, number>): string {
     .map(([k, n]) => (n > 1 ? `${k} ×${n}` : k))
     .join(', ');
 }
+
+/** Extra horizontal room per design box (see the layout call). */
+const DESIGN_FLOW_GAP = 90;
+const padded = (s: { width: number; height: number }) => ({
+  width: s.width + DESIGN_FLOW_GAP,
+  height: s.height + 14,
+});
 
 /** Overlay key of a node: entity id (follows renames) or projection node id. */
 const keyOf = (n: ProjectionNodeDto) => (n.kind === 'entity' && n.entityId ? n.entityId : n.id);
@@ -89,6 +99,7 @@ export function CanvasView(props: Props) {
     overlayRef,
     persist,
     overlayDirty,
+    onRealizedBy,
   } = props;
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<AtlasNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -157,12 +168,18 @@ export function CanvasView(props: Props) {
       projectionRef.current = p;
       overlayRef.current = overlay;
       const groupIds = new Set(p.nodes.filter((n) => n.kind === 'group').map((n) => n.id));
+      const design = isDesignLens(p.lens);
+      const sizes = design ? DESIGN_NODE_SIZE : NODE_SIZE;
       const layout = await layoutInWorker({
         nodes: p.nodes.map((n) => {
           const size =
             n.kind === 'group'
               ? { width: 260, height: 80 }
-              : (NODE_SIZE[n.kind] ?? NODE_SIZE.entity!);
+              : design
+                ? // whiteboard flows need room for their labels between columns: ELK's layer
+                  // spacing is fixed, so the box is laid out wider than it is drawn
+                  padded(sizes[n.kind] ?? sizes.entity!)
+                : (sizes[n.kind] ?? sizes.entity!);
           // user pins win; otherwise keep the node where it was last laid out (stable map)
           const fixed = n.parentId
             ? undefined
@@ -175,6 +192,7 @@ export function CanvasView(props: Props) {
           };
         }),
         edges: p.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+        // design lenses read left to right like a whiteboard: clients → services → stores
         direction: p.lens === 'changes' || p.lens === 'coverage' ? 'DOWN' : 'RIGHT',
       });
       if (cancelled) return;
@@ -219,16 +237,20 @@ export function CanvasView(props: Props) {
         }),
       );
       setEdges(
-        p.edges.map((e): Edge<AtlasEdgeData> => ({
-          id: e.id,
-          type: 'atlas',
-          source: e.source,
-          target: e.target,
-          className: `atlas-edge edge-${e.status}`,
-          markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-          data: { relationIds: e.relationIds, status: e.status, label: edgeLabel(e.kinds) },
-          ariaLabel: `${edgeLabel(e.kinds)} (${e.status})`,
-        })),
+        p.edges.map((e): Edge<AtlasEdgeData> => {
+          const flowLabel = design ? e.flow : undefined;
+          const label = flowLabel ?? edgeLabel(e.kinds);
+          return {
+            id: e.id,
+            type: 'atlas',
+            source: e.source,
+            target: e.target,
+            className: `atlas-edge edge-${e.status}${flowLabel ? ' flow-edge' : ''}`,
+            markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+            data: { relationIds: e.relationIds, status: e.status, label, flow: !!flowLabel },
+            ariaLabel: `${label} (${e.status})`,
+          };
+        }),
       );
       onProjection(p, overlay);
       setStatus('ready');
@@ -301,13 +323,14 @@ export function CanvasView(props: Props) {
     (n: ProjectionNodeDto) => {
       if (n.focus !== undefined) onNavigate({ canvasId: location.canvasId, focus: n.focus });
       else if (n.openCanvasId) onNavigate({ canvasId: n.openCanvasId });
+      else if (n.realizedByCanvasId && onRealizedBy) onRealizedBy(n.realizedByCanvasId, n.entityId);
     },
-    [location.canvasId, onNavigate],
+    [location.canvasId, onNavigate, onRealizedBy],
   );
 
   return (
     <div
-      className="flow"
+      className={isDesignLens(projectionRef.current?.lens) ? 'flow design-board' : 'flow'}
       onKeyDown={(e) => {
         if (e.key !== 'Enter') return;
         const sel = nodes.find((n) => n.selected);

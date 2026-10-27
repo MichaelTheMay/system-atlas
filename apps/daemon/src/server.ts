@@ -33,6 +33,7 @@ import { getOverlay, putOverlay } from './routes/overlays.ts';
 import { registerRunRoutes, runScopedTarget } from './routes/runs.ts';
 import { DesignJobs, type DesignAgentOptions } from './design-jobs.ts';
 import { registerDesignJobRoutes } from './routes/design-jobs.ts';
+import { registerDesignElementRoutes } from './routes/design-elements.ts';
 import { ObjectStore } from '@atlas/evidence';
 import type { Db } from '@atlas/store';
 import { EventBus } from './events.ts';
@@ -433,7 +434,8 @@ export function buildServer(opts: ServerOptions): AtlasServer {
       m.type === 'claims.proposed' ||
       m.type === 'claims.reviewed' ||
       m.type === 'issue.resolved' ||
-      m.type === 'views.changed'
+      m.type === 'views.changed' ||
+      m.type === 'design.changed'
     )
       bumpViews(m.data.projectId);
   });
@@ -601,6 +603,8 @@ export function buildServer(opts: ServerOptions): AtlasServer {
 
   const projectExists = (id: string) =>
     !!opts.db.prepare('SELECT 1 AS ok FROM projects WHERE id = ?').get(id);
+
+  registerDesignElementRoutes(app, { db: opts.db, bus });
 
   /** View overrides (plan §8, D01): pin/suppress/promote keyed on stable canvas ids. */
   const OverrideBody = z
