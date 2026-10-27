@@ -58,38 +58,52 @@
   padding: 8px;
   resize: vertical;
 }
-/* floating panels over the right edge of the canvas */
-.board-view {
-  position: relative;
+/* inspector tabs: Properties | Proposals | Plan */
+.ba-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 0 0 10px;
+  border-bottom: 1px solid var(--line, #e2e5ea);
 }
-.ba-panel {
-  position: absolute;
-  right: 12px;
-  z-index: 30;
-  width: min(380px, 40vw);
-  max-height: calc(100% - 130px);
+.ba-tabs button {
+  padding: 6px 10px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted, #5d6675);
+  cursor: pointer;
+}
+.ba-tabs button.active {
+  color: var(--text, #1c2330);
+  border-bottom-color: #7c3aed;
+  font-weight: 600;
+}
+.ba-card,
+.ba-proposals,
+.ba-plan {
   display: flex;
   flex-direction: column;
+  margin-bottom: 12px;
   background: var(--panel, #fff);
   border: 1px solid var(--line, #e2e5ea);
-  border-radius: 10px;
-  box-shadow: 0 10px 30px rgb(15 23 42 / 0.16);
+  border-radius: 8px;
+}
+.ba-card {
+  padding-bottom: 8px;
+}
+.ba-card > :not(header) {
+  margin-left: 10px;
+  margin-right: 10px;
 }
 .ba-proposals {
-  top: 104px;
   border-top: 3px solid #7c3aed;
 }
-.ba-result {
-  left: 12px;
-  right: auto;
-  bottom: 64px;
-  max-height: 40%;
-  z-index: 36;
-}
-.ba-plan {
-  top: 104px;
-  width: min(560px, 50vw);
-  z-index: 35;
+.ba-empty {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
 }
 .ba-panel-head {
   display: flex;
@@ -103,8 +117,7 @@
   margin-right: auto;
 }
 .ba-panel-body {
-  overflow: auto;
-  padding: 8px 12px 12px;
+  padding: 8px 10px 10px;
 }
 .ba-panel-body h4 {
   margin: 10px 0 4px;
@@ -112,14 +125,6 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted, #5d6675);
-}
-.ba-toggle {
-  border: none;
-  background: none;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 0;
 }
 .ba-count {
   display: inline-block;
@@ -140,7 +145,8 @@
 }
 .ba-item {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   align-items: flex-start;
   padding: 6px 8px;
   border: 1px dashed #a78bfa;
@@ -148,7 +154,7 @@
   background: #faf8ff;
 }
 .ba-item-text {
-  flex: 1;
+  flex: 1 1 160px;
   display: grid;
   gap: 2px;
   min-width: 0;

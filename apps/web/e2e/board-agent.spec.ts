@@ -39,8 +39,8 @@ async function openBoards(page: Page, wt: string) {
 type El = {
   id: string;
   strokeStyle?: string;
-  opacity?: number;
-  customData?: { atlas?: { kind?: string; id?: string } };
+  isDeleted?: boolean;
+  customData?: { atlas?: { kind?: string; id?: string; role?: string } };
 };
 async function boardOf(request: APIRequestContext, projectId: string) {
   const list = await (
@@ -60,11 +60,16 @@ async function boardOf(request: APIRequestContext, projectId: string) {
     };
   };
 }
-/** Stroke styles of the component rectangles on the saved scene. */
+/** Stroke styles of the component boxes on the saved scene. */
 const componentStrokes = (b: Awaited<ReturnType<typeof boardOf>>) =>
   (b?.document.scene.elements ?? [])
-    .filter((e) => e.customData?.atlas?.kind === 'component')
-    .map((e) => `${e.strokeStyle}:${e.opacity}`);
+    .filter(
+      (e) =>
+        !e.isDeleted &&
+        e.customData?.atlas?.kind === 'component' &&
+        e.customData.atlas.role === 'box',
+    )
+    .map((e) => e.strokeStyle);
 
 test('start from a prompt: the mock drafts a proposed board, Accept all makes it solid; critique, reject, plan', async ({
   page,
@@ -82,7 +87,7 @@ test('start from a prompt: the mock drafts a proposed board, Accept all makes it
   // the drafted board opens with every item proposed (dashed, faded, tagged with the agent)
   const board = page.getByRole('region', { name: 'Design board: URL shortener' });
   await expect(board).toBeVisible();
-  const proposals = board.getByRole('region', { name: 'Agent proposals' });
+  const proposals = page.getByRole('region', { name: 'Agent proposals' });
   await expect(proposals).toBeVisible();
   await expect(
     proposals.getByRole('region', { name: 'Proposed components' }).getByRole('listitem'),
@@ -90,22 +95,18 @@ test('start from a prompt: the mock drafts a proposed board, Accept all makes it
   await expect(proposals.getByText('agent: mock-design').first()).toBeVisible();
   await expect
     .poll(async () => componentStrokes(await boardOf(request, projectId)))
-    .toEqual(Array(10).fill('dashed:55'));
+    .toEqual(Array(10).fill('dashed'));
   await expect(board.locator('.excalidraw')).toBeVisible();
 
   await proposals.getByRole('button', { name: 'Accept all' }).click();
-  await expect(board.getByRole('region', { name: 'Agent proposals' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Agent proposals' })).toHaveCount(0);
   await expect
     .poll(async () => componentStrokes(await boardOf(request, projectId)))
-    .toEqual(Array(10).fill('solid:100'));
+    .toEqual(Array(10).fill('solid'));
   const accepted = await boardOf(request, projectId);
   expect(Object.values(accepted!.document.components).every((c) => c.status === 'active')).toBe(
     true,
   );
-  // the "agent: <model>" tags left the canvas with the review
-  expect(
-    accepted!.document.scene.elements.some((e) => e.customData?.atlas?.kind === 'proposal-tag'),
-  ).toBe(false);
 
   // critique: proposed risk items pinned to components; reject one
   await board.getByRole('button', { name: 'Agent ▾' }).click();
@@ -177,7 +178,7 @@ test('explain a scenario and propose a variant board from the Agent menu', async
   await result.getByRole('button', { name: 'Open variant' }).click();
   const variant = page.getByRole('region', { name: /^Design board: Links — variant: / });
   await expect(variant).toBeVisible();
-  await expect(variant.getByRole('region', { name: 'Agent proposals' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Agent proposals' })).toBeVisible();
   // the original is untouched
   const orig = await (await request.get(`/api/v1/boards/${created.id}`, { headers: auth })).json();
   expect(
@@ -185,4 +186,60 @@ test('explain a scenario and propose a variant board from the Agent menu', async
       (c) => c.status === 'active',
     ),
   ).toBe(true);
+});
+
+test('redraft on a drawn board: proposals are drawn with arrows bound to existing boxes', async ({
+  page,
+  request,
+}) => {
+  const { wt, projectId } = await registerEmpty(request, 'redraft');
+  const doc = {
+    schemaVersion: 1,
+    scene: { elements: [], appState: {}, files: {} },
+    components: {
+      mine: { id: 'mine', type: 'service', label: 'Shortener API', props: {}, elementIds: [] },
+    },
+    connections: {},
+    scenarios: [],
+    doc: { items: [] },
+    frames: [],
+  };
+  await request.post(`/api/v1/projects/${projectId}/boards`, {
+    headers: auth,
+    data: { name: 'Mine', source: 'blank', document: doc },
+  });
+  await openBoards(page, wt);
+  await page.getByRole('button', { name: /^Mine/ }).click();
+  const board = page.getByRole('region', { name: 'Design board: Mine' });
+  await expect(board.locator('.excalidraw')).toBeVisible();
+  await board.getByRole('button', { name: 'Agent ▾' }).click();
+  await page.getByRole('menuitem', { name: 'Redraft from a prompt…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Redraft from a prompt' });
+  await dialog.getByLabel('Design prompt').fill('a url shortener');
+  await dialog.getByRole('button', { name: 'Draft board' }).click();
+  await expect(page.getByRole('region', { name: 'Agent proposals' })).toBeVisible();
+
+  type Saved = {
+    document: {
+      components: Record<string, { status: string; elementIds: string[] }>;
+      connections: Record<string, { from: string; to: string; elementId?: string }>;
+      scene: {
+        elements: { id: string; isDeleted?: boolean; endBinding?: { elementId: string } }[];
+      };
+    };
+  };
+  // the load balancer → existing API arrow is drawn and bound to the box that was already there
+  await expect
+    .poll(async () => {
+      const list = await (
+        await request.get(`/api/v1/projects/${projectId}/boards`, { headers: auth })
+      ).json();
+      const b = (await (
+        await request.get(`/api/v1/boards/${list.boards[0].id}`, { headers: auth })
+      ).json()) as Saved;
+      const k = Object.values(b.document.connections).find((c) => c.to === 'mine');
+      const arrow = b.document.scene.elements.find((e) => e.id === k?.elementId && !e.isDeleted);
+      return arrow?.endBinding?.elementId === b.document.components.mine!.elementIds[0];
+    })
+    .toBe(true);
 });

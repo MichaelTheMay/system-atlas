@@ -57,13 +57,11 @@ export function PlanPanel({
   model,
   busy,
   onRegenerate,
-  onClose,
 }: {
   plan: string;
   model?: string;
   busy?: boolean;
   onRegenerate(): void;
-  onClose(): void;
 }) {
   const [copied, setCopied] = useState<string>();
   const copy = async () => {
@@ -76,7 +74,7 @@ export function PlanPanel({
   };
   const tickets = (plan.match(/^### /gm) ?? []).length;
   return (
-    <aside className="ba-panel ba-plan" role="region" aria-label="Implementation plan">
+    <aside className="ba-plan" role="region" aria-label="Implementation plan">
       <header className="ba-panel-head">
         <strong>Implementation plan</strong>
         <span className="muted small">
@@ -87,9 +85,6 @@ export function PlanPanel({
         </button>
         <button type="button" className="action-sm" disabled={busy} onClick={onRegenerate}>
           Regenerate
-        </button>
-        <button type="button" className="icon-btn" aria-label="Close plan" onClick={onClose}>
-          ×
         </button>
       </header>
       {copied && (

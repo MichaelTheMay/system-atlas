@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { componentTypeInfo, DOC_SECTION_LABEL, type DesignBoard } from '@atlas/schema';
-import { reviewBoard } from './useBoardJobs.ts';
+import { useBoardAgent } from './agentContext.tsx';
+import { useBoard } from './context.ts';
 import './board-agent.css';
 
 interface Row {
@@ -68,48 +69,29 @@ const KIND_LABEL: Record<Row['kind'], string> = {
  * with Accept / Reject, plus Accept all. Accepting makes an item active (drawn solid, still
  * labeled with the agent that proposed it); rejecting keeps it only in the audit record.
  */
-export function ProposalsPanel({
-  token,
-  board,
-  onReviewed,
-}: {
-  token: string;
-  board: DesignBoard;
-  onReviewed(): void;
-}) {
+export function ProposalsPanel() {
+  const { board } = useBoard();
+  const agent = useBoardAgent();
   const rows = proposedRows(board);
-  const [open, setOpen] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  // new proposals (another agent job) reopen the panel
-  const seen = useRef(rows.length);
-  useEffect(() => {
-    if (rows.length > seen.current) setOpen(true);
-    seen.current = rows.length;
-  }, [rows.length]);
   if (!rows.length) return null;
   const review = async (body: { accept?: string[]; reject?: string[] }) => {
     setBusy(true);
     setError(undefined);
-    const err = await reviewBoard(token, board.id, body);
+    const err = await agent.review(body);
     setBusy(false);
     if (err) setError(err);
-    else onReviewed();
   };
   const groups = (['component', 'connection', 'scenario', 'doc-item'] as const)
     .map((k) => [k, rows.filter((r) => r.kind === k)] as const)
     .filter(([, rs]) => rs.length);
   return (
-    <aside className="ba-panel ba-proposals" role="region" aria-label="Agent proposals">
+    <aside className="ba-proposals" role="region" aria-label="Agent proposals">
       <header className="ba-panel-head">
-        <button
-          type="button"
-          className="ba-toggle"
-          aria-expanded={open}
-          onClick={() => setOpen((o) => !o)}
-        >
-          {open ? '▾' : '▸'} Agent proposals <span className="ba-count">{rows.length}</span>
-        </button>
+        <strong>
+          Agent proposals <span className="ba-count">{rows.length}</span>
+        </strong>
         <button
           type="button"
           className="action-sm primary"
@@ -132,10 +114,11 @@ export function ProposalsPanel({
           {error}
         </p>
       )}
-      {open && (
+      {
         <div className="ba-panel-body">
           <p className="muted small">
-            Proposed by an agent: dashed on the canvas until you accept them.
+            Proposed by an agent: dashed on the canvas until you accept them. Rejected items stay in
+            the audit record only.
           </p>
           {groups.map(([kind, rs]) => (
             <section key={kind} aria-label={`Proposed ${KIND_LABEL[kind].toLowerCase()}`}>
@@ -178,7 +161,7 @@ export function ProposalsPanel({
             </section>
           ))}
         </div>
-      )}
+      }
     </aside>
   );
 }
