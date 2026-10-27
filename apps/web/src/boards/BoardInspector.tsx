@@ -9,6 +9,7 @@ import {
   type Connection,
   type PropertyField,
 } from '@atlas/schema';
+import { AgentTabs } from './AgentTabs.tsx';
 import { createBoard } from './api.ts';
 import { useBoard } from './context.ts';
 import { DocPanel } from './DocPanel.tsx';
@@ -28,46 +29,22 @@ export function BoardInspector() {
   const connection = selection.connectionId
     ? board.document.connections[selection.connectionId]
     : undefined;
-  const [tab, setTab] = useState<'properties' | 'scenarios' | 'doc'>('properties');
-  const tabs = [
-    ['properties', 'Properties'],
-    ['scenarios', 'Scenarios'],
-    ['doc', 'Design doc'],
-  ] as const;
   return (
     <div className="board-inspector">
       <h2>Inspector</h2>
-      {/* wave 1b: scenarios and the design doc are tabs next to the properties */}
-      <div className="board-side-tabs" role="tablist" aria-label="Board panels">
-        {tabs.map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={tab === id}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {tab === 'properties' ? (
-        component ? (
-          <ComponentPanel key={component.id} component={component} />
-        ) : connection ? (
-          <ConnectionPanel key={connection.id} connection={connection} />
-        ) : (
-          <BoardSummary />
-        )
-      ) : (
-        <section
-          className="board-side"
-          role="tabpanel"
-          aria-label={tab === 'scenarios' ? 'Scenarios' : 'Design doc'}
-        >
-          {tab === 'scenarios' ? <ScenariosPanel /> : <DocPanel />}
-        </section>
-      )}
+      <AgentTabs
+        properties={
+          component ? (
+            <ComponentPanel key={component.id} component={component} />
+          ) : connection ? (
+            <ConnectionPanel key={connection.id} connection={connection} />
+          ) : (
+            <BoardSummary />
+          )
+        }
+        scenarios={<ScenariosPanel />}
+        doc={<DocPanel />}
+      />
     </div>
   );
 }

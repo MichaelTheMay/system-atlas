@@ -12,3 +12,12 @@ export {
   type AnthropicRuntimeOptions,
   type MessagesClient,
 } from './anthropic-api.ts';
+export {
+  critiqueRules,
+  docFromSpec,
+  explainScenario,
+  implementationPlan,
+  matchTemplate,
+  MOCK_BOARD_MODEL,
+  variantOf,
+} from './mock-board.ts';

@@ -4,7 +4,9 @@ import type { BoardDocument, ComponentType, DesignBoard } from '@atlas/schema';
 import { viewportCoordsToSceneCoords } from '@excalidraw/excalidraw';
 import type { AppState, ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import { layoutInWorker } from '../layout.ts';
+import { BoardAgentProvider } from './agentContext.tsx';
 import { getBoard, saveBoard } from './api.ts';
+import { BoardAgentMenu } from './BoardAgentMenu.tsx';
 import { BoardInspector } from './BoardInspector.tsx';
 import { BoardContext, type BoardContextValue } from './context.ts';
 import { BoardController } from './controller.ts';
@@ -113,7 +115,8 @@ export function BoardView({
     if (r.ok) {
       const latest = boardRef.current!;
       boardRef.current = { ...latest, revision: r.board.revision, updatedAt: r.board.updatedAt };
-      setStatus((s) => (s === 'conflict' ? s : 'saved'));
+      // the retry stored this editor's state: it is saved (the conflict note was transient)
+      setStatus('saved');
     } else setStatus('error');
     if (dirty.current) void flush();
   }, [token]);
@@ -233,102 +236,105 @@ export function BoardView({
   if (!board || !ctx) return <p className="board-loading">Loading board…</p>;
   return (
     <BoardContext.Provider value={ctx}>
-      <section
-        className={`board-view${presenting ? ' board-presenting' : ''}`}
-        aria-label={`Design board: ${board.name}`}
-      >
-        <header className="board-header">
-          <button type="button" className="icon-btn" onClick={onBack}>
-            ← Boards
-          </button>
-          {board.parentBoardId && (
-            <button
-              type="button"
-              className="icon-btn"
-              onClick={() => onOpen(board.parentBoardId!)}
-              title="Back to the board this one details"
+      <BoardAgentProvider>
+        <section
+          className={`board-view${presenting ? ' board-presenting' : ''}`}
+          aria-label={`Design board: ${board.name}`}
+        >
+          <header className="board-header">
+            <button type="button" className="icon-btn" onClick={onBack}>
+              ← Boards
+            </button>
+            {board.parentBoardId && (
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => onOpen(board.parentBoardId!)}
+                title="Back to the board this one details"
+              >
+                ↑ Parent board
+              </button>
+            )}
+            <h2 className="board-title">{board.name}</h2>
+            <span className={`board-status board-status-${status}`} aria-live="polite">
+              {status === 'saved'
+                ? 'Saved'
+                : status === 'saving'
+                  ? 'Saving…'
+                  : status === 'conflict'
+                    ? 'Saved elsewhere — reloaded revision'
+                    : 'Save failed'}
+            </span>
+            <span className="board-meta">
+              {Object.keys(board.document.components).length} component(s)
+            </span>
+            <div className="board-tools">
+              <BoardAgentMenu />
+              <ImportAsBuilt />
+              <ExportMenu />
+              <button type="button" onClick={() => setPresenting(true)} disabled={!api}>
+                Present
+              </button>
+            </div>
+          </header>
+          <div className="board-body">
+            {!presenting && <Palette />}
+            <div
+              className="board-canvas"
+              onDragOver={(e) => {
+                if (e.dataTransfer.types.includes(PALETTE_MIME)) {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'copy';
+                }
+              }}
+              onDropCapture={onDrop}
             >
-              ↑ Parent board
-            </button>
+              <Suspense fallback={<p className="board-loading">Loading canvas…</p>}>
+                <Excalidraw
+                  excalidrawAPI={(a) => {
+                    apiRef.current = a;
+                    setApi(a);
+                    // open on the whole drawing, not at 100% around its first corner (after mount)
+                    setTimeout(
+                      () =>
+                        a.scrollToContent(undefined, {
+                          fitToViewport: true,
+                          viewportZoomFactor: 0.85,
+                          animate: false,
+                        }),
+                      120,
+                    );
+                  }}
+                  initialData={{
+                    elements: board.document.scene.elements as never,
+                    appState: {
+                      ...board.document.scene.appState,
+                      viewBackgroundColor: '#fffdf7',
+                    } as never,
+                    files: board.document.scene.files as never,
+                  }}
+                  onChange={onChange as never}
+                  // host-controlled only while presenting (1b); otherwise Excalidraw keeps its toggles
+                  viewModeEnabled={presenting ? !laser : undefined}
+                  zenModeEnabled={presenting ? laser : undefined}
+                  UIOptions={{ canvasActions: { loadScene: false, saveToActiveFile: false } }}
+                />
+              </Suspense>
+            </div>
+          </div>
+          {presenting && (
+            <PresentMode
+              laser={laser}
+              onLaser={setLaser}
+              onExit={() => {
+                setLaser(false);
+                setPresenting(false);
+              }}
+            />
           )}
-          <h2 className="board-title">{board.name}</h2>
-          <span className={`board-status board-status-${status}`} aria-live="polite">
-            {status === 'saved'
-              ? 'Saved'
-              : status === 'saving'
-                ? 'Saving…'
-                : status === 'conflict'
-                  ? 'Saved elsewhere — reloaded revision'
-                  : 'Save failed'}
-          </span>
-          <span className="board-meta">
-            {Object.keys(board.document.components).length} component(s)
-          </span>
-          <div className="board-tools">
-            <ImportAsBuilt />
-            <ExportMenu />
-            <button type="button" onClick={() => setPresenting(true)} disabled={!api}>
-              Present
-            </button>
-          </div>
-        </header>
-        <div className="board-body">
-          {!presenting && <Palette />}
-          <div
-            className="board-canvas"
-            onDragOver={(e) => {
-              if (e.dataTransfer.types.includes(PALETTE_MIME)) {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'copy';
-              }
-            }}
-            onDropCapture={onDrop}
-          >
-            <Suspense fallback={<p className="board-loading">Loading canvas…</p>}>
-              <Excalidraw
-                excalidrawAPI={(a) => {
-                  apiRef.current = a;
-                  setApi(a);
-                  // open on the whole drawing, not at 100% around its first corner (after mount)
-                  setTimeout(
-                    () =>
-                      a.scrollToContent(undefined, {
-                        fitToViewport: true,
-                        viewportZoomFactor: 0.85,
-                        animate: false,
-                      }),
-                    120,
-                  );
-                }}
-                initialData={{
-                  elements: board.document.scene.elements as never,
-                  appState: {
-                    ...board.document.scene.appState,
-                    viewBackgroundColor: '#fffdf7',
-                  } as never,
-                  files: board.document.scene.files as never,
-                }}
-                onChange={onChange as never}
-                // host-controlled only while presenting (1b); otherwise Excalidraw keeps its toggles
-                viewModeEnabled={presenting ? !laser : undefined}
-                zenModeEnabled={presenting ? laser : undefined}
-                UIOptions={{ canvasActions: { loadScene: false, saveToActiveFile: false } }}
-              />
-            </Suspense>
-          </div>
-        </div>
-        {presenting && (
-          <PresentMode
-            laser={laser}
-            onLaser={setLaser}
-            onExit={() => {
-              setLaser(false);
-              setPresenting(false);
-            }}
-          />
-        )}
-      </section>
-      {slot && createPortal(<BoardInspector />, slot)}
+        </section>
+        {slot && createPortal(<BoardInspector />, slot)}
+      </BoardAgentProvider>
     </BoardContext.Provider>
   );
 }

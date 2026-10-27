@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import type { DesignJobRequest } from '@atlas/schema';
+import { isBoardJobKind, type DesignJobRequest } from '@atlas/schema';
 import type {
   DesignRuntime,
   DesignRuntimeAvailability,
@@ -257,7 +257,11 @@ export function createClaudeCodeRuntime(opts: ClaudeCodeRuntimeOptions = {}): De
             output:
               request.kind === 'generate'
                 ? undefined
-                : { text: text.slice(0, 4_000), data: parseAnswer(text) },
+                : {
+                    // board plans and explanations are longer answers than copilot JSON
+                    text: text.slice(0, isBoardJobKind(request.kind) ? 20_000 : 4_000),
+                    data: parseAnswer(text),
+                  },
           };
         } finally {
           clearTimeout(timer);

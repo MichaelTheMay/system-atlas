@@ -35,6 +35,7 @@ import { DesignJobs, type DesignAgentOptions } from './design-jobs.ts';
 import { registerDesignJobRoutes } from './routes/design-jobs.ts';
 import { registerDesignElementRoutes } from './routes/design-elements.ts';
 import { registerBoardRoutes } from './routes/boards.ts';
+import { registerBoardAgentRoutes } from './routes/board-agent.ts';
 import { registerBoardExportRoutes } from './routes/board-exports.ts';
 import { ObjectStore } from '@atlas/evidence';
 import type { Db } from '@atlas/store';
@@ -732,6 +733,7 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     options: opts.designAgent,
   });
   registerDesignJobRoutes(app, designJobs);
+  registerBoardAgentRoutes(app, { db: opts.db, bus, designJobs });
 
   return { app, bus, jobs, watches, enricher, designJobs, startedAt };
 }

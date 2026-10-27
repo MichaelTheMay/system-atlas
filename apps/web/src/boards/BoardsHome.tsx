@@ -7,6 +7,8 @@ import {
   type BoardTemplateDto,
   type DesignBoardSummary,
 } from './api.ts';
+import { PromptDialog } from './PromptDialog.tsx';
+import { useBoardJobs } from './useBoardJobs.ts';
 import { createBoardFromCode, fromCodeStatus } from './fromCode.ts';
 
 /** Board list and "New board" of a project (D03). Wave 1b/1c add prompt and code starts. */
@@ -25,6 +27,16 @@ export function BoardsHome({
   const [start, setStart] = useState('blank');
   const [confirmDelete, setConfirmDelete] = useState<string>();
   const [error, setError] = useState<string>();
+  const [prompting, setPrompting] = useState(false);
+  // "Start from a prompt" (D03c): an agent drafts a new board; open it when the job is done
+  const jobs = useBoardJobs(
+    token,
+    projectId,
+    (job) => {
+      if (job.state === 'succeeded' && job.boardId) onOpen(job.boardId);
+    },
+    prompting,
+  );
   const [fromCode, setFromCode] = useState(false);
   const reload = () =>
     listBoards(token, projectId)
@@ -89,6 +101,9 @@ export function BoardsHome({
         <button type="submit" className="primary">
           Create board
         </button>
+        <button type="button" onClick={() => setPrompting(true)}>
+          Start from a prompt…
+        </button>
         <p className="boards-template-desc" aria-live="polite">
           {templates.find((t) => t.id === start)?.description ??
             'An empty whiteboard: add components from the palette, draw arrows between them.'}
@@ -99,6 +114,7 @@ export function BoardsHome({
         </p>
       </form>
       {error && <p className="board-error">{error}</p>}
+      {prompting && <PromptDialog jobs={jobs} onClose={() => setPrompting(false)} />}
       <ul className="boards-list" aria-label="Boards">
         {boards.map((b) => (
           <li key={b.id} className="board-card">

@@ -7,6 +7,7 @@ import { resolveAtlasPaths } from '@atlas/schema/node';
 import { isProcessAlive, readDiscovery } from '@atlas/daemon/discovery';
 import { ensureDaemon, findDaemon } from './client.ts';
 import { runDoctor } from './doctor.ts';
+import { registerBoardCommands } from './board.ts';
 import { registerDesignCommands } from './design.ts';
 
 interface CatalogResponse {
@@ -329,6 +330,10 @@ program
     const server = createAtlasMcpServer({
       daemon: { baseUrl: daemon.baseUrl, token: daemon.rec.token },
       rootPath: root,
+      // set by the daemon when a design job runs Claude Code: attributes board proposals to it
+      ...(/^djb_[0-9a-f]{16,64}$/.test(process.env.ATLAS_DESIGN_JOB_ID ?? '')
+        ? { jobId: process.env.ATLAS_DESIGN_JOB_ID }
+        : {}),
     });
     await server.connect(new StdioServerTransport());
     process.stderr.write(`atlas mcp: serving ${root} via daemon pid ${daemon.rec.pid}\n`);
@@ -666,5 +671,6 @@ program
   );
 
 registerDesignCommands(program, paths);
+registerBoardCommands(program, paths);
 
 await program.parseAsync();

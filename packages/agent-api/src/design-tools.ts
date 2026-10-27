@@ -5,7 +5,7 @@ import { createAtlasMcpServer, type AtlasMcpOptions } from './mcp.ts';
 
 /**
  * The design agent's tool surface (D02c): the read tools plus the two proposal tools of the Atlas
- * MCP server. No refresh (a scan would make every later proposal a stale precondition), no notes,
+ * MCP server, and the design-board tools (D03c: read a board, propose to it, draft a new one). No refresh (a scan would make every later proposal a stale precondition), no notes,
  * no run recording (the job runner records the run itself), no filesystem, shell or web.
  */
 export const DESIGN_AGENT_TOOLS = [
@@ -17,6 +17,11 @@ export const DESIGN_AGENT_TOOLS = [
   'atlas_get_evidence',
   'atlas_propose_view',
   'atlas_propose_claims',
+  // design boards (D03c)
+  'atlas_list_boards',
+  'atlas_get_board',
+  'atlas_propose_board',
+  'atlas_create_board',
 ] as const;
 
 /** Claude Code names MCP tools `mcp__<server>__<tool>`; the server is registered as `atlas`. */
@@ -103,6 +108,8 @@ export function proposalCounts(
   const d = data as Record<string, unknown> | undefined;
   if (!d || typeof d !== 'object') return { accepted: 0, rejected: 0 };
   const len = (x: unknown) => (Array.isArray(x) ? x.length : 0);
+  if (tool === 'atlas_propose_board' || tool === 'atlas_create_board')
+    return { accepted: len(d.accepted), rejected: len(d.rejected) };
   if (tool === 'atlas_propose_claims')
     return { accepted: len(d.accepted), rejected: len(d.rejected) };
   if (tool === 'atlas_propose_view' && Array.isArray(d.subsystems)) {

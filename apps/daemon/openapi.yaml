@@ -182,18 +182,20 @@ paths:
     post:
       summary: >-
         Start a design-agent job (DesignJobRequest; manual only). Recorded as a run with adapter
-        design-agent; progress streams as design.job events; proposals land as proposed.
+        design-agent; progress streams as design.job events; proposals land as proposed. Board kinds
+        (draft-board, critique-board, fill-doc, explain-scenario, variant-board, implementation-plan; D03c)
+        take boardId / prompt / scenarioId instead of a snapshotId.
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
       responses:
         '202': { description: The job (queued) }
         '400': { description: Invalid request }
         '403': { description: 'consent_required: the runtime sends data off the machine' }
-        '404': { description: Unknown project or snapshot of another project }
+        '404': { description: Unknown project, board or scenario, or snapshot of another project }
         '409': { description: 'job_running: one job per project at a time' }
         '429': { description: 'budget_exceeded: the anthropic-api daily token budget' }
   /api/v1/projects/{id}/design/jobs/{jobId}:
     get:
-      summary: One job (state, run, proposed claims, usage, copilot output)
+      summary: One job (state, run, proposed claims, usage, copilot output; board jobs add boardId, proposedBoardItems and result)
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
         - { name: jobId, in: path, required: true, schema: { type: string } }
@@ -506,6 +508,47 @@ paths:
       parameters: [{ name: boardId, in: path, required: true, schema: { type: string } }]
       responses:
         '200': { description: '{ deleted: string[] }' }
+        '404': { description: Unknown board }
+  /api/v1/boards/{boardId}/spec:
+    get:
+      summary: A board as a layout-free BoardSpec for agents (D03c; no scene, rejected items left out)
+      parameters: [{ name: boardId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: '{ boardId, name, source, revision, spec: BoardSpec, plan? }' }
+        '404': { description: Unknown board }
+  /api/v1/boards/{boardId}/proposals:
+    post:
+      summary: Merge an agent's partial BoardSpec as proposed items (D03c); publishes design.board.changed
+      description: >-
+        Body { spec, origin: { name?, jobId? } }. Items get new agent-… ids and status proposed;
+        existing items are never changed; references to unknown ids are rejected with reasons. The
+        jobId is kept only when it is the project's running design job.
+      parameters: [{ name: boardId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200':
+          {
+            description: '{ boardId, revision, accepted: [{ kind, id, specId }], rejected: [{ kind, specId, reasons }] }',
+          }
+        '400': { description: Invalid spec or the board would grow past its limits }
+        '404': { description: Unknown board }
+  /api/v1/projects/{id}/boards/proposed:
+    post:
+      summary: A new board drafted by an agent (source prompt; every item proposed; D03c)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '201': { description: '{ board: DesignBoardSummary, accepted, rejected }' }
+        '400': { description: Missing name or invalid spec }
+        '404': { description: Unknown project }
+  /api/v1/boards/{boardId}/review:
+    post:
+      summary: Accept or reject proposed board items (D03c); audited as board-review; publishes design.board.changed
+      description: >-
+        Body { accept?: ids, reject?: ids }. Only proposed items change (accept → active with origin
+        kept, reject → rejected); the scene is restyled to match. Other ids come back in ignored.
+      parameters: [{ name: boardId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: '{ accepted, rejected, ignored: [{ id, reason }], board }' }
+        '400': { description: Nothing to review, or an id both accepted and rejected }
         '404': { description: Unknown board }
   /api/v1/projects/{id}/design/elements:
     get:

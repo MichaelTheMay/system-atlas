@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import {
+  BOARD_PROMPT_TEMPLATE_VERSION,
   buildDesignPrompt,
   connectAtlasTools,
   createAnthropicDesignRuntime,
@@ -15,13 +16,21 @@ import {
   type DesignToolset,
 } from '@atlas/agent-api';
 import { appendEvents, correlateRun, createRun, finishRun } from '@atlas/evidence';
-import { getSnapshot, getWorktree, rejectClaim } from '@atlas/graph';
+import {
+  boardItemsOfJob,
+  getBoard,
+  getSnapshot,
+  getWorktree,
+  rejectClaim,
+  setBoardPlan,
+} from '@atlas/graph';
 import type { Catalog } from '@atlas/planner';
 import type { DesignJobState } from '@atlas/schema';
 import {
   DesignJobEvent,
   DesignJobRequest,
   DesignRuntimeId,
+  isBoardJobKind,
   newId,
   type DesignRuntimeId as RuntimeId,
 } from '@atlas/schema';
@@ -45,7 +54,10 @@ export interface DesignAgentOptions {
   /** Try the OS keychain (`secret-tool`) for the API key (default true). */
   secretTool?: boolean;
   /** How Claude Code starts `atlas mcp <root>` (default: this checkout's CLI under this node). */
-  atlasMcp?: (rootPath: string) => {
+  atlasMcp?: (
+    rootPath: string,
+    jobId?: string,
+  ) => {
     command: string;
     args: string[];
     env?: Record<string, string>;
@@ -67,6 +79,11 @@ export interface DesignJob {
   proposedClaims?: number;
   output?: DesignRuntimeResult['output'];
   usage?: DesignRuntimeResult['usage'];
+  /** Board kinds (D03c): the board worked on or drafted, and how many items the job proposed there. */
+  boardId?: string;
+  proposedBoardItems?: number;
+  /** Board kinds: the agent's text answer (scenario explanation, implementation plan Markdown). */
+  result?: string;
 }
 
 const SETTINGS_KEY = 'design-agent';
@@ -109,10 +126,11 @@ function defaultAtlasMcp(env: NodeJS.ProcessEnv) {
         ),
     ),
   ) as Record<string, string>;
-  return (rootPath: string) => ({
+  // the job id is not a secret: it only attributes board proposals to the running job
+  return (rootPath: string, jobId?: string) => ({
     command: process.execPath,
     args: [cli, 'mcp', rootPath],
-    env: pass,
+    env: { ...pass, ...(jobId ? { ATLAS_DESIGN_JOB_ID: jobId } : {}) },
   });
 }
 
@@ -374,7 +392,7 @@ export class DesignJobs {
 
   private fromRow(r: Record<string, string | null>): DesignJob {
     const mem = this.memory.get(String(r.id));
-    return {
+    const job: DesignJob = {
       id: String(r.id),
       projectId: String(r.project_id),
       kind: r.kind as DesignJob['kind'],
@@ -389,6 +407,25 @@ export class DesignJobs {
       proposedClaims: mem?.proposedClaims,
       output: mem?.output ?? this.outputFromRun(r.run_id ?? null),
       usage: mem?.usage,
+    };
+    return isBoardJobKind(job.kind) ? this.withBoard(job) : job;
+  }
+
+  /** Board, proposal count and text answer of a board job (derived, so they survive a restart). */
+  private withBoard(job: DesignJob): DesignJob {
+    const touched = boardItemsOfJob(this.db, job.projectId, job.id);
+    const drafted =
+      job.kind === 'draft-board' || job.kind === 'variant-board'
+        ? touched.find((t) => t.boardId !== job.request.boardId)
+        : undefined;
+    const text = job.output?.text;
+    return {
+      ...job,
+      boardId: drafted?.boardId ?? job.request.boardId ?? touched[0]?.boardId,
+      proposedBoardItems: touched.reduce((n, t) => n + t.total, 0),
+      ...(text && (job.kind === 'explain-scenario' || job.kind === 'implementation-plan')
+        ? { result: text }
+        : {}),
     };
   }
 
@@ -433,6 +470,11 @@ export class DesignJobs {
     return { ok: true, job: a.job };
   }
 
+  /** The project's running job, if any (board proposals keep only this job id). */
+  activeJobId(projectId: string): string | undefined {
+    return this.active.get(projectId)?.job.id;
+  }
+
   /** Resolves when the project's running job (if any) has finished (tests, CLI). */
   async idle(projectId: string): Promise<void> {
     while (this.active.has(projectId)) await new Promise((r) => setTimeout(r, 20));
@@ -445,6 +487,9 @@ export class DesignJobs {
     const request = parsed.data;
     if (!this.db.prepare('SELECT 1 AS ok FROM projects WHERE id = ?').get(projectId))
       return { ok: false, status: 404, error: 'unknown_project' };
+    if (isBoardJobKind(request.kind)) return this.startBoard(projectId, request);
+    if (!request.snapshotId)
+      return { ok: false, status: 400, error: 'invalid_body', detail: 'snapshotId is required' };
     const snap = getSnapshot(this.db, request.snapshotId);
     if (!snap || snap.projectId !== projectId)
       return { ok: false, status: 404, error: 'unknown_snapshot' };
@@ -467,43 +512,133 @@ export class DesignJobs {
         detail: { jobId: this.active.get(projectId)!.job.id },
       };
 
-    const model =
-      request.runtime === 'mock'
-        ? 'mock-design'
-        : (request.model ??
-          this.settings().model ??
-          (request.runtime === 'anthropic-api' ? DEFAULT_ANTHROPIC_DESIGN_MODEL : undefined));
+    const model = this.modelFor(request);
     const units =
       this.catalog(snap.id).canvases.find((c) => c.lens === 'design-system')?.coverageSummary
         .entityCount ?? 0;
     const est = this.estimateTokens(units, request.depth);
+    const over = this.overBudget(projectId, request, model, est);
+    if (over) return over;
+    return this.launch(projectId, request, model, est, {
+      worktreeId: wt.id,
+      rootPath: wt.rootPath,
+      snapshotId: snap.id,
+      sourceManifestDigest: snap.dirtyTreeDigest,
+    });
+  }
+
+  /** Model the job asks the runtime for (recorded on the run). */
+  private modelFor(request: DesignJobRequest): string | undefined {
+    return request.runtime === 'mock'
+      ? 'mock-design'
+      : (request.model ??
+          this.settings().model ??
+          (request.runtime === 'anthropic-api' ? DEFAULT_ANTHROPIC_DESIGN_MODEL : undefined));
+  }
+
+  /**
+   * Design-board jobs (D03c): no snapshot (boards are design-first view data). Same consent gate,
+   * budget, one-job-per-project rule and `design-agent` run as D02 jobs; the run is bound to the
+   * project's worktree only.
+   */
+  private startBoard(projectId: string, request: DesignJobRequest): StartResult {
+    if (!this.consented(request.runtime))
+      return {
+        ok: false,
+        status: 403,
+        error: 'consent_required',
+        detail: { runtime: request.runtime, sends: SENDS[request.runtime] },
+      };
+    const board = request.boardId ? getBoard(this.db, request.boardId) : undefined;
+    if (request.boardId && (!board || board.projectId !== projectId))
+      return { ok: false, status: 404, error: 'unknown_board' };
+    if (!board && request.kind !== 'draft-board')
+      return { ok: false, status: 400, error: 'invalid_body', detail: 'boardId is required' };
+    if (request.kind === 'draft-board' && !request.prompt && !board)
+      return { ok: false, status: 400, error: 'invalid_body', detail: 'prompt is required' };
+    if (request.kind === 'explain-scenario') {
+      const scenarios = board!.document.scenarios.filter((s) => s.status !== 'rejected');
+      if (!scenarios.length)
+        return {
+          ok: false,
+          status: 400,
+          error: 'invalid_body',
+          detail: 'the board has no scenario',
+        };
+      if (request.scenarioId && !scenarios.some((s) => s.id === request.scenarioId))
+        return { ok: false, status: 404, error: 'unknown_scenario' };
+    }
+    if (this.active.has(projectId))
+      return {
+        ok: false,
+        status: 409,
+        error: 'job_running',
+        detail: { jobId: this.active.get(projectId)!.job.id },
+      };
+    const wt = this.db
+      .prepare('SELECT id FROM worktrees WHERE project_id = ? ORDER BY created_at, id LIMIT 1')
+      .get<{ id: string }>(projectId);
+    const worktree = wt ? getWorktree(this.db, wt.id) : undefined;
+    if (!worktree) return { ok: false, status: 404, error: 'unknown_worktree' };
+    const model = this.modelFor(request);
+    const size = board ? Object.keys(board.document.components).length : 0;
+    const est = { input: 12_000 + size * 400, output: 6_000 };
+    const over = this.overBudget(projectId, request, model, est);
+    if (over) return over;
+    return this.launch(projectId, request, model, est, {
+      worktreeId: worktree.id,
+      rootPath: worktree.rootPath,
+    });
+  }
+
+  /** The API-key runtime is held to the daily token budget (refusals are ledgered). */
+  private overBudget(
+    projectId: string,
+    request: DesignJobRequest,
+    model: string | undefined,
+    est: { input: number; output: number },
+  ): StartResult | undefined {
     const budget = this.enricher.settings();
     const counted = this.enricher.usage(projectId).tokensCounted;
     if (
-      request.runtime === 'anthropic-api' &&
-      counted + est.input + est.output > budget.maxTokensPerDay
-    ) {
-      this.ledger(
-        projectId,
-        'design-job',
-        model ?? '',
-        'skipped-budget',
-        { input: 0, output: 0 },
-        undefined,
-        `daily budget of ${budget.maxTokensPerDay} tokens reached`,
-      );
-      return {
-        ok: false,
-        status: 429,
-        error: 'budget_exceeded',
-        detail: {
-          maxTokensPerDay: budget.maxTokensPerDay,
-          tokensCounted: counted,
-          estimated: est.input + est.output,
-        },
-      };
-    }
+      request.runtime !== 'anthropic-api' ||
+      counted + est.input + est.output <= budget.maxTokensPerDay
+    )
+      return undefined;
+    this.ledger(
+      projectId,
+      'design-job',
+      model ?? '',
+      'skipped-budget',
+      { input: 0, output: 0 },
+      undefined,
+      `daily budget of ${budget.maxTokensPerDay} tokens reached`,
+    );
+    return {
+      ok: false,
+      status: 429,
+      error: 'budget_exceeded',
+      detail: {
+        maxTokensPerDay: budget.maxTokensPerDay,
+        tokensCounted: counted,
+        estimated: est.input + est.output,
+      },
+    };
+  }
 
+  private launch(
+    projectId: string,
+    request: DesignJobRequest,
+    model: string | undefined,
+    est: { input: number; output: number },
+    at: {
+      worktreeId: string;
+      rootPath: string;
+      snapshotId?: string;
+      sourceManifestDigest?: string;
+    },
+  ): StartResult {
+    const board = isBoardJobKind(request.kind);
     const job: DesignJob = {
       id: newId('designJob'),
       projectId,
@@ -516,19 +651,28 @@ export class DesignJobs {
     };
     const { run } = createRun(this.db, {
       projectId,
-      worktreeId: wt.id,
-      snapshotId: snap.id,
-      sourceManifestDigest: snap.dirtyTreeDigest,
+      worktreeId: at.worktreeId,
+      ...(at.snapshotId ? { snapshotId: at.snapshotId } : {}),
+      ...(at.sourceManifestDigest ? { sourceManifestDigest: at.sourceManifestDigest } : {}),
       adapter: 'design-agent',
       commandSummary: `design ${request.kind} (${request.runtime}${model ? `, ${model}` : ''})`,
       environmentSummary: {
         jobId: job.id,
         runtime: request.runtime,
         model: model ?? 'unknown',
-        promptTemplateVersion: DESIGN_PROMPT_TEMPLATE_VERSION,
-        depth: request.depth,
-        maxSubsystemsPerLevel: request.maxSubsystemsPerLevel,
-        replaceProposals: request.replaceProposals,
+        promptTemplateVersion: board
+          ? BOARD_PROMPT_TEMPLATE_VERSION
+          : DESIGN_PROMPT_TEMPLATE_VERSION,
+        ...(board
+          ? {
+              ...(request.boardId ? { boardId: request.boardId } : {}),
+              ...(request.scenarioId ? { scenarioId: request.scenarioId } : {}),
+            }
+          : {
+              depth: request.depth,
+              maxSubsystemsPerLevel: request.maxSubsystemsPerLevel,
+              replaceProposals: request.replaceProposals,
+            }),
       },
       instrumentationCapabilities: ['agent-events'],
     });
@@ -536,13 +680,13 @@ export class DesignJobs {
     this.row(job);
     this.bus.publish({
       type: 'run.started',
-      data: { runId: run.id, projectId, worktreeId: wt.id },
+      data: { runId: run.id, projectId, worktreeId: at.worktreeId },
     });
     const ctrl = new AbortController();
     this.active.set(projectId, { job, ctrl });
     this.memory.set(job.id, job);
     if (this.memory.size > 50) this.memory.delete(this.memory.keys().next().value!);
-    void this.execute(job, wt.rootPath, est, ctrl).finally(() => this.active.delete(projectId));
+    void this.execute(job, at.rootPath, est, ctrl).finally(() => this.active.delete(projectId));
     return { ok: true, job };
   }
 
@@ -566,7 +710,7 @@ export class DesignJobs {
     if (!ev.success) return;
     this.bus.publish({ type: 'design.job', data: { ...ev.data, projectId: job.projectId } });
     if (ev.data.type === 'tool-call') {
-      if (/^atlas_propose_/.test(ev.data.tool))
+      if (/^atlas_propose_(claims|view)$/.test(ev.data.tool))
         job.proposedClaims = (job.proposedClaims ?? 0) + ev.data.accepted;
       this.record(job, 'tool.call.completed', {
         tool: ev.data.tool,
@@ -615,7 +759,7 @@ export class DesignJobs {
       .prepare(
         "SELECT id FROM claims WHERE snapshot_id = ? AND origin = 'model' AND status = 'inferred' AND predicate IN ('subsystem', 'responsibility')",
       )
-      .all<{ id: string }>(job.request.snapshotId);
+      .all<{ id: string }>(job.request.snapshotId ?? '');
     let n = 0;
     for (const r of rows)
       if (rejectClaim(this.db, r.id, `replaced by design job ${job.id}`).ok) n++;
@@ -626,6 +770,27 @@ export class DesignJobs {
       });
       this.record(job, 'step.completed', { message: `rejected ${n} earlier proposed claim(s)` });
     }
+  }
+
+  /**
+   * After a board job: find the board(s) it proposed to (items carry the job id), store an
+   * implementation plan on the board's design doc, and tell open tabs to reload.
+   */
+  private finishBoardJob(job: DesignJob) {
+    const text = job.output?.text?.trim();
+    if (job.kind === 'implementation-plan' && text && job.request.boardId) {
+      const r = setBoardPlan(this.db, job.request.boardId, text);
+      if (r.ok)
+        this.bus.publish({
+          type: 'design.board.changed',
+          data: { projectId: job.projectId, boardId: r.board.id, action: 'plan' },
+        });
+    }
+    Object.assign(job, this.withBoard(job));
+    this.record(job, 'step.completed', {
+      message: `${job.proposedBoardItems ?? 0} board item(s) proposed`,
+      ...(job.boardId ? { boardId: job.boardId } : {}),
+    });
   }
 
   private async execute(
@@ -641,6 +806,9 @@ export class DesignJobs {
     };
     let tools: DesignToolset | undefined;
     let result: DesignRuntimeResult | undefined;
+    const promptTemplateVersion = isBoardJobKind(job.kind)
+      ? BOARD_PROMPT_TEMPLATE_VERSION
+      : DESIGN_PROMPT_TEMPLATE_VERSION;
     try {
       setState('running');
       this.record(job, 'step.started', { kind: job.kind, runtime: job.runtime });
@@ -650,6 +818,7 @@ export class DesignJobs {
           daemon: this.daemon(),
           rootPath,
           clientName: `atlas-design-${job.runtime}`,
+          jobId: job.id,
         }),
         job.id,
         (e) => this.emit(job, e),
@@ -668,9 +837,9 @@ export class DesignJobs {
         projectId: job.projectId,
         rootPath,
         tools,
-        atlasMcp: this.atlasMcp(rootPath),
+        atlasMcp: this.atlasMcp(rootPath, job.id),
         prompt: buildDesignPrompt({ request: job.request, snapshotId: job.request.snapshotId }),
-        promptTemplateVersion: DESIGN_PROMPT_TEMPLATE_VERSION,
+        promptTemplateVersion,
         budget: { maxInputTokens: Math.max(0, remaining - maxOutputTokens), maxOutputTokens },
         emit: (e) => this.emit(job, e),
         signal: ctrl.signal,
@@ -679,10 +848,11 @@ export class DesignJobs {
       job.model = result.model ?? job.model;
       job.usage = result.usage;
       job.output = result.output;
+      if (isBoardJobKind(job.kind)) this.finishBoardJob(job);
       this.record(job, 'model.enrichment', {
         runtime: job.runtime,
         model: job.model ?? 'unknown',
-        promptTemplateVersion: DESIGN_PROMPT_TEMPLATE_VERSION,
+        promptTemplateVersion,
         usage: result.usage,
         proposedClaims: job.proposedClaims ?? 0,
         ...(result.output ? { output: result.output as Record<string, unknown> } : {}),
@@ -734,6 +904,10 @@ export class DesignJobs {
         runId: job.runId,
         proposedElements: 0,
         proposedClaims: job.proposedClaims ?? 0,
+        ...(job.boardId ? { boardId: job.boardId } : {}),
+        ...(job.proposedBoardItems !== undefined
+          ? { proposedBoardItems: job.proposedBoardItems }
+          : {}),
         ...(job.error ? { error: job.error } : {}),
       });
     }

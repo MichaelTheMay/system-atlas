@@ -17,6 +17,11 @@ export interface AtlasMcpOptions {
   daemon: { baseUrl: string; token: string };
   rootPath: string;
   version?: string;
+  /**
+   * Design job these tools run for (D03c): board proposals are stamped with it so the job can
+   * find what it proposed. The daemon keeps it only while that job is the project's running job.
+   */
+  jobId?: string;
 }
 
 export const MCP_INSTRUCTIONS = [
@@ -610,6 +615,107 @@ export function createAtlasMcpServer(opts: AtlasMcpOptions): McpServer {
         }
       }
       return { snapshotId, subsystems: out };
+    },
+    false,
+  );
+
+  // ---------------------------------------------------------------- design boards (D03c)
+
+  const loose = z.record(z.string(), z.unknown());
+  const boardSpecInput = z
+    .object({
+      title: z.string().max(120).optional(),
+      summary: z.string().max(4000).optional(),
+      components: z.array(loose).max(300).default([]),
+      connections: z.array(loose).max(600).default([]),
+      scenarios: z.array(loose).max(50).default([]),
+      doc: z
+        .object({
+          summary: z.string().max(4000).optional(),
+          items: z.array(loose).max(200).default([]),
+        })
+        .optional(),
+      frames: z.array(loose).max(50).default([]),
+    })
+    .describe(
+      'BoardSpec: components {id,type,label,props?,responsibility?}, connections {id,from,to,protocol?,mode?,direction?,payload?,volume?}, scenarios {id,name,steps[{connectionId?|componentId?,text}]}, doc.items {id,section,text,pins[]}, frames {id,label,componentIds[]}',
+    );
+  const boardId = z.string().regex(/^brd_[0-9a-f]{16,64}$/);
+  const origin = (model: string | undefined) => ({
+    author: 'agent' as const,
+    name: modelMetadata(model).model.slice(0, 100),
+    ...(opts.jobId ? { jobId: opts.jobId } : {}),
+  });
+
+  tool(
+    'atlas_list_boards',
+    'Design boards of this project (design-first whiteboards: how the system should work). Boards are view data, never facts about the code.',
+    z.object({}),
+    async () => {
+      const { projectId } = await project();
+      const r = await api<{ boards: any[] }>(`/projects/${projectId}/boards`);
+      return {
+        boards: r.boards.map((b) => ({
+          boardId: b.id,
+          name: b.name,
+          source: b.source,
+          componentCount: b.componentCount,
+          parentBoardId: b.parentBoardId,
+          updatedAt: b.updatedAt,
+        })),
+      };
+    },
+  );
+
+  tool(
+    'atlas_get_board',
+    'One design board as a layout-free BoardSpec: components (type, label, props, status, origin), connections, scenarios with steps, design doc items and frames. No drawing data. Rejected items are left out; "proposed" items await review.',
+    z.object({ boardId }),
+    async ({ boardId: id }) => api<Record<string, any>>(`/boards/${id}/spec`),
+  );
+
+  tool(
+    'atlas_propose_board',
+    [
+      'Propose additions to a design board as a (partial) BoardSpec: components, connections, scenarios and doc items.',
+      'Everything is stored as "proposed" under new "agent-…" ids for a person to accept or reject; existing items are never changed.',
+      'Connections, steps and pins may reference ids from your spec or existing board ids; unknown references are rejected with reasons.',
+    ].join(' '),
+    z.object({
+      boardId,
+      spec: boardSpecInput,
+      model: z.string().min(1).max(100).optional().describe('your model name, if you know it'),
+    }),
+    async ({ boardId: id, spec, model }) => {
+      const r = await api<Record<string, any>>(`/boards/${id}/proposals`, {
+        method: 'POST',
+        body: JSON.stringify({ spec, origin: origin(model) }),
+      });
+      return { boardId: id, accepted: r.accepted, rejected: r.rejected };
+    },
+    false,
+  );
+
+  tool(
+    'atlas_create_board',
+    'Create a NEW design board drafted from a BoardSpec (for drafts and variants). Every item lands as "proposed" for review; the board source is "prompt".',
+    z.object({
+      name: z.string().trim().min(1).max(120),
+      spec: boardSpecInput,
+      model: z.string().min(1).max(100).optional().describe('your model name, if you know it'),
+    }),
+    async ({ name, spec, model }) => {
+      const { projectId } = await project();
+      const r = await api<Record<string, any>>(`/projects/${projectId}/boards/proposed`, {
+        method: 'POST',
+        body: JSON.stringify({ name, spec, origin: origin(model) }),
+      });
+      return {
+        boardId: r.board.id,
+        name: r.board.name,
+        accepted: r.accepted,
+        rejected: r.rejected,
+      };
     },
     false,
   );

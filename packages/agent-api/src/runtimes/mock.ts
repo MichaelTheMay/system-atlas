@@ -1,11 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- tool results are JSON read the way an agent would */
-import type { DesignJobRequest } from '@atlas/schema';
+import { isBoardJobKind, type DesignJobRequest } from '@atlas/schema';
 import type {
   DesignRuntime,
   DesignRuntimeContext,
   DesignRuntimeResult,
 } from '../design-runtime.ts';
 import type { DesignToolset } from '../design-tools.ts';
+import { runMockBoardJob } from './mock-board.ts';
 
 /**
  * Deterministic design runtime for CI and demos (D02c). It does what an agent would, through the
@@ -136,6 +137,7 @@ function decompose(path: string[], members: Unit[], req: DesignJobRequest, out: 
 }
 
 async function generate(req: DesignJobRequest, ctx: DesignRuntimeContext) {
+  if (!req.snapshotId) throw new Error('generate needs a snapshotId');
   const { tools, signal, emit, jobId } = ctx;
   const units = await readUnits(tools, signal);
   emit({
@@ -293,7 +295,9 @@ export function createMockDesignRuntime(): DesignRuntime {
       const output =
         request.kind === 'generate'
           ? (await generate(request, ctx), undefined)
-          : await copilot(request, ctx);
+          : isBoardJobKind(request.kind)
+            ? await runMockBoardJob(request, ctx)
+            : await copilot(request, ctx);
       return {
         usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         model: MOCK_DESIGN_MODEL,

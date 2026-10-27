@@ -477,6 +477,11 @@ export const DocItem = z.object({
 export type DocItem = z.infer<typeof DocItem>;
 export const DesignDoc = z.object({
   summary: z.string().max(4000).optional(),
+  /**
+   * Implementation plan (Markdown: tickets per component with acceptance criteria and an agent
+   * brief), written by the `implementation-plan` design job (D03c). Agent output, labeled as such.
+   */
+  plan: z.string().max(100_000).optional(),
   items: z.array(DocItem).max(500).default([]),
 });
 export type DesignDoc = z.infer<typeof DesignDoc>;
