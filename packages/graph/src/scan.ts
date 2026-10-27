@@ -1142,7 +1142,52 @@ export function loadPlannerGraph(db: Db, snapshotId: string): PlannerGraph {
     relations: prevRelations.map((r) => ({ ...r, confidence: confidence.get(r.id) ?? 'exact' })),
     gaps: cov ? (JSON.parse(cov.body) as CoverageReport).gaps : [],
     changes,
+    ...loadDesignInputs(db, snapshotId, snap.project_id),
   };
+}
+
+/**
+ * Design lens inputs (D01) of a snapshot: its human/model claims (every status; the planner decides
+ * what to show) and the project's view overrides. Kept separate because both change after publish,
+ * so the daemon refreshes them without reloading the graph.
+ */
+export function loadDesignInputs(
+  db: Db,
+  snapshotId: string,
+  projectId: string,
+): Required<Pick<PlannerGraph, 'claims' | 'overrides'>> {
+  const claims = db
+    .prepare(
+      'SELECT id, subject_id, predicate, origin, status, body FROM claims WHERE snapshot_id = ? ORDER BY id',
+    )
+    .all<{
+      id: string;
+      subject_id: string;
+      predicate: string;
+      origin: string;
+      status: string;
+      body: string;
+    }>(snapshotId)
+    .map((c) => {
+      const body = JSON.parse(c.body) as { value?: unknown; modelMetadata?: { model?: string } };
+      const model = body.modelMetadata?.model;
+      return {
+        id: c.id,
+        subjectId: c.subject_id,
+        predicate: c.predicate,
+        value: body.value ?? null,
+        origin: c.origin,
+        status: c.status,
+        ...(model ? { model } : {}),
+      };
+    });
+  const overrides = db
+    .prepare(
+      'SELECT target_id, action FROM view_overrides WHERE project_id = ? ORDER BY target_id, action',
+    )
+    .all<{ target_id: string; action: 'pin' | 'suppress' | 'promote' }>(projectId)
+    .map((o) => ({ targetId: o.target_id, action: o.action }));
+  return { claims, overrides };
 }
 
 /**

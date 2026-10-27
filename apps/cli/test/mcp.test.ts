@@ -95,6 +95,7 @@ describe('atlas mcp (stdio, as an external agent)', () => {
       'atlas_list_views',
       'atlas_project_status',
       'atlas_propose_claims',
+      'atlas_propose_view',
       'atlas_record_artifact',
       'atlas_record_event',
       'atlas_refresh',
@@ -124,6 +125,13 @@ describe('atlas mcp (stdio, as an external agent)', () => {
     expect(view.nodes.length).toBeGreaterThan(2);
     expect(view.edges[0]).toHaveProperty('kinds');
     expect((await call('atlas_list_views', { limit: 2 })).nextCursor).toBe('2');
+    expect(views.views[0]).toMatchObject({ workspace: 'architecture' });
+    expect(
+      (await call('atlas_list_views', { workspace: 'outputs' })).views.every(
+        (v: any) => v.workspace === 'outputs',
+      ),
+    ).toBe(true);
+    expect((await call('atlas_list_views', { workspace: 'nope' })).error).toBeTruthy();
 
     const { hits } = await call('atlas_search', { query: 'db', kind: 'module' });
     const db = hits.find((h: any) => h.path === 'packages/api/src/db.ts');
@@ -300,6 +308,87 @@ describe('atlas mcp (stdio, as an external agent)', () => {
         })
       ).error,
     ).toMatch(/unknown_snapshot/);
+
+    // subsystems: each member becomes a cited subsystem (+ responsibility) claim, labeled inferred
+    const serverId = (await call('atlas_search', { query: 'server', kind: 'module' })).hits.find(
+      (h: any) => h.path === 'packages/api/src/server.ts',
+    ).id;
+    const v = await call('atlas_propose_view', {
+      snapshotId: status.snapshot.id,
+      subsystems: [
+        {
+          name: 'Backend/Persistence',
+          responsibility: 'Stores reports.',
+          members: [
+            {
+              entityId: dbId,
+              citations: [{ path: 'packages/api/src/db.ts', startLine: 1, endLine: 2 }],
+            },
+            { entityId: serverId, citations: [{ evidenceId: 'evd_' + '0'.repeat(32) }] },
+          ],
+        },
+      ],
+    });
+    expect(v.subsystems).toEqual([
+      {
+        name: 'Backend/Persistence',
+        accepted: [dbId],
+        rejected: [
+          {
+            entityId: serverId,
+            predicate: 'subsystem',
+            reasons: [expect.stringMatching(/does not exist in this project/)],
+          },
+          {
+            entityId: serverId,
+            predicate: 'responsibility',
+            reasons: [expect.stringMatching(/does not exist in this project/)],
+          },
+        ],
+        proposalIds: [expect.stringMatching(/^prp_/)],
+      },
+    ]);
+    expect((await call('atlas_get_entity', { entityId: dbId })).claims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          predicate: 'subsystem',
+          value: 'Backend/Persistence',
+          origin: 'model',
+          status: 'inferred',
+        }),
+        expect.objectContaining({ predicate: 'responsibility', value: 'Stores reports.' }),
+      ]),
+    );
+    // more than 25 claims are split into several validated proposals
+    const big = await call('atlas_propose_view', {
+      snapshotId: status.snapshot.id,
+      subsystems: [
+        {
+          name: 'Edge',
+          responsibility: 'Serves HTTP.',
+          members: Array.from({ length: 13 }, () => ({
+            entityId: serverId,
+            citations: [{ path: 'packages/api/src/server.ts', startLine: 1, endLine: 1 }],
+          })),
+        },
+      ],
+    });
+    expect(big.subsystems[0].accepted).toHaveLength(13);
+    expect(big.subsystems[0].rejected).toEqual([]);
+    expect(big.subsystems[0].proposalIds).toHaveLength(2);
+    expect(
+      (
+        await call('atlas_propose_view', {
+          snapshotId: status.snapshot.id,
+          subsystems: [
+            {
+              name: 'a/b/c/d',
+              members: [{ entityId: dbId, citations: [{ evidenceId: 'evd_' + '0'.repeat(32) }] }],
+            },
+          ],
+        })
+      ).error,
+    ).toBeTruthy();
 
     const note = await call('atlas_annotate', { entityId: dbId, text: 'Inserts have no retry.' });
     expect(note.annotationId).toMatch(/^ann_/);

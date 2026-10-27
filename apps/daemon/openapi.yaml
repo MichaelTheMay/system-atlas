@@ -241,6 +241,11 @@ paths:
   /api/v1/snapshots/{id}/canvases:
     get:
       summary: View catalog of a snapshot (canvas specs and child/sibling links); see docs/views.md
+      description: >-
+        Persisted architecture canvases plus system-design canvases (workspace "design"), which are
+        planned on read from the snapshot's claims and the project's view overrides and never
+        persisted. They are replanned without a rescan after claims are proposed or reviewed, an
+        issue is resolved or an override is written.
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
       responses:
         '200': { description: OK }
@@ -317,6 +322,56 @@ paths:
         '200': { description: Saved; revision incremented }
         '400': { description: Invalid overlay }
         '409': { description: Revision conflict; body.current is the stored overlay }
+  /api/v1/views/{viewId}/override:
+    put:
+      summary: Set or clear a view override (pin, suppress, promote) of a canvas; publishes views.changed
+      description: >-
+        promote with enabled true needs snapshotId (the latest snapshot) and subsystemPath; it
+        re-proposes every non-rejected model subsystem claim of that snapshot whose path equals
+        subsystemPath or is nested beneath it (segment-wise, trimmed, lowercased) as a human claim
+        citing the same evidence, through the claim validator. The promote override is recorded only
+        when nothing was rejected. Disabling promote removes the override but keeps accepted claims.
+      parameters:
+        [
+          {
+            name: viewId,
+            in: path,
+            required: true,
+            schema: { type: string, pattern: '^cvs_[0-9a-f]{16,64}$' },
+          },
+        ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [action, enabled, projectId]
+              properties:
+                action: { type: string, enum: [pin, suppress, promote] }
+                enabled: { type: boolean }
+                projectId: { type: string }
+                snapshotId: { type: string }
+                subsystemPath: { type: string, maxLength: 80 }
+      responses:
+        '200':
+          description: >-
+            pin/suppress or disable - { projectId, targetId, action, enabled, overrides }; promote -
+            { proposalIds, accepted, rejected, alreadyAccepted, overrideRecorded }
+        '400': { description: Invalid body, or promote without snapshotId/subsystemPath }
+        '404': { description: Unknown project or snapshot, or no proposed subsystem claims match }
+        '409':
+          description: >-
+            promotion_rejected (validator reasons per claim; accepted ones are stored) or
+            stale_precondition (a newer snapshot exists)
+  /api/v1/projects/{id}/overrides:
+    get:
+      summary: View overrides of a project (pin, suppress, promote by canvas id)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: '{ projectId, overrides: [{ targetId, action, createdAt }] }' }
+        '404': { description: Unknown project }
   /api/v1/runs:
     post:
       summary: Create a run (rootPath or worktreeId, adapter, commandSummary, environmentSummary). Returns the run, a run-scoped ingestToken and whether it is bound to a snapshot of exactly the current tree. See docs/evidence.md.

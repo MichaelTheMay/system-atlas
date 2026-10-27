@@ -175,8 +175,12 @@ export function createAtlasMcpServer(opts: AtlasMcpOptions): McpServer {
 
   tool(
     'atlas_list_views',
-    'Generated canvases (views) of the latest snapshot as a navigation tree: id, title, lens, parent. Paginated.',
+    'Generated canvases (views) of the latest snapshot as a navigation tree: id, title, workspace, lens, parent, provenance. Paginated. Workspace "design" holds whiteboard system-design views (provenance: detected, proposed or accepted).',
     z.object({
+      workspace: z
+        .enum(['architecture', 'outputs', 'design'])
+        .optional()
+        .describe('only views of this workspace'),
       lens: z
         .string()
         .max(40)
@@ -186,7 +190,7 @@ export function createAtlasMcpServer(opts: AtlasMcpOptions): McpServer {
       cursor: z.string().max(10).optional(),
       limit: z.number().int().min(1).max(200).optional(),
     }),
-    async ({ lens, query, cursor, limit }) => {
+    async ({ workspace, lens, query, cursor, limit }) => {
       const { worktreeId } = await project();
       const cat = await api<{ snapshotId: string; canvases: any[] }>(
         `/worktrees/${worktreeId}/canvases`,
@@ -194,12 +198,17 @@ export function createAtlasMcpServer(opts: AtlasMcpOptions): McpServer {
       const q = query?.toLowerCase();
       const all = cat.canvases
         .filter(
-          (c) => (!lens || c.lens === lens) && (!q || String(c.title).toLowerCase().includes(q)),
+          (c) =>
+            (!workspace || c.workspace === workspace) &&
+            (!lens || c.lens === lens) &&
+            (!q || String(c.title).toLowerCase().includes(q)),
         )
         .map((c) => ({
           viewId: c.id,
           title: c.title,
+          workspace: c.workspace,
           lens: c.lens,
+          provenance: c.provenance,
           parentViewId: c.ownerCanvasId,
           rootEntityId: c.rootEntityId,
           entities: c.coverageSummary?.entityCount,
@@ -393,6 +402,16 @@ export function createAtlasMcpServer(opts: AtlasMcpOptions): McpServer {
 
   // ---------------------------------------------------------------- proposals
 
+  /** Never invent metadata: record what the client reported at initialize, or "unknown". */
+  const modelMetadata = (model: string | undefined) => {
+    const client = server.server.getClientVersion();
+    return {
+      provider: 'mcp-client',
+      model: model ?? (client ? `${client.name}@${client.version}` : 'unknown'),
+      promptTemplateVersion: 'agent-authored',
+    };
+  };
+
   const citation = z.union([
     z.object({ evidenceId: z.string().regex(/^evd_[0-9a-f]{16,64}$/) }).strict(),
     z
@@ -448,23 +467,148 @@ export function createAtlasMcpServer(opts: AtlasMcpOptions): McpServer {
         .describe('your model name, if you know it (recorded as reported)'),
     }),
     async ({ snapshotId, claims, model }) => {
-      // never invent metadata: record what the client reported at initialize, or "unknown"
-      const client = server.server.getClientVersion();
-      const reported = model ?? (client ? `${client.name}@${client.version}` : 'unknown');
       const r = await api<Record<string, any>>('/proposals/claims', {
         method: 'POST',
         body: JSON.stringify({
           snapshotId,
           origin: 'model',
           claims,
-          modelMetadata: {
-            provider: 'mcp-client',
-            model: reported,
-            promptTemplateVersion: 'agent-authored',
-          },
+          modelMetadata: modelMetadata(model),
         }),
       });
       return { proposalId: r.proposalId, accepted: r.accepted, rejected: r.rejected };
+    },
+    false,
+  );
+
+  const subsystemName = z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .refine((n) => {
+      const segs = n.split('/').map((x) => x.trim());
+      return segs.length <= 3 && segs.every((x) => x.length > 0);
+    }, 'use at most 3 non-empty "/"-separated levels, e.g. "Backend/Auth"');
+
+  tool(
+    'atlas_propose_view',
+    [
+      'Propose system-design subsystems: named groups of entities, shown as whiteboard boxes in the design workspace.',
+      'Nest with "/" (up to 3 levels, e.g. "Backend/Auth"). Each member needs citations like atlas_propose_claims.',
+      'Stored as labeled "subsystem" (and optional "responsibility") claims with status inferred, never as facts or relations;',
+      'a person can promote them. Members with invented or mismatched evidence are rejected with reasons.',
+    ].join(' '),
+    z.object({
+      snapshotId: z.string().regex(/^snap_[0-9a-f]{16,64}$/),
+      subsystems: z
+        .array(
+          z.object({
+            name: subsystemName,
+            members: z
+              .array(
+                z.object({
+                  entityId: z.string().regex(/^ent_[0-9a-f]{16,64}$/),
+                  citations: z.array(citation).min(1).max(10),
+                }),
+              )
+              .min(1)
+              .max(25),
+            responsibility: z
+              .string()
+              .trim()
+              .min(1)
+              .max(300)
+              .optional()
+              .describe('what this subsystem is for, in one or two sentences'),
+          }),
+        )
+        .min(1)
+        .max(10),
+      model: z
+        .string()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe('your model name, if you know it (recorded as reported)'),
+    }),
+    async ({ snapshotId, subsystems, model }) => {
+      type Item = { s: number; m: number; predicate: 'subsystem' | 'responsibility' };
+      const items: { item: Item; claim: Record<string, unknown> }[] = [];
+      subsystems.forEach((sub, s) =>
+        sub.members.forEach((mem, m) => {
+          items.push({
+            item: { s, m, predicate: 'subsystem' },
+            claim: {
+              subjectId: mem.entityId,
+              predicate: 'subsystem',
+              value: sub.name,
+              citations: mem.citations,
+            },
+          });
+          if (sub.responsibility)
+            items.push({
+              item: { s, m, predicate: 'responsibility' },
+              claim: {
+                subjectId: mem.entityId,
+                predicate: 'responsibility',
+                value: sub.responsibility,
+                citations: mem.citations,
+              },
+            });
+        }),
+      );
+      const out = subsystems.map((sub) => ({
+        name: sub.name,
+        accepted: [] as string[],
+        rejected: [] as { entityId: string; predicate: string; reasons: string[] }[],
+        proposalIds: [] as string[],
+      }));
+      const meta = modelMetadata(model);
+      // the daemon validates at most 25 claims per proposal
+      for (let off = 0; off < items.length; off += 25) {
+        const chunk = items.slice(off, off + 25);
+        let r: {
+          proposalId: string;
+          accepted: { index: number }[];
+          rejected: { index: number; reasons: string[] }[];
+        };
+        try {
+          r = await api('/proposals/claims', {
+            method: 'POST',
+            body: JSON.stringify({
+              snapshotId,
+              origin: 'model',
+              claims: chunk.map((c) => c.claim),
+              modelMetadata: meta,
+            }),
+          });
+        } catch (e) {
+          // earlier batches are stored: report them, and stop at the first refused batch
+          if (off === 0) throw e;
+          return {
+            snapshotId,
+            subsystems: out,
+            error: `${(e as Error).message}; ${items.length - off} claims were not submitted`,
+          };
+        }
+        for (const s of new Set(chunk.map((c) => c.item.s))) {
+          out[s]!.proposalIds.push(r.proposalId);
+        }
+        for (const a of r.accepted) {
+          const { s, m, predicate } = chunk[a.index]!.item;
+          if (predicate === 'subsystem') out[s]!.accepted.push(subsystems[s]!.members[m]!.entityId);
+        }
+        for (const x of r.rejected) {
+          const { s, m, predicate } = chunk[x.index]!.item;
+          out[s]!.rejected.push({
+            entityId: subsystems[s]!.members[m]!.entityId,
+            predicate,
+            reasons: x.reasons,
+          });
+        }
+      }
+      return { snapshotId, subsystems: out };
     },
     false,
   );
