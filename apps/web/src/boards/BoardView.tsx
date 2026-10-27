@@ -280,8 +280,9 @@ export function BoardView({
                   files: board.document.scene.files as never,
                 }}
                 onChange={onChange as never}
-                viewModeEnabled={presenting && !laser}
-                zenModeEnabled={presenting && laser}
+                // host-controlled only while presenting; otherwise Excalidraw keeps its own toggles
+                viewModeEnabled={presenting ? !laser : undefined}
+                zenModeEnabled={presenting ? laser : undefined}
                 UIOptions={{ canvasActions: { loadScene: false, saveToActiveFile: false } }}
               />
             </Suspense>

@@ -254,14 +254,18 @@ test('from code: a scanned project imports its derived design as a faded "as bui
       ).json();
       const b = (await stored(request, list.boards[0].id as string)) as unknown as {
         source: string;
-        document: { scene: { elements: SceneEl[] } };
+        document: { scene: { elements: SceneEl[] }; components: Record<string, unknown> };
       };
       const comps = b.document.scene.elements.filter(
         (e) => e.customData?.atlas?.kind === 'component',
       );
-      return { source: b.source, count: comps.length, faded: comps.every((e) => e.opacity === 60) };
+      return {
+        source: b.source,
+        drawn: comps.length > 0 && comps.length === Object.keys(b.document.components).length,
+        faded: comps.every((e) => e.opacity === 60),
+      };
     })
-    .toMatchObject({ source: 'code', faded: true, count: expect.any(Number) });
+    .toEqual({ source: 'code', drawn: true, faded: true });
   await expect(board.getByText(/[1-9]\d* component\(s\)/)).toBeVisible();
 
   // presenting it has one slide: the "As built" frame

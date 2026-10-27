@@ -2324,3 +2324,7 @@ button.badge.issues {
 .seq-view:not(.seq-large) .seq-svg {
   cursor: zoom-in;
 }
+/* no main menu (clear canvas, open, export...) while presenting */
+.board-presenting .excalidraw .main-menu-trigger {
+  display: none;
+}

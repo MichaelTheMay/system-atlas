@@ -76,9 +76,19 @@ describe('design board exports and from-code import (D03 wave 1b)', () => {
     expect(t).toContain('### Redirect a short link');
     expect(t).toContain('1. Browser requests GET /{code}. — _Web app → Load balancer');
     expect(t).toContain('```mermaid\nsequenceDiagram');
-    // mermaid-breaking characters in payloads are escaped
-    expect(t).toContain('GET /{code}, POST /links (HTTP)');
-    expect(t).toContain('code → url');
+    expect(t).toContain('  p1->>p2: GET /{code}, POST /links (HTTP)');
+    expect(t).toContain('  p3->>p4: code → url (other)');
+    expect(t).toContain('  p3-)p6: click.recorded (Kafka)');
+
+    // mermaid-breaking characters in payloads are escaped once (one pass, no "#35#59;")
+    const doc = structuredClone(b.document);
+    doc.connections.c2.payload = 'C# issue #42; v2: "x" <y>';
+    const saved = await req('PATCH', `/api/v1/boards/${b.id}`, { document: doc, revision: 0 });
+    expect(saved.status).toBe(200);
+    const t2 = (await req('GET', `/api/v1/boards/${b.id}/export/markdown`)).text;
+    expect(t2).toContain('  p1->>p2: C#35; issue #35;42#59; v2#58; #quot;x#quot; #lt;y#gt; (HTTP)');
+    // the Markdown table escapes pipes only; the raw text stays readable there
+    expect(t2).toContain('| C# issue #42; v2: "x" <y> |');
     expect(t).toContain('## Capacity estimates');
     expect(t).toContain('## Bottlenecks & failure modes');
     expect(t).toMatch(/- Hot links can thrash .* _\(Redirect cache, Links DB\)_/);

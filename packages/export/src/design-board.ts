@@ -17,17 +17,21 @@ import {
  */
 
 /** Mermaid text cannot carry `;` (statement end), `#` (entity start) or `:` in message text. */
+const MERMAID_ENTITY: Record<string, string> = {
+  '#': '#35;',
+  ';': '#59;',
+  ':': '#58;',
+  '"': '#quot;',
+  '<': '#lt;',
+  '>': '#gt;',
+};
+/** One pass, so an entity's own `#` and `;` are never escaped again. */
 const mermaidText = (s: string, max = 160) =>
   s
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, max)
-    .replace(/#/g, '#35;')
-    .replace(/;/g, '#59;')
-    .replace(/:/g, '#58;')
-    .replace(/"/g, '#quot;')
-    .replace(/</g, '#lt;')
-    .replace(/>/g, '#gt;');
+    .replace(/[#;:"<>]/g, (c) => MERMAID_ENTITY[c]!);
 
 const live = <T extends { status: string }>(xs: T[]) => xs.filter((x) => x.status !== 'rejected');
 
