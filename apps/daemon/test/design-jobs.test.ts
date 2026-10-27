@@ -326,4 +326,44 @@ describe('design-agent jobs (D02c)', () => {
       ).status,
     ).toBe(404);
   });
+
+  it('lists design claims with ids for review, and copilot answers come back with the job', async () => {
+    const t = await setup();
+    const claimsUrl = `/api/v1/snapshots/${t.snapshotId}/design/claims`;
+    expect((await t.req('GET', claimsUrl)).body.claims).toEqual([]);
+    expect((await t.req('GET', '/api/v1/snapshots/nope/design/claims')).status).toBe(404);
+    await t.wait((await t.generate()).body.id);
+    const claims = (await t.req('GET', claimsUrl)).body.claims;
+    const services = claims.filter((c: any) => c.value === 'Services');
+    expect(services.length).toBeGreaterThan(0);
+    expect(services[0]).toMatchObject({
+      predicate: 'subsystem',
+      origin: 'model',
+      status: 'inferred',
+      model: 'mock-design',
+    });
+    expect(services[0].id).toMatch(/^clm_/);
+    expect(typeof services[0].subjectName).toBe('string');
+    expect(services[0].evidenceIds.length).toBeGreaterThan(0);
+    // rejecting a proposal removes it from the list (the review sheet's Reject)
+    for (const c of services)
+      expect((await t.req('POST', `/api/v1/claims/${c.id}/reject`, { reason: 'no' })).status).toBe(
+        200,
+      );
+    const after = (await t.req('GET', claimsUrl)).body.claims;
+    expect(after.some((c: any) => c.value === 'Services')).toBe(false);
+
+    // a copilot answer is returned with the job (and kept in its run record)
+    const ask = await t.req('POST', t.jobsUrl, {
+      kind: 'name-subsystem',
+      runtime: 'mock',
+      snapshotId: t.snapshotId,
+      targetIds: [services[0].subjectId],
+    });
+    expect(ask.status).toBe(202);
+    const job = await t.wait(ask.body.id);
+    expect(job).toMatchObject({ state: 'succeeded', model: 'mock-design' });
+    expect(job.output.data.name).toEqual(expect.any(String));
+    expect(job.output.data.evidenceIds).toHaveLength(1);
+  });
 });

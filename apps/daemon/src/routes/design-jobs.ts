@@ -29,6 +29,16 @@ export function registerDesignJobRoutes(app: FastifyInstance, jobs: DesignJobs) 
     return r.ok ? r.body : reply.code(r.status).send({ error: r.error });
   });
 
+  /** Subsystem/responsibility claims of a snapshot (review sheet and copilot; D02b). */
+  app.get<{ Params: { id: string } }>(
+    `${prefix}/snapshots/:id/design/claims`,
+    async (req, reply) => {
+      if (!/^snap_[0-9a-f]{16,64}$/.test(req.params.id))
+        return reply.code(404).send({ error: 'unknown_snapshot' });
+      return { snapshotId: req.params.id, claims: jobs.designClaims(req.params.id) };
+    },
+  );
+
   app.post<{ Params: { id: string } }>(`${prefix}/projects/:id/design/jobs`, async (req, reply) => {
     const r = await jobs.start(req.params.id, req.body);
     if (!r.ok) return reply.code(r.status).send({ error: r.error, detail: r.detail });

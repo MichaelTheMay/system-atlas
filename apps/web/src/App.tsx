@@ -24,6 +24,15 @@ import { useOverlay } from './useOverlay.ts';
 import { OutputsView } from './components/outputs/OutputsView.tsx';
 import { DesignToolbar } from './components/design/DesignToolbar.tsx';
 import { DesignEditsProvider } from './components/design/useDesignEdits.tsx';
+// D02b: design copilot, Generate design dialog and design-agent settings
+import { CopilotPanel } from './components/design/CopilotPanel.tsx';
+import { GenerateDialog } from './components/design/GenerateDialog.tsx';
+import { SettingsDialog } from './components/design/DesignAgentSettings.tsx';
+import {
+  publishDesignJobEvent,
+  useDesignJobs,
+  useDesignSettings,
+} from './components/design/useDesignJobs.ts';
 
 type Conn =
   | { state: 'no-token' }
@@ -117,6 +126,12 @@ export function App() {
     .flatMap((p) => p.worktrees.map((w) => ({ ...w, project: p.project })))
     .find((w) => w.id === worktreeId);
   const projectId = worktree?.project.id;
+  // D02b: design agent (one job per project; dialogs and the copilot share it)
+  const designJobs = useDesignJobs(token, projectId);
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const designSettings = useDesignSettings(token, copilotOpen || generateOpen || settingsOpen);
 
   const navigate = useCallback((loc: Location) => {
     // selection is an entity, not a node of one canvas: it follows the user across views
@@ -206,6 +221,8 @@ export function App() {
     for (const ev of batch) {
       if (ev.type === 'project.registered') void loadProjects();
       if (ev.type.startsWith('run.')) setOutputsRefresh((k) => k + 1);
+      if (ev.type === 'design.job' && ev.data.projectId === projectId)
+        publishDesignJobEvent(ev.data);
       // linking a rename changes counts and where pins resolve
       if (ev.type === 'issue.resolved') refresh = true;
       if (ev.type.startsWith('claims.') || ev.type === 'views.changed') {
@@ -438,6 +455,19 @@ export function App() {
             open in the architecture at the run's own snapshot.
           </p>
         )}
+        {token && (
+          // D02b: Settings → Design agent
+          <button
+            type="button"
+            className="icon-btn nav-settings"
+            onClick={() => {
+              void designSettings.reload();
+              setSettingsOpen(true);
+            }}
+          >
+            Settings
+          </button>
+        )}
       </aside>
 
       <main
@@ -497,7 +527,26 @@ export function App() {
           </nav>
           <div className="header-tools">
             {/* whiteboard tools of the design root (D02a adds palette and generation here) */}
-            {root === 'design' && <DesignToolbar />}
+            {root === 'design' && (
+              <DesignToolbar>
+                {/* D02b */}
+                {projection && (
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-pressed={copilotOpen}
+                    onClick={() => setCopilotOpen((o) => !o)}
+                  >
+                    Copilot
+                  </button>
+                )}
+                {projection && latestSnapshotId && !viewSnapshotId && (
+                  <button type="button" className="icon-btn" onClick={() => setGenerateOpen(true)}>
+                    Generate design…
+                  </button>
+                )}
+              </DesignToolbar>
+            )}
             {root !== 'outputs' && projection && projection.siblings.length > 0 && (
               <label className="lens-switch">
                 <span className="sr-only">Switch lens</span>
@@ -647,9 +696,51 @@ export function App() {
                 }
               />
             )}
+            {/* D02b: design copilot, docked right of the System design canvas */}
+            {root === 'design' && copilotOpen && token && (
+              <CopilotPanel
+                token={token}
+                projectId={worktree.project.id}
+                snapshotId={snapshotId}
+                latestSnapshotId={latestSnapshotId}
+                projection={projection}
+                selection={selection}
+                settings={designSettings.settings}
+                jobs={designJobs}
+                onSettingsChanged={designSettings.setSettings}
+                onOpenRun={openRun}
+                onChanged={() => void refreshSnapshot()}
+                onClose={() => setCopilotOpen(false)}
+              />
+            )}
           </div>
         )}
       </main>
+      {/* D02b: Generate design… and Settings dialogs */}
+      {generateOpen && token && projectId && latestSnapshotId && (
+        <GenerateDialog
+          token={token}
+          projectId={projectId}
+          snapshotId={latestSnapshotId}
+          settings={designSettings.settings}
+          jobs={designJobs}
+          onSettingsChanged={designSettings.setSettings}
+          onOpenRun={(id) => {
+            setGenerateOpen(false);
+            openRun(id);
+          }}
+          onChanged={() => void refreshSnapshot()}
+          onClose={() => setGenerateOpen(false)}
+        />
+      )}
+      {settingsOpen && token && (
+        <SettingsDialog
+          token={token}
+          settings={designSettings.settings}
+          onSaved={designSettings.setSettings}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
 
       {/* right panel: the Inspector; D02b's design copilot panel mounts beside it on the design root */}
       {snapshotId ? (
