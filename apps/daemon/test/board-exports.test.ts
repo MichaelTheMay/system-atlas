@@ -167,6 +167,20 @@ describe('design board exports and from-code import (D03 wave 1b)', () => {
     expect(b.document.scene.elements).toEqual([]);
     expect(events.some((e) => e.type === 'design.board.changed')).toBe(true);
 
+    // the spec alone (for importing into an already-drawn board) creates nothing
+    const before = (await req('GET', `/api/v1/projects/${projectId}/boards`)).body.boards.length;
+    const spec = await req('GET', `/api/v1/projects/${projectId}/boards/from-code/spec`);
+    expect(spec.status).toBe(200);
+    expect(spec.body.snapshotId).toBe(snapshotId);
+    expect(spec.body.spec.components).toHaveLength(comps.length);
+    expect(spec.body.spec.frames).toHaveLength(1);
+    expect((await req('GET', `/api/v1/projects/${projectId}/boards`)).body.boards).toHaveLength(
+      before,
+    );
+    expect(
+      (await req('GET', `/api/v1/projects/${projectId}/boards/from-code/spec?snapshotId=x`)).status,
+    ).toBe(400);
+
     // an explicit snapshot of another project is refused
     const other = await setup();
     const bad = await other.req('POST', `/api/v1/projects/${other.projectId}/boards/from-code`, {

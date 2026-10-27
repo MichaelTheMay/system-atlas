@@ -1,22 +1,20 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { BoardDocument, DesignBoard } from '@atlas/schema';
-import { CaptureUpdateAction } from '@excalidraw/excalidraw';
-import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
+import { createPortal } from 'react-dom';
+import type { BoardDocument, ComponentType, DesignBoard } from '@atlas/schema';
+import { viewportCoordsToSceneCoords } from '@excalidraw/excalidraw';
+import type { AppState, ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
+import { layoutInWorker } from '../layout.ts';
 import { getBoard, saveBoard } from './api.ts';
-import {
-  BoardContext,
-  elementsOf,
-  selectionFrom,
-  selectionKey,
-  type BoardContextValue,
-  type BoardSelection,
-} from './context.ts';
-import { DocPanel } from './DocPanel.tsx';
+import { BoardInspector } from './BoardInspector.tsx';
+import { BoardContext, type BoardContextValue } from './context.ts';
+import { BoardController } from './controller.ts';
 import { ExportMenu } from './ExportMenu.tsx';
-import { materialize, needsMaterialize } from './materialize.ts';
+import { ImportAsBuilt } from './ImportAsBuilt.tsx';
+import { materialize, needsMaterialize, type El } from './materialize.ts';
+import { PALETTE_MIME, Palette } from './Palette.tsx';
 import { PresentMode } from './PresentMode.tsx';
+import type { BoardSelection } from './registry.ts';
 import { clearDecorations, hasDecorations } from './scenarios.ts';
-import { ScenariosPanel } from './ScenariosPanel.tsx';
 import '@excalidraw/excalidraw/index.css';
 
 // Excalidraw fonts come from the app origin (served by Vite in dev, copied into dist at build).
@@ -39,85 +37,127 @@ const keptAppState = (s: Record<string, unknown>) =>
       s[k] !== undefined ? [[k, s[k]]] : [],
     ),
   );
-const fingerprint = (els: readonly SceneElement[]) =>
-  `${els.length}:${els.reduce((n, e) => n + e.version + (e.isDeleted ? 7 : 0), 0)}`;
+const fingerprint = (els: readonly SceneElement[], files: object) =>
+  `${els.length}:${els.reduce((n, e) => n + e.version + (e.isDeleted ? 7 : 0), 0)}:${Object.keys(files).length}`;
+
+/** The id of the DOM node in the App's right column the board inspector is portalled into. */
+export const BOARD_INSPECTOR_SLOT = 'board-inspector-slot';
 
 /**
- * One design board (D03): the Excalidraw canvas over a stored scene, saved with optimistic
- * revisions after a short debounce, and the side panels (scenarios, design doc), export menu and
- * presentation mode, which share the board through `BoardContext`.
+ * One design board (D03): the Excalidraw canvas with the component palette on the left and the
+ * board inspector in the App's right column. Provides `BoardContext`. Saves are debounced, one in
+ * flight at a time with optimistic revisions; the scene is read from Excalidraw at save time and
+ * the registry from the local document (see `context.ts` for the contract).
  */
 export function BoardView({
   token,
   boardId,
   onBack,
+  onOpen,
 }: {
   token: string;
   boardId: string;
   onBack: () => void;
+  onOpen: (boardId: string) => void;
 }) {
   const [board, setBoard] = useState<DesignBoard | null>(null);
   const [error, setError] = useState<string>();
   const [status, setStatus] = useState<'saved' | 'saving' | 'conflict' | 'error'>('saved');
-  const api = useRef<ExcalidrawImperativeAPI | null>(null);
-  const [apiState, setApiState] = useState<ExcalidrawImperativeAPI | null>(null);
+  const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
   const [selection, setSelection] = useState<BoardSelection>({ elementIds: [] });
-  const selKey = useRef('');
-  const [side, setSide] = useState<'scenarios' | 'doc'>('scenarios');
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
   const [presenting, setPresenting] = useState(false);
   const [laser, setLaser] = useState(false);
+  const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const boardRef = useRef<DesignBoard | null>(null);
-  const lastSaved = useRef('');
+  const lastScene = useRef('');
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  /** Saves are serialized: one PATCH in flight, and one more queued if anything changed meanwhile. */
   const saving = useRef(false);
   const dirty = useRef(false);
+  const pending = useRef(false);
 
-  /** Saves the latest local document; edits made while a save is in flight are saved right after. */
-  const persist = useCallback(async () => {
+  useEffect(() => {
+    setSlot(document.getElementById(BOARD_INSPECTOR_SLOT));
+  }, []);
+
+  /** Saves the latest document; while one save is in flight, later edits queue one more. */
+  const flush = useCallback(async () => {
     if (saving.current) {
       dirty.current = true;
       return;
     }
+    const cur = boardRef.current;
+    if (!cur) return;
+    pending.current = false;
     saving.current = true;
-    try {
-      do {
-        dirty.current = false;
-        const cur = boardRef.current;
-        if (!cur) return;
-        setStatus('saving');
-        const r = await saveBoard(token, cur.id, {
-          document: cur.document,
-          revision: cur.revision,
-        });
-        // keep local edits made during the request: only the revision comes from the server
-        const latest = boardRef.current ?? cur;
-        if (r.ok) {
-          boardRef.current = {
-            ...latest,
-            revision: r.board.revision,
-            updatedAt: r.board.updatedAt,
-          };
-          setStatus('saved');
-        } else if ('current' in r) {
-          // another tab saved first: keep editing on top of the stored revision
-          boardRef.current = { ...latest, revision: r.current.revision };
-          setStatus('conflict');
-        } else setStatus('error');
-      } while (dirty.current);
-    } finally {
-      saving.current = false;
+    dirty.current = false;
+    setStatus('saving');
+    const a = apiRef.current;
+    const document: BoardDocument = a
+      ? {
+          ...cur.document,
+          scene: {
+            elements: a.getSceneElements() as unknown as Record<string, unknown>[],
+            appState: keptAppState(a.getAppState() as unknown as Record<string, unknown>),
+            files: a.getFiles() as unknown as Record<string, unknown>,
+          },
+        }
+      : cur.document;
+    let r = await saveBoard(token, cur.id, { document, revision: cur.revision });
+    if (!r.ok && 'current' in r) {
+      // another tab saved first: this editor's state wins on top of the stored revision
+      setStatus('conflict');
+      r = await saveBoard(token, cur.id, { document, revision: r.current.revision });
     }
+    saving.current = false;
+    if (r.ok) {
+      const latest = boardRef.current!;
+      boardRef.current = { ...latest, revision: r.board.revision, updatedAt: r.board.updatedAt };
+      setStatus((s) => (s === 'conflict' ? s : 'saved'));
+    } else setStatus('error');
+    if (dirty.current) void flush();
   }, [token]);
+
+  const scheduleSave = useCallback(() => {
+    pending.current = true;
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => void flush(), 400);
+  }, [flush]);
+
+  const patchDocument = useCallback(
+    (fn: (doc: BoardDocument) => BoardDocument) => {
+      const cur = boardRef.current;
+      if (!cur) return;
+      const next = fn(cur.document);
+      if (next === cur.document) return;
+      // the scene is Excalidraw's while mounted: keep whatever scene the ref had
+      boardRef.current = { ...cur, document: { ...next, scene: cur.document.scene } };
+      setBoard(boardRef.current);
+      scheduleSave();
+    },
+    [scheduleSave],
+  );
+
+  const controller = useMemo(
+    () =>
+      new BoardController({
+        getDocument: () => boardRef.current!.document,
+        patchDocument,
+        getApi: () => apiRef.current,
+        onSelection: setSelection,
+      }),
+    [patchDocument],
+  );
 
   useEffect(() => {
     let cancelled = false;
     getBoard(token, boardId)
-      .then((b) => {
-        if (cancelled) return;
+      .then(async (b) => {
         // a template/prompt/code board arrives with a registry and no drawing yet
-        let document = needsMaterialize(b.document) ? materialize(b.document) : b.document;
-        // a scenario left shown (numbers, dimming) is display state, not part of the drawing
+        let document = needsMaterialize(b.document)
+          ? await materialize(b.document, layoutInWorker)
+          : b.document;
+        // a scenario left shown (numbers, dimming) is display state, not part of the drawing (1b)
         if (hasDecorations(document.scene.elements))
           document = {
             ...document,
@@ -126,105 +166,68 @@ export function BoardView({
               elements: clearDecorations(document.scene.elements as never) as never,
             },
           };
+        if (cancelled) return;
         const loaded = { ...b, document };
         boardRef.current = loaded;
-        lastSaved.current = fingerprint(document.scene.elements as unknown as SceneElement[]);
         setBoard(loaded);
-        if (document !== b.document) void persist();
+        if (document !== b.document) {
+          // save the drawn layout once the canvas is up (the save reads the scene from it)
+          dirty.current = false;
+          setTimeout(() => void flush(), 50);
+        }
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
     return () => {
       cancelled = true;
       clearTimeout(timer.current);
+      // leaving the board (back, internals, parent): do not drop an edit still waiting to save
+      if (pending.current) void flush();
     };
-  }, [token, boardId, persist]);
-
-  /** Registry edits from the side panels: merged into the latest document and saved. */
-  const patchDocument = useCallback(
-    (fn: (doc: BoardDocument) => BoardDocument) => {
-      const cur = boardRef.current;
-      if (!cur) return;
-      const next = fn(cur.document);
-      const document: BoardDocument = {
-        ...cur.document,
-        components: next.components,
-        connections: next.connections,
-        scenarios: next.scenarios,
-        doc: next.doc,
-        frames: next.frames,
-      };
-      boardRef.current = { ...cur, document };
-      setBoard(boardRef.current);
-      void persist();
-    },
-    [persist],
-  );
-
-  /** Select a component or connection on the canvas and bring it into view. */
-  const select = useCallback((target: { componentId?: string; connectionId?: string } | null) => {
-    const a = api.current;
-    if (!a) return;
-    const els = a.getSceneElements();
-    const picked = !target
-      ? []
-      : target.componentId
-        ? elementsOf(els, { kind: 'component', id: target.componentId })
-        : target.connectionId
-          ? elementsOf(els, { kind: 'connection', id: target.connectionId })
-          : [];
-    a.updateScene({
-      appState: {
-        selectedElementIds: Object.fromEntries(picked.map((e) => [e.id, true])),
-      } as never,
-      captureUpdate: CaptureUpdateAction.NEVER,
-    });
-    if (picked.length)
-      a.scrollToContent(picked as never, {
-        fitToViewport: true,
-        viewportZoomFactor: 0.4,
-        maxZoom: 1,
-        animate: true,
-      });
-  }, []);
+  }, [token, boardId, flush]);
 
   const onChange = useCallback(
-    (elements: readonly SceneElement[], appState: Record<string, unknown>, files: unknown) => {
-      // selection for the side panels, through the atlas tags (state only when it changes)
-      const sel = selectionFrom(
-        elements,
-        (appState.selectedElementIds ?? {}) as Record<string, boolean | undefined>,
-      );
-      const key = selectionKey(sel);
-      if (key !== selKey.current) {
-        selKey.current = key;
-        setSelection(sel);
-      }
-      const fp = fingerprint(elements);
-      if (fp === lastSaved.current) return;
-      lastSaved.current = fp;
-      clearTimeout(timer.current);
-      timer.current = setTimeout(() => {
-        const cur = boardRef.current;
-        if (!cur) return;
-        const document: BoardDocument = {
-          ...cur.document,
-          scene: {
-            elements: elements.filter((e) => !e.isDeleted) as unknown as Record<string, unknown>[],
-            appState: keptAppState(appState),
-            files: (files ?? {}) as Record<string, unknown>,
-          },
-        };
-        boardRef.current = { ...cur, document };
-        void persist();
-      }, 600);
+    (elements: readonly El[], appState: AppState, files: object) => {
+      if (!boardRef.current) return;
+      controller.onSceneChange(elements, appState);
+      const fp = fingerprint(elements, files);
+      if (fp === lastScene.current) return;
+      lastScene.current = fp;
+      scheduleSave();
     },
-    [persist],
+    [controller, scheduleSave],
   );
 
-  const ctx = useMemo<BoardContextValue | null>(
-    () => (board ? { board, api: apiState, patchDocument, selection, select } : null),
-    [board, apiState, patchDocument, selection, select],
+  const select = useCallback(
+    (target: { componentId?: string; connectionId?: string } | null) => controller.select(target),
+    [controller],
   );
+
+  const ctx: BoardContextValue | null = useMemo(
+    () =>
+      board
+        ? {
+            board,
+            api,
+            patchDocument,
+            selection,
+            select,
+            controller,
+            token,
+            openBoard: onOpen,
+          }
+        : null,
+    [board, api, patchDocument, selection, select, controller, token, onOpen],
+  );
+
+  const onDrop = (e: React.DragEvent) => {
+    const type = e.dataTransfer.getData(PALETTE_MIME) as ComponentType;
+    const a = apiRef.current;
+    if (!type || !a) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const s = a.getAppState();
+    controller.addComponent(type, viewportCoordsToSceneCoords(e, s));
+  };
 
   if (error) return <p className="board-error">Could not load this board: {error}</p>;
   if (!board || !ctx) return <p className="board-loading">Loading board…</p>;
@@ -238,6 +241,16 @@ export function BoardView({
           <button type="button" className="icon-btn" onClick={onBack}>
             ← Boards
           </button>
+          {board.parentBoardId && (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => onOpen(board.parentBoardId!)}
+              title="Back to the board this one details"
+            >
+              ↑ Parent board
+            </button>
+          )}
           <h2 className="board-title">{board.name}</h2>
           <span className={`board-status board-status-${status}`} aria-live="polite">
             {status === 'saved'
@@ -252,23 +265,39 @@ export function BoardView({
             {Object.keys(board.document.components).length} component(s)
           </span>
           <div className="board-tools">
+            <ImportAsBuilt />
             <ExportMenu />
-            <button type="button" onClick={() => setPresenting(true)} disabled={!apiState}>
+            <button type="button" onClick={() => setPresenting(true)} disabled={!api}>
               Present
             </button>
           </div>
         </header>
         <div className="board-body">
-          <div className="board-canvas">
+          {!presenting && <Palette />}
+          <div
+            className="board-canvas"
+            onDragOver={(e) => {
+              if (e.dataTransfer.types.includes(PALETTE_MIME)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+              }
+            }}
+            onDropCapture={onDrop}
+          >
             <Suspense fallback={<p className="board-loading">Loading canvas…</p>}>
               <Excalidraw
                 excalidrawAPI={(a) => {
-                  api.current = a;
-                  setApiState(a);
+                  apiRef.current = a;
+                  setApi(a);
                   // open on the whole drawing, not at 100% around its first corner (after mount)
                   setTimeout(
-                    () => a.scrollToContent(undefined, { fitToContent: true, animate: false }),
-                    0,
+                    () =>
+                      a.scrollToContent(undefined, {
+                        fitToViewport: true,
+                        viewportZoomFactor: 0.85,
+                        animate: false,
+                      }),
+                    120,
                   );
                 }}
                 initialData={{
@@ -280,39 +309,13 @@ export function BoardView({
                   files: board.document.scene.files as never,
                 }}
                 onChange={onChange as never}
-                // host-controlled only while presenting; otherwise Excalidraw keeps its own toggles
+                // host-controlled only while presenting (1b); otherwise Excalidraw keeps its toggles
                 viewModeEnabled={presenting ? !laser : undefined}
                 zenModeEnabled={presenting ? laser : undefined}
                 UIOptions={{ canvasActions: { loadScene: false, saveToActiveFile: false } }}
               />
             </Suspense>
           </div>
-          {!presenting && (
-            <aside className="board-side" aria-label="Board panels">
-              {/* Properties (wave 1a) mounts as the first tab here */}
-              <div className="board-side-tabs" role="tablist" aria-label="Board panels">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={side === 'scenarios'}
-                  onClick={() => setSide('scenarios')}
-                >
-                  Scenarios
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={side === 'doc'}
-                  onClick={() => setSide('doc')}
-                >
-                  Design doc
-                </button>
-              </div>
-              <div className="board-side-body" role="tabpanel">
-                {side === 'scenarios' ? <ScenariosPanel /> : <DocPanel />}
-              </div>
-            </aside>
-          )}
         </div>
         {presenting && (
           <PresentMode
@@ -325,6 +328,7 @@ export function BoardView({
           />
         )}
       </section>
+      {slot && createPortal(<BoardInspector />, slot)}
     </BoardContext.Provider>
   );
 }

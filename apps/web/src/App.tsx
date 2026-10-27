@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import type { Workspace } from '@atlas/schema';
 import { BoardsRoot } from './boards/index.tsx';
+import { BOARD_INSPECTOR_SLOT } from './boards/BoardView.tsx';
 import {
   api,
   apiOptional,
@@ -798,11 +799,12 @@ export function App() {
       {/* right panel: the Inspector; D02b's design copilot panel mounts beside it on the design root */}
       {root === 'design' && designTab === 'boards' ? (
         <aside className="inspector" aria-label="Inspector">
-          <h2>Inspector</h2>
-          <p className="empty-note">
-            Board inspector: select a component or connection on a board to edit its properties
-            (coming with the component layer).
-          </p>
+          {/* an open board portals its inspector (BoardInspector) into this slot */}
+          <div id={BOARD_INSPECTOR_SLOT} className="board-inspector-slot" />
+          <div className="board-inspector-empty">
+            <h2>Inspector</h2>
+            <p className="empty-note">Open a board to edit its components and connections.</p>
+          </div>
         </aside>
       ) : snapshotId ? (
         <Inspector

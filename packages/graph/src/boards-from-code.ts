@@ -121,12 +121,28 @@ export function latestProjectSnapshot(db: Db, projectId: string): string | undef
     .get<{ id: string }>(projectId)?.id;
 }
 
+/** A new board (`source: 'code'`) holding the "as built" spec. */
 export function createBoardFromCode(
   db: Db,
   projectId: string,
   input: { snapshotId?: string; name?: string },
 ): BoardResult<{ board: DesignBoard }> {
-  const snapshotId = input.snapshotId ?? latestProjectSnapshot(db, projectId);
+  const r = codeSpecOf(db, projectId, input.snapshotId);
+  if (!r.ok) return r;
+  return createBoard(db, projectId, {
+    name: input.name?.trim() || 'As built (from code)',
+    source: 'code',
+    document: documentFromSpec(r.spec, 'code'),
+  });
+}
+
+/** The "as built" spec of a project's snapshot (latest by default), without creating a board. */
+export function codeSpecOf(
+  db: Db,
+  projectId: string,
+  snapshotIdArg?: string,
+): BoardResult<{ spec: BoardSpec; snapshotId: string }> {
+  const snapshotId = snapshotIdArg ?? latestProjectSnapshot(db, projectId);
   if (!snapshotId) return { ok: false, status: 409, error: 'no_snapshot' };
   const snap = db
     .prepare(
@@ -143,9 +159,5 @@ export function createBoardFromCode(
   const spec = boardSpecFromProjection(projectDesign(graph, catalog, root.id));
   if (!spec.components.length)
     return { ok: false, status: 409, error: 'nothing to import: no design boxes' };
-  return createBoard(db, projectId, {
-    name: input.name?.trim() || 'As built (from code)',
-    source: 'code',
-    document: documentFromSpec(spec, 'code'),
-  });
+  return { ok: true, spec, snapshotId };
 }

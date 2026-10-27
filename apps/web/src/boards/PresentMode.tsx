@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CaptureUpdateAction } from '@excalidraw/excalidraw';
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
-import { elementsOf, useBoard } from './context.ts';
-import { atlasTag } from './materialize.ts';
+import { useBoard } from './context.ts';
+import { atlasTag } from './tags.ts';
 import { Player } from './Player.tsx';
-import { clearDecorations, showScenario, shownScenarioId } from './scenarios.ts';
+import { clearDecorations, elementsOf, showScenario, shownScenarioId } from './scenarios.ts';
 
 type SceneEl = ReturnType<ExcalidrawImperativeAPI['getSceneElements']>[number];
 interface Slide {

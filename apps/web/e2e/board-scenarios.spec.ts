@@ -19,8 +19,11 @@ interface SceneEl {
   id: string;
   type: string;
   opacity: number;
-  customData?: { atlas?: { kind: string; id: string } };
+  customData?: { atlas?: { kind: string; id: string; role?: string } };
 }
+/** The container rectangle of each drawn component (1a tags every part; `role: 'box'` is the box). */
+const isBox = (e: SceneEl) =>
+  e.customData?.atlas?.kind === 'component' && e.customData.atlas.role === 'box';
 
 async function registerEmpty(request: APIRequestContext, name: string) {
   const root = join(mkdtempSync(join(tmpdir(), 'atlas-e2e-board-sc-')), name);
@@ -86,12 +89,14 @@ test('scenarios: show numbers on the canvas, sequence view and step-through play
   page,
   request,
 }) => {
-  const { board, boardId } = await newTemplateBoard(page, request, 'Flows');
-  const panels = board.getByRole('complementary', { name: 'Board panels' });
-  await expect(panels.getByRole('tab', { name: 'Scenarios' })).toHaveAttribute(
+  const { boardId } = await newTemplateBoard(page, request, 'Flows');
+  // scenarios and the design doc are tabs of the board inspector (App's right column)
+  const panels = page.getByRole('complementary', { name: 'Inspector' });
+  await expect(panels.getByRole('tab', { name: 'Properties' })).toHaveAttribute(
     'aria-selected',
     'true',
   );
+  await panels.getByRole('tab', { name: 'Scenarios' }).click();
   await expect(panels.getByRole('button', { name: /^Redirect a short link/ })).toBeVisible();
   await expect(panels.getByText('5 step(s)')).toBeVisible();
   // steps are bound to connections, shown as "A → B · payload"
@@ -153,8 +158,8 @@ test('design doc: sections, pins that select, and a new pinned item persists', a
   page,
   request,
 }) => {
-  const { board, boardId } = await newTemplateBoard(page, request, 'Docs');
-  const panels = board.getByRole('complementary', { name: 'Board panels' });
+  const { boardId } = await newTemplateBoard(page, request, 'Docs');
+  const panels = page.getByRole('complementary', { name: 'Inspector' });
   await panels.getByRole('tab', { name: 'Design doc' }).click();
   await expect(panels.getByLabel('Summary')).toHaveValue(/Create short links/);
   const risks = panels.getByRole('region', { name: 'Bottlenecks & failure modes' });
@@ -256,9 +261,7 @@ test('from code: a scanned project imports its derived design as a faded "as bui
         source: string;
         document: { scene: { elements: SceneEl[] }; components: Record<string, unknown> };
       };
-      const comps = b.document.scene.elements.filter(
-        (e) => e.customData?.atlas?.kind === 'component',
-      );
+      const comps = b.document.scene.elements.filter(isBox);
       return {
         source: b.source,
         drawn: comps.length > 0 && comps.length === Object.keys(b.document.components).length,
@@ -276,6 +279,43 @@ test('from code: a scanned project imports its derived design as a faded "as bui
       .getByText(/Slide 1 \/ 1 · As built \(from code, \d{4}-\d{2}-\d{2}\)/),
   ).toBeVisible();
   await page.keyboard.press('Escape');
+
+  // "Import as built" adds the same design next to an already-drawn board, faded, in its own frame
+  await page.getByRole('button', { name: '← Boards' }).click();
+  await page.getByLabel('Name').fill('Planned');
+  await page.getByLabel('Start from').selectOption('url-shortener');
+  await page.getByRole('button', { name: 'Create board' }).click();
+  const planned = page.getByRole('region', { name: 'Design board: Planned' });
+  await expect(planned.getByText('Saved', { exact: true })).toBeVisible();
+  await planned.getByRole('button', { name: 'Import as built' }).click();
+  await expect
+    .poll(async () => {
+      const list = await (
+        await request.get(`/api/v1/projects/${projectId}/boards`, { headers: auth })
+      ).json();
+      const id = list.boards.find((x: { name: string }) => x.name === 'Planned').id as string;
+      const b = (await stored(request, id)) as unknown as {
+        document: {
+          scene: { elements: SceneEl[] };
+          components: Record<string, { origin: { author: string } }>;
+          frames: { label: string }[];
+        };
+      };
+      const code = new Set(
+        Object.entries(b.document.components)
+          .filter(([, c]) => c.origin.author === 'code')
+          .map(([cid]) => cid),
+      );
+      const boxes = b.document.scene.elements.filter(isBox);
+      const codeBoxes = boxes.filter((e) => code.has(e.customData!.atlas!.id));
+      return {
+        template: boxes.length - codeBoxes.length,
+        imported: codeBoxes.length > 0 && codeBoxes.length === code.size,
+        faded: codeBoxes.every((e) => e.opacity === 60),
+        frame: b.document.frames.some((f) => f.label.startsWith('As built (from code')),
+      };
+    })
+    .toEqual({ template: 10, imported: true, faded: true, frame: true });
 
   // a project without a snapshot does not offer it
   const empty = await registerEmpty(request, 'nocode');

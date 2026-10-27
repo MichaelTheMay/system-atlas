@@ -27,7 +27,12 @@ export const getBoard = (token: string, boardId: string) =>
 export const createBoard = (
   token: string,
   projectId: string,
-  input: { name: string; source?: 'blank' | 'template'; templateId?: string },
+  input: {
+    name: string;
+    source?: 'blank' | 'template';
+    templateId?: string;
+    parentBoardId?: string;
+  },
 ) => api<DesignBoard>(`/projects/${projectId}/boards`, token, json(input));
 export const deleteBoard = (token: string, boardId: string) =>
   api<{ deleted: string[] }>(`/boards/${boardId}`, token, { method: 'DELETE' });

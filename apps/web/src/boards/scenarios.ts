@@ -1,8 +1,7 @@
 import type { BoardDocument, Scenario } from '@atlas/schema';
 import { convertToExcalidrawElements, newElementWith } from '@excalidraw/excalidraw';
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types';
-import { elementsOf } from './context.ts';
-import { atlasTag } from './materialize.ts';
+import { atlasTag } from './tags.ts';
 
 export { connectionTitle, scenarioToMermaid } from '@atlas/export';
 
@@ -17,6 +16,29 @@ export { connectionTitle, scenarioToMermaid } from '@atlas/export';
 type El = ExcalidrawElement;
 type Custom = { atlasDim?: number; atlasHl?: { strokeColor: string; strokeWidth: number } };
 const custom = (e: El) => (e.customData ?? {}) as Custom & Record<string, unknown>;
+
+/**
+ * Scene elements that draw one component or connection: every part tagged with its id (1a tags all
+ * parts of a component) and the bound label text of a tagged container (connection labels).
+ */
+export function elementsOf<E extends { id: string; customData?: unknown; isDeleted?: boolean }>(
+  elements: readonly E[],
+  target: { kind: 'component' | 'connection'; id: string },
+): E[] {
+  const mine = (e: { customData?: unknown } | undefined) => {
+    const t = atlasTag(e);
+    return t?.kind === target.kind && t.id === target.id;
+  };
+  const ids = new Set(elements.filter((e) => !e.isDeleted && mine(e)).map((e) => e.id));
+  return elements.filter(
+    (e) =>
+      !e.isDeleted &&
+      (ids.has(e.id) || ids.has((e as { containerId?: string | null }).containerId ?? '')),
+  );
+}
+
+/** The shape a step points at: the arrow of a hop, or a component's box. */
+const isHopShape = (e: El) => e.type === 'arrow' || atlasTag(e)?.role === 'box';
 
 export const STEP_COLOR = '#e11d48';
 const DIM_OPACITY = 18;
@@ -154,7 +176,7 @@ export function showScenario(doc: BoardDocument, scenario: Scenario, scene: read
   const marks = new Map<string, { stepId: string; cx: number; cy: number }>();
   scenario.steps.forEach((s, i) => {
     const { hop } = stepTargets(doc, s, live);
-    const shape = hop.find((e) => e.type === 'arrow') ?? hop.find((e) => e.type !== 'text');
+    const shape = hop.find((e) => e.type === 'arrow') ?? hop.find(isHopShape);
     if (!shape) return;
     const n = used.get(shape.id) ?? 0;
     used.set(shape.id, n + 1);
@@ -231,7 +253,7 @@ export function highlightStep(
   if (!step) return base;
   const hop = new Set(
     stepTargets(doc, step, base)
-      .hop.filter((e) => e.type !== 'text')
+      .hop.filter(isHopShape)
       .map((e) => e.id),
   );
   return base.map((e) =>
