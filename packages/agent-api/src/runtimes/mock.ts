@@ -74,10 +74,13 @@ async function readUnits(tools: DesignToolset, signal: AbortSignal): Promise<Uni
   const views = await call(tools, 'atlas_list_views', { workspace: 'design', limit: 200 });
   const root = (views.views as any[]).find((v) => v.lens === 'design-system');
   if (!root) throw new Error('no System design view yet: scan the project first');
-  const seen = new Set<string>();
+  // boxes a person grouped (or promoted) stay where they are: never collect them
+  const seen = new Set<string>(
+    (views.views as any[]).filter((v) => v.provenance === 'accepted').map((v) => v.viewId),
+  );
   const queue: string[] = [root.viewId];
   const found = new Map<string, { label: string; archetype: string }>();
-  while (queue.length && seen.size < 50) {
+  while (queue.length && seen.size < 200) {
     signal.throwIfAborted();
     const id = queue.shift()!;
     if (seen.has(id)) continue;

@@ -21,6 +21,7 @@ const rules = (snapshotId: string) =>
     '  Proposals with invented or mismatched evidence are rejected; do not retry them with made-up citations.',
     `- Use snapshotId ${snapshotId} for every proposal. If a proposal reports stale_precondition, stop and say so.`,
     '- Your proposals are stored as "proposed" for a person to review. Never claim they are accepted facts.',
+    '- Leave boxes inside accepted subsystems (provenance "accepted") where they are: never propose another subsystem for them.',
   ].join('\n');
 
 export function buildDesignPrompt({ request, snapshotId }: DesignPromptInput): string {

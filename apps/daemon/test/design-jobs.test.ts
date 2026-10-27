@@ -142,6 +142,38 @@ describe('design-agent jobs (D02c)', () => {
     expect(list.map((j: any) => j.id)).toEqual([again.id, job.id]);
   });
 
+  it('never moves boxes a person grouped: accepted subsystems are left alone', async () => {
+    const t = await setup();
+    const cat = (await t.req('GET', `/api/v1/snapshots/${t.snapshotId}/canvases`)).body;
+    const root = cat.canvases.find((c: any) => c.lens === 'design-system');
+    const proj = (
+      await t.req('GET', `/api/v1/snapshots/${t.snapshotId}/canvases/${root.id}/projection`)
+    ).body;
+    const db = proj.nodes.find((n: any) => n.label === 'db').entityId as string;
+    const ev = (await t.req('GET', `/api/v1/snapshots/${t.snapshotId}/entities/${db}`)).body
+      .evidence[0].id as string;
+    const human = await t.req('POST', '/api/v1/proposals/claims', {
+      snapshotId: t.snapshotId,
+      origin: 'human',
+      claims: [
+        { subjectId: db, predicate: 'subsystem', value: 'Zeta', citations: [{ evidenceId: ev }] },
+      ],
+    });
+    expect(human.body.accepted).toHaveLength(1);
+
+    const job = await t.wait((await t.generate()).body.id);
+    expect(job.state).toBe('succeeded');
+    const subs = await subsystems(t);
+    expect(subs.find((c: any) => c.title === 'Zeta')).toMatchObject({ provenance: 'accepted' });
+    expect(subs.some((c: any) => c.provenance === 'proposed')).toBe(true);
+    const onDb = t.db
+      .prepare(
+        "SELECT origin FROM claims WHERE snapshot_id = ? AND subject_id = ? AND predicate = 'subsystem'",
+      )
+      .all<{ origin: string }>(t.snapshotId, db);
+    expect(onDb.map((c) => c.origin)).toEqual(['human']);
+  });
+
   it('refuses non-mock runtimes without consent; stores the API key 0600 and never echoes it', async () => {
     const t = await setup();
     const denied = await t.generate({ runtime: 'claude-code' });

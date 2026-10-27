@@ -32,6 +32,9 @@ export interface AnthropicRuntimeOptions {
   model?: string;
   /** Upper bound on model turns per job. */
   maxTurns?: number;
+  /** HTTP fetch for the SDK client (tests pass a fake; default global fetch). */
+  fetch?: typeof fetch;
+  maxRetries?: number;
 }
 
 const scrub = (msg: string, key: string | undefined) =>
@@ -54,7 +57,12 @@ export function createAnthropicDesignRuntime(opts: AnthropicRuntimeOptions = {})
         key = await opts.apiKey?.();
         if (!key) throw new Error('no Anthropic API key configured');
         // explicit key and no auth token: never ambient ANTHROPIC_* credentials or profiles
-        client = new Anthropic({ apiKey: key, authToken: null, maxRetries: 2 });
+        client = new Anthropic({
+          apiKey: key,
+          authToken: null,
+          maxRetries: opts.maxRetries ?? 2,
+          ...(opts.fetch ? { fetch: opts.fetch } : {}),
+        });
       }
       const model = request.model ?? opts.model ?? DEFAULT_ANTHROPIC_DESIGN_MODEL;
       const tools: Anthropic.Tool[] = (await ctx.tools.list()).map((t) => ({

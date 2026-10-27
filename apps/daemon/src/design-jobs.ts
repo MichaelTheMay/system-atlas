@@ -618,7 +618,9 @@ export class DesignJobs {
       );
       const maxOutputTokens = Math.min(16_000, Math.max(1_000, Math.floor(remaining / 10)));
       const runtime = this.runtimes[job.runtime]();
-      result = await runtime.run(job.request, {
+      // the model recorded for the run is the one the runtime is asked to use
+      const request = job.runtime === 'mock' ? job.request : { ...job.request, model: job.model };
+      result = await runtime.run(request, {
         jobId: job.id,
         projectId: job.projectId,
         rootPath,

@@ -2,7 +2,7 @@
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DesignJobEvent, DesignJobRequest } from '@atlas/schema';
 import {
   buildDesignPrompt,
@@ -213,7 +213,7 @@ fs.writeFileSync(process.env.FAKE_LOG, JSON.stringify({ argv, pid: process.pid, 
   config: JSON.parse(fs.readFileSync(cfg, 'utf8')), env: Object.keys(process.env) }));
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 const mode = process.env.FAKE_MODE;
-out({ type: 'system', subtype: 'init', model: 'claude-fake-1', mcp_servers: [{ name: 'atlas', status: mode === 'mcp-fail' ? 'failed' : 'connected' }] });
+out({ type: 'system', subtype: 'init', model: 'claude-fake-1', mcp_servers: [{ name: 'atlas', status: mode === 'mcp-fail' ? 'failed' : mode === 'pending' ? 'pending' : 'connected' }] });
 if (mode === 'hang') { setInterval(() => {}, 1000); return; }
 if (mode === 'mcp-fail') { setInterval(() => {}, 1000); return; }
 if (mode === 'crash') { process.stdout.write('{not json\\n'); process.exit(3); }
@@ -302,6 +302,15 @@ describe('claude-code runtime (fake claude on PATH)', () => {
       },
     });
     expect(log.env).not.toContain('ATLAS_TOKEN');
+  });
+
+  it('does not fail while the Atlas MCP server is still starting at init', async () => {
+    const f = fakeClaude();
+    const r = await createClaudeCodeRuntime({ env: f.env('pending') }).run(
+      request(),
+      ctx(unusedTools, { atlasMcp }).c,
+    );
+    expect(r.model).toBe('claude-fake-1');
   });
 
   it('parses a JSON answer for copilot actions', async () => {
@@ -405,6 +414,53 @@ describe('anthropic-api runtime (injected client, no network)', () => {
     ]);
     expect(f.calls.map((x) => x.name)).toEqual(['atlas_list_views']);
     expect(events.filter((e) => e.type === 'usage')).toHaveLength(2);
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('builds the real SDK client with only the Atlas key (mocked fetch, ambient credentials ignored)', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'ambient-api-key');
+    vi.stubEnv('ANTHROPIC_AUTH_TOKEN', 'ambient-auth-token');
+    vi.stubEnv('ANTHROPIC_PROFILE', 'does-not-exist');
+    const key = 'sk-ant-atlas-test-' + 'k'.repeat(24);
+    const requests: { url: string; headers: Headers; body: any }[] = [];
+    const fakeFetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      requests.push({
+        url: String(url),
+        headers: new Headers(init?.headers),
+        body: JSON.parse(String(init?.body)),
+      });
+      return new Response(
+        JSON.stringify({
+          id: 'msg_x',
+          type: 'message',
+          role: 'assistant',
+          model: 'claude-sonnet-5-5',
+          stop_reason: 'end_turn',
+          stop_sequence: null,
+          content: [{ type: 'text', text: 'ok' }],
+          usage: { input_tokens: 10, output_tokens: 2 },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }) as typeof fetch;
+    const r = await createAnthropicDesignRuntime({
+      apiKey: async () => key,
+      fetch: fakeFetch,
+      maxRetries: 0,
+    }).run(request({ runtime: 'anthropic-api' }), ctx(fakeTools().tools).c);
+    expect(r.usage).toEqual({ inputTokens: 10, outputTokens: 2 });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.url).toMatch(/\/v1\/messages$/);
+    // SDK 1.3.0 sends the key as a bearer credential; it must be exactly the Atlas key
+    const h = requests[0]!.headers;
+    const sent = h.get('x-api-key') ?? h.get('authorization')?.replace(/^Bearer /, '');
+    expect(sent).toBe(key);
+    expect([...h.values()].join(' ')).not.toMatch(/ambient/);
+    expect(requests[0]!.body).toMatchObject({
+      model: 'claude-sonnet-5-5',
+      system: 'design prompt',
+    });
   });
 
   it('refuses to run without a resolved key (never ambient credentials)', async () => {

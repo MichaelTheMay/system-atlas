@@ -123,8 +123,10 @@ export function handleStreamLine(
     if (typeof m.model === 'string') s.model = m.model.slice(0, 100);
     const servers = Array.isArray(m.mcp_servers) ? m.mcp_servers : [];
     const atlas = servers.map(obj).find((x) => x?.name === 'atlas');
-    if (!atlas || (atlas.status !== undefined && atlas.status !== 'connected'))
-      s.mcpFailed = `atlas MCP server ${atlas ? String(atlas.status) : 'missing'}`;
+    // only an explicit failure is fatal: a server may still be starting when init is reported
+    if (!atlas) s.mcpFailed = 'atlas MCP server missing';
+    else if (atlas.status === 'failed' || atlas.status === 'needs-auth')
+      s.mcpFailed = `atlas MCP server ${String(atlas.status)}`;
   } else if (m.type === 'assistant' || m.type === 'user') {
     const content = obj(m.message)?.content;
     for (const c of Array.isArray(content) ? content.map(obj) : []) {
