@@ -5,6 +5,8 @@ import {
   getLatestSnapshot,
   getSnapshot,
   isCompacted,
+  listIssues,
+  resolveIssue,
   getWorktree,
   listProjects,
   loadCatalog,
@@ -181,6 +183,30 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     const wt = getWorktree(opts.db, req.params.id);
     if (!wt) return reply.code(404).send({ error: 'unknown_worktree' });
     return reply.code(202).send(jobs.enqueueScan(wt));
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { status?: string } }>(
+    `${API_PREFIX}/projects/:id/issues`,
+    async (req) => ({
+      issues: listIssues(opts.db, req.params.id, req.query.status === 'all' ? 'all' : 'open'),
+    }),
+  );
+
+  const ResolveBody = z.discriminatedUnion('action', [
+    z.object({ action: z.literal('link'), fromId: z.string().max(100), toId: z.string().max(100) }),
+    z.object({ action: z.literal('dismiss') }),
+  ]);
+  app.post<{ Params: { id: string } }>(`${API_PREFIX}/issues/:id/resolve`, async (req, reply) => {
+    const body = ResolveBody.safeParse(req.body);
+    if (!body.success)
+      return reply.code(400).send({ error: 'invalid_body', issues: body.error.issues });
+    const r = resolveIssue(opts.db, req.params.id, body.data);
+    if (!r.ok) return reply.code(r.status).send({ error: r.error });
+    bus.publish({
+      type: 'issue.resolved',
+      data: { issueId: r.issue.id, projectId: r.issue.projectId, status: r.issue.status },
+    });
+    return r;
   });
 
   app.get<{ Params: { id: string } }>(`${API_PREFIX}/worktrees/:id/watch`, async (req, reply) => {

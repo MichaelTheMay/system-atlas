@@ -117,6 +117,11 @@ export const ViewOverlay = z
     entityPositions: z.record(idSchema('entity'), Point),
     /** Positions of non-entity nodes (clusters, ports, groups) by projection node id. */
     nodePositions: z.record(z.string().min(1).max(300), Point).default({}),
+    /**
+     * Where top-level nodes were last laid out automatically (entity id or projection node id).
+     * Not pins: they keep a known map stable when nodes are added, and "Re-layout" clears them.
+     */
+    autoPositions: z.record(z.string().min(1).max(300), Point).default({}),
     pinnedIds: z.array(idSchema('entity')),
     annotations: z.array(
       z.object({
@@ -144,8 +149,10 @@ export const ViewOverlay = z
   })
   .refine(
     (o) =>
-      Object.keys(o.entityPositions).length + Object.keys(o.nodePositions).length <= 10_000 &&
-      o.annotations.length <= 1_000,
+      Object.keys(o.entityPositions).length +
+        Object.keys(o.nodePositions).length +
+        Object.keys(o.autoPositions).length <=
+        10_000 && o.annotations.length <= 1_000,
     'overlay too large',
   );
 export type ViewOverlay = z.infer<typeof ViewOverlay>;

@@ -101,3 +101,23 @@ Projections are snapshot-scoped, so runs (E04) can be shown against the snapshot
 - `GET /api/v1/snapshots/:id/entities/:eid` returns entity details.
 - `GET /api/v1/snapshots/:id/relations?ids=` returns relation details with evidence.
 - `GET /api/v1/snapshots/:id/source?path=` returns manifest files only. It rejects paths with `..` or a leading `/` and paths escaping the root, and it never returns bytes that differ from the snapshot.
+
+### Stable maps (M01c)
+
+A map should not rearrange itself every time the code changes (plan §9).
+
+- **Remembered positions.** After every layout, each view's overlay records where its unpinned top-level nodes landed, in `autoPositions`. Entries are keyed by entity ID, so they follow accepted renames, or by projection node ID.
+- **Re-layout.** Nodes with a remembered position, and user pins, are fixed and carry their group children along. Every other top-level node keeps its ELK position if that spot is free. Otherwise it moves to the nearest free spot, searched on a 24 px grid ring by ring, which is deterministic. The layout version is `v5`.
+- **Viewport.** A live refresh of the view on screen keeps the viewport.
+- **Reset.** The canvas header's **Re-layout** button clears remembered positions but keeps pins.
+- **Tests.** The `layout.test.ts` stability test, and `watch.spec.ts`: a file added while watching leaves every existing node at its exact position and the new node overlaps none.
+
+### Rename issues (M01c)
+
+Ambiguous renames are never merged automatically. Neither are possible renames, where the same file name has different content. The header shows "N rename issues to review", which opens a panel listing each issue's old and new candidates.
+
+- **Link** records a `user-accepted` alias from the old entity to the new one. Child symbols with the same kind and name follow when both snapshots are still stored. Pins, notes and remembered positions follow when read, and human claims follow from the next scan.
+- **Several candidates.** Nothing is preselected, because a wrong link is worse than none.
+- **Resolution.** The issue resolves once every old file is linked. **Dismiss** closes it without linking.
+- **API.** `GET /projects/:id/issues`, `POST /issues/:id/resolve`.
+- **IDs.** Issues record candidate entity IDs when they are raised, so they stay linkable after the old snapshot is compacted.

@@ -50,6 +50,20 @@ function edgeLabel(kinds: Record<string, number>): string {
     .join(', ');
 }
 
+/** Overlay key of a node: entity id (follows renames) or projection node id. */
+const keyOf = (n: ProjectionNodeDto) => (n.kind === 'entity' && n.entityId ? n.entityId : n.id);
+
+function samePositions(
+  a: Record<string, { x: number; y: number }> | undefined,
+  b: Record<string, { x: number; y: number }>,
+) {
+  const ka = Object.keys(a ?? {});
+  return (
+    ka.length === Object.keys(b).length &&
+    ka.every((k) => b[k] && b[k].x === a![k]!.x && b[k].y === a![k]!.y)
+  );
+}
+
 /** Absolute overlay position of a projection node, if the user placed it. */
 function overlayPos(o: OverlayDto | null, n: ProjectionNodeDto) {
   if (!o) return undefined;
@@ -78,6 +92,8 @@ export function CanvasView(props: Props) {
   const flow = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const pendingViewport = useRef<{ viewport?: Viewport } | null>(null);
+  /** View currently on screen: a live refresh of the same view keeps the user's viewport. */
+  const shownViewId = useRef<string | null>(null);
 
   // Fit (or restore the saved viewport) only once React Flow has measured every node of this canvas.
   // `useNodesInitialized` can stay true across canvas switches, so check measurements directly.
@@ -118,7 +134,10 @@ export function CanvasView(props: Props) {
             n.kind === 'group'
               ? { width: 260, height: 80 }
               : (NODE_SIZE[n.kind] ?? NODE_SIZE.entity!);
-          const fixed = n.parentId ? undefined : overlayPos(overlay, n);
+          // user pins win; otherwise keep the node where it was last laid out (stable map)
+          const fixed = n.parentId
+            ? undefined
+            : (overlayPos(overlay, n) ?? overlay.autoPositions?.[keyOf(n)]);
           return {
             id: n.id,
             ...size,
@@ -183,6 +202,18 @@ export function CanvasView(props: Props) {
       );
       onProjection(p, overlay);
       setStatus('ready');
+      // remember where unpinned top-level nodes landed, so later additions do not move them
+      const auto: Record<string, { x: number; y: number }> = {};
+      for (const n of p.nodes) {
+        const a = abs[n.id];
+        if (n.parentId || !a || overlayPos(overlay, n)) continue;
+        auto[keyOf(n)] = { x: a.x, y: a.y };
+      }
+      if (!samePositions(overlay.autoPositions, auto))
+        persist((o) => ({ ...o, autoPositions: auto }));
+      const sameView = shownViewId.current === p.viewId;
+      shownViewId.current = p.viewId;
+      if (sameView) return; // a refresh of the view on screen keeps the viewport
       // the default viewport means "never set by the user" (e.g. only pins were saved): fit instead
       const v = overlay.viewport;
       const userViewport = v.zoom > 0 && !(v.x === 0 && v.y === 0 && v.zoom === 1);

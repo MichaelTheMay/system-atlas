@@ -15,8 +15,10 @@ import { newId } from '@atlas/schema';
 import type { Db } from '@atlas/store';
 import {
   checkSnapshotIntegrity,
+  listIssues,
   registerRoot,
   resolveAlias,
+  resolveIssue,
   scanWorktree,
   stableId,
 } from '../src/index.ts';
@@ -193,6 +195,60 @@ describe('reconciliation', () => {
     expect(JSON.parse(issues[1]!.body)).toMatchObject({ name: 'export.py' });
     expect(changes(db, r.snapshot.id).filter((x) => x.change === 'renamed')).toEqual([]);
     expect(r.changes.issues).toBe(2);
+  });
+
+  it('lets a person link ambiguous renames pair by pair, or dismiss a possible rename', async () => {
+    const { root, db, project, scan } = await setup('py-cli-api');
+    const pkg = join(root, 'src/notekeeper');
+    writeFileSync(join(pkg, 'a.py'), 'def helper():\n    return 1\n');
+    writeFileSync(join(pkg, 'b.py'), 'def helper():\n    return 1\n');
+    await scan();
+    mkdirSync(join(pkg, 'sub'));
+    renameSync(join(pkg, 'a.py'), join(pkg, 'sub/a2.py'));
+    renameSync(join(pkg, 'b.py'), join(pkg, 'sub/b2.py'));
+    mkdirSync(join(pkg, 'io'));
+    writeFileSync(
+      join(pkg, 'io/export.py'),
+      readFileSync(join(pkg, 'export.py'), 'utf8') + '\n# edited\n',
+    );
+    rmSync(join(pkg, 'export.py'));
+    await scan();
+    const [ambiguous, possible] = ['ambiguous-rename', 'possible-rename'].map((k) =>
+      listIssues(db, project.id).find((i) => i.kind === k)!,
+    );
+    const d = ambiguous!.detail;
+    const idOf = (paths: string[], ids: string[], suffix: string) =>
+      ids[paths.findIndex((p) => p.endsWith(suffix))]!;
+    const aOld = idOf(d.from!, d.fromIds!, '/a.py');
+    const bOld = idOf(d.from!, d.fromIds!, '/b.py');
+    const aNew = idOf(d.to!, d.toIds!, '/a2.py');
+    const bNew = idOf(d.to!, d.toIds!, '/b2.py');
+
+    expect(
+      resolveIssue(db, ambiguous!.id, {
+        action: 'link',
+        fromId: aOld,
+        toId: possible!.detail.toIds![0]!,
+      }),
+    ).toMatchObject({ ok: false, status: 400 });
+    const first = resolveIssue(db, ambiguous!.id, { action: 'link', fromId: aOld, toId: aNew });
+    expect(first).toMatchObject({ ok: true, issue: { status: 'open' } });
+    // the module's function follows it
+    expect(first.ok && first.aliases).toBe(2);
+    expect(
+      resolveIssue(db, ambiguous!.id, { action: 'link', fromId: aOld, toId: bNew }),
+    ).toMatchObject({ ok: false, status: 409 });
+    expect(
+      resolveIssue(db, ambiguous!.id, { action: 'link', fromId: bOld, toId: bNew }),
+    ).toMatchObject({ ok: true, issue: { status: 'resolved' } });
+    expect(resolveAlias(db, project.id, aOld)).toBe(aNew);
+    expect(resolveAlias(db, project.id, bOld)).toBe(bNew);
+    expect(resolveIssue(db, possible!.id, { action: 'dismiss' })).toMatchObject({
+      ok: true,
+      issue: { status: 'dismissed' },
+    });
+    expect(listIssues(db, project.id)).toEqual([]);
+    expect(listIssues(db, project.id, 'all')).toHaveLength(2);
   });
 
   it('carries human claims forward and marks them stale when their evidence changes', async () => {

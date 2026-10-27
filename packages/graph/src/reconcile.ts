@@ -137,6 +137,9 @@ export function reconcile(args: {
           contentHash: hash,
           from: gone.map((e) => pathOf(e)),
           to: came.map((e) => pathOf(e)),
+          // entity ids, so a person can link a pair later even after the old snapshot is compacted
+          fromIds: gone.map((e) => e.id),
+          toIds: came.map((e) => e.id),
           reason: 'identical content matches several files; not merged',
         },
       });
@@ -184,6 +187,8 @@ export function reconcile(args: {
           name: base,
           from: gone.map((e) => pathOf(e)),
           to: came.map((e) => pathOf(e)),
+          fromIds: gone.map((e) => e.id),
+          toIds: came.map((e) => e.id),
           reason: 'same file name, different content; review before linking',
         },
       });

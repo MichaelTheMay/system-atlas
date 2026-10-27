@@ -52,12 +52,41 @@ test('watching keeps the open canvas live: a new file appears without a manual r
   );
   await expect(node(page, 'db.ts')).toBeVisible();
   await expect(node(page, 'live-probe.ts')).toHaveCount(0);
+  const positions = () =>
+    page
+      .locator('.react-flow__node')
+      .evaluateAll((els) =>
+        Object.fromEntries(
+          els.map((e) => [
+            e.querySelector('.node-label')?.textContent ?? e.id,
+            (e as HTMLElement).style.transform,
+          ]),
+        ),
+      );
+  const before = await positions();
+  // let the remembered layout positions save before the map changes
+  await page.waitForTimeout(600);
 
   writeFileSync(
     join(root, 'packages/api/src/live-probe.ts'),
     "import { getReport } from './db';\nexport const probe = getReport;\n",
   );
   await expect(node(page, 'live-probe.ts')).toBeVisible({ timeout: 15_000 });
+  // the map stays where it was: every existing node keeps its exact position, the new one takes free space
+  const after = await positions();
+  for (const [label, transform] of Object.entries(before))
+    expect(after[label], label).toBe(transform);
+  const fresh = (await node(page, 'live-probe.ts').boundingBox())!;
+  for (const other of await page.locator('.react-flow__node').all()) {
+    if ((await other.locator('.node-label').textContent()) === 'live-probe.ts') continue;
+    const b = (await other.boundingBox())!;
+    const overlaps =
+      fresh.x < b.x + b.width &&
+      b.x < fresh.x + fresh.width &&
+      fresh.y < b.y + b.height &&
+      b.y < fresh.y + fresh.height;
+    expect(overlaps).toBe(false);
+  }
   // still on the same canvas: the update did not navigate away
   await expect(page.getByRole('navigation', { name: 'Breadcrumbs' })).toHaveText(
     'Project structure / @reports/api',
