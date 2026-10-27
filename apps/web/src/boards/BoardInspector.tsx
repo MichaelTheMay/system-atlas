@@ -11,7 +11,9 @@ import {
 } from '@atlas/schema';
 import { createBoard } from './api.ts';
 import { useBoard } from './context.ts';
+import { DocPanel } from './DocPanel.tsx';
 import { ComponentIcon, FAMILY_LABEL } from './Palette.tsx';
+import { ScenariosPanel } from './ScenariosPanel.tsx';
 
 /**
  * Board inspector (D03): the right column while a board is open. Wave 1a fills it with the
@@ -26,15 +28,45 @@ export function BoardInspector() {
   const connection = selection.connectionId
     ? board.document.connections[selection.connectionId]
     : undefined;
+  const [tab, setTab] = useState<'properties' | 'scenarios' | 'doc'>('properties');
+  const tabs = [
+    ['properties', 'Properties'],
+    ['scenarios', 'Scenarios'],
+    ['doc', 'Design doc'],
+  ] as const;
   return (
     <div className="board-inspector">
       <h2>Inspector</h2>
-      {component ? (
-        <ComponentPanel key={component.id} component={component} />
-      ) : connection ? (
-        <ConnectionPanel key={connection.id} connection={connection} />
+      {/* wave 1b: scenarios and the design doc are tabs next to the properties */}
+      <div className="board-side-tabs" role="tablist" aria-label="Board panels">
+        {tabs.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === 'properties' ? (
+        component ? (
+          <ComponentPanel key={component.id} component={component} />
+        ) : connection ? (
+          <ConnectionPanel key={connection.id} connection={connection} />
+        ) : (
+          <BoardSummary />
+        )
       ) : (
-        <BoardSummary />
+        <section
+          className="board-side"
+          role="tabpanel"
+          aria-label={tab === 'scenarios' ? 'Scenarios' : 'Design doc'}
+        >
+          {tab === 'scenarios' ? <ScenariosPanel /> : <DocPanel />}
+        </section>
       )}
     </div>
   );

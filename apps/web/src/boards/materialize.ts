@@ -247,6 +247,8 @@ export function renderComponent(
     }
     if (el.id === ids.type || (isContainer(c) && el.id === ids.label))
       Object.assign(el, { width: box.width - (isContainer(c) ? 60 : 50), autoResize: false });
+    // imported "as built" from code (D03 1b): drawn faded so it reads as a reference, not a design
+    if (c.origin.author === 'code') el.opacity = 60;
   }
   return { elements, files: [file] };
 }
@@ -312,6 +314,8 @@ export function renderConnection(
     );
     label.id = opts.labelId;
   }
+  // "as built" from code (D03 1b): faded like its components
+  if (k.origin.author === 'code') for (const e of [a, ...rest]) e.opacity = 60;
   return [a, ...rest];
 }
 
