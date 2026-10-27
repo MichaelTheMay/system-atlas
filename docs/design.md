@@ -30,6 +30,40 @@ unbound, which means "planned, not in code yet" and is drawn dashed.
   - a code flow between boxes that is not on the board (a faint ghost edge you can adopt);
   - a bound box whose entity disappeared (stale).
 
+### Controls
+
+**Edit** in the design toolbar turns on edit mode (latest snapshot only). Then:
+
+- **Add**: the palette on the canvas adds a box of any archetype, a drawn subsystem or a sticky
+  note, by drag-and-drop or by click. Boxes go on the System design root or inside a drawn
+  subsystem; claim-based subsystem canvases take sticky notes only.
+- **Rename and archetype**: double-click a label to rename it in place, or use the Inspector's
+  Label and Archetype fields. On a detected box this creates a box element bound to its entity, so
+  the code facts stay as they were.
+- **Connect**: drag from the right edge of a box to another box. This draws a flow and opens its
+  label for editing; double-click the label later to change it. Hover a faint code flow and
+  click **Adopt** to draw it.
+- **Group**: select several boxes (Ctrl+click) and choose **Group into subsystem…**, then type a
+  name inline.
+  - Detected boxes only: you get human subsystem claims and an accepted subsystem canvas.
+  - Any drawn boxes in the selection: you get a drawn subsystem instead.
+- **Move boxes in and out of subsystems**:
+  - **Move to…** in the selection bar;
+  - **In subsystem** in the Inspector;
+  - drop a box onto a subsystem.
+- **Delete and Escape**:
+  - Delete removes a drawn element and the flows drawn to it.
+  - On a detected box, Delete hides it; the status line offers **Undo**.
+  - **Dissolve subsystem** moves what was inside up one level.
+  - Escape clears the selection.
+- **Undo and redo**: Ctrl+Z and Ctrl+Shift+Z (or the ↶ ↷ buttons) replay the inverse API calls
+  of your own edits.
+  - Undoing a grouping rejects the claims it wrote.
+  - A conflicting edit (HTTP 409) refreshes the board and says so.
+- **Agent proposals** are drawn dashed and labelled `agent: <model>`. **Accept** or **Reject**
+  them on the canvas or in the Inspector. Accepting and rejecting cannot be undone, and a rejection
+  is kept in the audit trail.
+
 ## Copilot
 
 **Copilot** in the design toolbar opens a panel to the right of the canvas.

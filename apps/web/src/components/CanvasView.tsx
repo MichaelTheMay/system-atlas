@@ -120,6 +120,9 @@ export function CanvasView(props: Props) {
   const shownViewId = useRef<string | null>(null);
   const multiSelect = !!useDesignEdits()?.editMode;
   const selectedEntityRef = useRef(selectedEntityId);
+  /** Nodes on screen, so a live refresh of the same view keeps what the person had selected. */
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
   selectedEntityRef.current = selectedEntityId;
 
   // one selection across views: whichever node shows the selected entity is selected here too;
@@ -207,6 +210,11 @@ export function CanvasView(props: Props) {
       });
       if (cancelled) return;
       const abs = layout.positions;
+      const keepSelected = new Set(
+        shownViewId.current === p.viewId
+          ? nodesRef.current.filter((n) => n.selected).map((n) => n.id)
+          : [],
+      );
       const pinned = new Set(overlay.pinnedIds);
       const noted = new Set(overlay.annotations.map((a) => a.targetId));
       const ordered = [...p.nodes].sort(
@@ -240,7 +248,8 @@ export function CanvasView(props: Props) {
             type: n.kind === 'sticky' ? 'sticky' : 'atlas',
             position,
             data,
-            selected: !!n.entityId && n.entityId === selectedEntityRef.current,
+            selected:
+              (!!n.entityId && n.entityId === selectedEntityRef.current) || keepSelected.has(n.id),
             parentId: n.parentId && groupIds.has(n.parentId) ? n.parentId : undefined,
             extent: n.parentId && groupIds.has(n.parentId) ? 'parent' : undefined,
             ariaLabel: `${n.entityKind ?? n.kind} ${n.label}`,
