@@ -27,6 +27,7 @@ export const ID_PREFIXES = {
   usage: 'use',
   designElement: 'dsg',
   designJob: 'djb',
+  board: 'brd',
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;
