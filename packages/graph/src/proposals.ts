@@ -99,6 +99,47 @@ interface FileCheck {
 
 const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
 
+/**
+ * Validator for citations by evidence id (shared by claim proposals and agent design elements):
+ * returns why `evidenceId` cannot be cited against `snapshotId`, or undefined when it can. Valid
+ * evidence belongs to the project and either describes a file at exactly the snapshot's version or
+ * is run evidence of a run of this project (pathless evidence can never go stale otherwise).
+ */
+export function evidenceChecker(
+  db: Db,
+  snapshotId: string,
+  projectId: string,
+): (evidenceId: string) => string | undefined {
+  const manifest = db.prepare(
+    'SELECT sha256 FROM snapshot_files WHERE snapshot_id = ? AND path = ?',
+  );
+  const evidenceRow = db.prepare(
+    'SELECT project_id, path, content_hash, run_id, body FROM evidence WHERE id = ?',
+  );
+  const runRow = db.prepare('SELECT project_id FROM runs WHERE id = ?');
+  return (evidenceId) => {
+    const ev = evidenceRow.get<{
+      project_id: string;
+      path: string | null;
+      content_hash: string | null;
+      run_id: string | null;
+      body: string;
+    }>(evidenceId);
+    if (!ev || ev.project_id !== projectId)
+      return `evidence ${evidenceId} does not exist in this project`;
+    if (ev.path) {
+      const m = manifest.get<{ sha256: string }>(snapshotId, ev.path);
+      if (!m || m.sha256 !== ev.content_hash)
+        return `evidence ${evidenceId} describes a different version of ${ev.path} than this snapshot`;
+      return undefined;
+    }
+    const runId = ev.run_id ?? (JSON.parse(ev.body) as { runId?: string }).runId;
+    if (!runId || runRow.get<{ project_id: string }>(runId)?.project_id !== projectId)
+      return `evidence ${evidenceId} is neither file evidence of this snapshot nor run evidence of this project`;
+    return undefined;
+  };
+}
+
 export async function proposeClaims(db: Db, raw: unknown): Promise<ProposeOutcome> {
   const parsed = ProposalBatch.safeParse(raw);
   if (!parsed.success)
@@ -145,10 +186,7 @@ export async function proposeClaims(db: Db, raw: unknown): Promise<ProposeOutcom
   const manifest = db.prepare(
     'SELECT sha256, size FROM snapshot_files WHERE snapshot_id = ? AND path = ?',
   );
-  const evidenceRow = db.prepare(
-    'SELECT project_id, path, content_hash, run_id, body FROM evidence WHERE id = ?',
-  );
-  const runRow = db.prepare('SELECT project_id FROM runs WHERE id = ?');
+  const checkEvidence = evidenceChecker(db, snap.id, snap.project_id);
   const files = new Map<string, FileCheck | string>();
   const root = await realpath(snap.root_path).catch(() => snap.root_path);
 
@@ -209,34 +247,10 @@ export async function proposeClaims(db: Db, raw: unknown): Promise<ProposeOutcom
     for (const [ci, cit] of c.citations.entries()) {
       const where = `citation ${ci + 1}`;
       if ('evidenceId' in cit) {
-        const ev = evidenceRow.get<{
-          project_id: string;
-          path: string | null;
-          content_hash: string | null;
-          run_id: string | null;
-          body: string;
-        }>(cit.evidenceId);
-        if (!ev || ev.project_id !== snap.project_id) {
-          reasons.push(`${where}: evidence ${cit.evidenceId} does not exist in this project`);
+        const problem = checkEvidence(cit.evidenceId);
+        if (problem) {
+          reasons.push(`${where}: ${problem}`);
           continue;
-        }
-        if (ev.path) {
-          const m = manifest.get<{ sha256: string }>(snap.id, ev.path);
-          if (!m || m.sha256 !== ev.content_hash) {
-            reasons.push(
-              `${where}: evidence ${cit.evidenceId} describes a different version of ${ev.path} than this snapshot`,
-            );
-            continue;
-          }
-        } else {
-          // pathless evidence can never go stale, so only run evidence of this project qualifies
-          const runId = ev.run_id ?? (JSON.parse(ev.body) as { runId?: string }).runId;
-          if (!runId || runRow.get<{ project_id: string }>(runId)?.project_id !== snap.project_id) {
-            reasons.push(
-              `${where}: evidence ${cit.evidenceId} is neither file evidence of this snapshot nor run evidence of this project`,
-            );
-            continue;
-          }
         }
         evidenceIds.push(cit.evidenceId);
         continue;
