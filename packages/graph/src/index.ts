@@ -8,3 +8,4 @@ export * from './reconcile.ts';
 export * from './issues.ts';
 export * from './search.ts';
 export * from './proposals.ts';
+export * from './overrides.ts';
