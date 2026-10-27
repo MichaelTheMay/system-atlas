@@ -85,6 +85,35 @@ Proposals can only add labeled claims. They never change analyzer facts or relat
 
 **Audit.** Every call is kept with accepted and rejected items and their reasons (`GET /projects/:id/proposals`). In the UI Inspector, claims show origin, reported model, status and citation count, and a person can **Reject** one. The rejection is audited and survives later snapshots.
 
+## Built-in enrichment (M02b)
+
+Atlas can also ask a configured model provider for claims. This is **off by default** (`provider: none`), and Atlas ships **no network provider**. The only implementations are deterministic mocks for tests and demos:
+
+- `mock` proposes a role and a summary;
+- `mock-adversarial` also proposes claims with invented citations.
+
+A real provider would send repository excerpts to a third party and cost money, so one is added only with the user's consent.
+
+```bash
+atlas enrich --provider mock --max-tokens-per-day 50000   # configure
+atlas enrich --entity ent_…                                # propose claims for entities
+atlas enrich                                               # provider, budget and today's usage
+```
+
+The UI Inspector shows **Propose claims (provider)** when a provider is configured.
+
+- **Explicit only.** Requests come from the CLI, the API (`POST /worktrees/:id/enrich`) or the Inspector. Scans and watcher churn never call a model, and a test asserts zero provider calls while files change under watch.
+- **Redacted, bounded bundle.**
+  - The bundle holds the entity, its owners, up to 30 relations, and up to 4 evidence excerpts of at most 60 lines and 1,500 characters each.
+  - Excerpts are read hash-verified, and redacted before the provider sees them. A test puts an `sk-…` key in a file and checks that it never reaches the provider.
+- **Cache.** Results are keyed by the SHA-256 of the bundle, the output schema version and the provider, model and prompt version. An identical request makes no provider call, and claims a model already stated are not duplicated.
+- **Budget and ledger.**
+  - Each request is ledgered with estimated and provider-reported tokens kept apart.
+  - A daily budget counts the larger of the two per request and stops a request before it is sent (`skipped-budget`).
+  - A newer request for the same entity cancels the older one (`cancelled`).
+  - `GET /projects/:id/enrichment` shows today's usage.
+- **Same validation.** Provider output goes through the same validator as agent proposals, so the invented citations from `mock-adversarial` are rejected with reasons. Model metadata records the provider, model, prompt version and input digest.
+
 ## Recording a run over MCP
 
 1. `atlas_start_run { name }` creates a run. Like `atlas run`, it is bound to the snapshot of the current tree, scanning it first if needed. It returns a `runId`. The run's ingest token stays inside the MCP server process.

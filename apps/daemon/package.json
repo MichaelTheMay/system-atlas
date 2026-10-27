@@ -16,13 +16,14 @@
     "start": "node src/main.ts"
   },
   "dependencies": {
-    "@atlas/schema": "workspace:*",
-    "fastify": "5.12.7",
-    "@atlas/store": "workspace:*",
-    "@atlas/graph": "workspace:*",
-    "zod": "4.6.7",
+    "@atlas/agent-api": "workspace:*",
     "@atlas/analyzers": "workspace:*",
+    "@atlas/evidence": "workspace:*",
+    "@atlas/graph": "workspace:*",
     "@atlas/planner": "workspace:*",
-    "@atlas/evidence": "workspace:*"
+    "@atlas/schema": "workspace:*",
+    "@atlas/store": "workspace:*",
+    "fastify": "5.12.7",
+    "zod": "4.6.7"
   }
 }

@@ -57,6 +57,7 @@ export function App() {
   const [watching, setWatching] = useState(false);
   const [issuesOpen, setIssuesOpen] = useState(false);
   const [claimsKey, setClaimsKey] = useState(0);
+  const [enrichmentProvider, setEnrichmentProvider] = useState<string>('none');
   const [catalog, setCatalog] = useState<CatalogDto | null>(null);
   const [scan, setScan] = useState<{ state: 'idle' | 'running' | 'failed'; message?: string }>({
     state: 'idle',
@@ -197,6 +198,13 @@ export function App() {
       cancelled = true;
     };
   }, [token, worktreeId]);
+
+  useEffect(() => {
+    if (!token) return;
+    api<{ provider: string }>('/settings/enrichment', token)
+      .then((s) => setEnrichmentProvider(s.provider))
+      .catch(() => setEnrichmentProvider('none'));
+  }, [token]);
 
   const toggleWatch = async () => {
     if (!token || !worktreeId) return;
@@ -558,6 +566,8 @@ export function App() {
           onNavigate={navigate}
           onOpenRun={openRun}
           claimsKey={claimsKey}
+          worktreeId={worktreeId}
+          enrichmentProvider={enrichmentProvider}
         />
       ) : (
         <aside className="inspector" aria-label="Inspector">

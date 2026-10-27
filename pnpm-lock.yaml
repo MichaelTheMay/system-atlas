@@ -81,6 +81,9 @@ importers:
 
   apps/daemon:
     dependencies:
+      '@atlas/agent-api':
+        specifier: workspace:*
+        version: link:../../packages/agent-api
       '@atlas/analyzers':
         specifier: workspace:*
         version: link:../../packages/analyzers

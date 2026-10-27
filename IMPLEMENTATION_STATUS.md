@@ -6,31 +6,31 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**M02 — Model proposal validation, cache and budget** (Phase 3). M02a (validation, MCP proposals and claims UI) is in PR #17. M02b is next: the provider interface, mock provider, cache and budget.
+**Phase 3 close-out**: a cross-view selection e2e test and an Agent-lens check, then tag `phase-3`. Afterwards, Phase 4 (I02 VS Code integration). M02 was completed in PRs #17 and #18.
 
 ## Tickets (plan §17)
 
-| ID  | Ticket                                            | Depends on  | Status      | PR / evidence              |
-| --- | ------------------------------------------------- | ----------- | ----------- | -------------------------- |
-| A00 | Repository bootstrap, GitHub remote, branch rules | —           | done        | bootstrap commit on `main` |
-| A01 | Bootstrap workspace, contracts and ADRs           | —           | not started |                            |
-| A02 | Project/worktree identity and SQLite migrations   | A01         | not started |                            |
-| A03 | Inventory and coverage report                     | A02         | not started |                            |
-| A04 | TS/JS and Python analyzers                        | A03         | not started |                            |
-| A05 | Semantic identity and snapshot reconciler         | A04         | not started |                            |
-| A06 | View planner and canvas navigation                | A05         | done        | PR #6; see A06 evidence    |
-| A07 | React Flow, layout worker, overlays and inspector | A06         | done        | PR #7; see A07 evidence    |
-| E01 | Run/event/artifact store and ingestion            | A02         | done        | PR #8; see E01 evidence    |
-| E02 | Process wrapper and output registration           | E01         | done        | PR #9; see E02 evidence    |
-| E03 | Playwright capture helper                         | E01         | done        | PR #10; see E03 evidence   |
-| E04 | Output canvases and isolated preview renderer     | E02,E03,A07 | done        | PR #11; see E04 evidence   |
-| M01 | Watcher and incremental invalidation              | A05,A07     | done        | PRs #13, #14, #15          |
-| M02 | Model proposal validation, cache and budget       | M01         | in progress | M02a PR #17                |
-| I01 | MCP and generic event SDK                         | E01,A06     | done        | PR #16                     |
-| I02 | VS Code integration                               | I01         | not started |                            |
-| I03 | OTLP subset and bundle importer                   | E04         | not started |                            |
-| I04 | Skena/JSON Canvas bridge                          | I01,A07     | not started |                            |
-| H01 | Retention, recovery, export and performance       | E04,M01     | not started |                            |
+| ID  | Ticket                                            | Depends on  | Status      | PR / evidence                          |
+| --- | ------------------------------------------------- | ----------- | ----------- | -------------------------------------- |
+| A00 | Repository bootstrap, GitHub remote, branch rules | —           | done        | bootstrap commit on `main`             |
+| A01 | Bootstrap workspace, contracts and ADRs           | —           | not started |                                        |
+| A02 | Project/worktree identity and SQLite migrations   | A01         | not started |                                        |
+| A03 | Inventory and coverage report                     | A02         | not started |                                        |
+| A04 | TS/JS and Python analyzers                        | A03         | not started |                                        |
+| A05 | Semantic identity and snapshot reconciler         | A04         | not started |                                        |
+| A06 | View planner and canvas navigation                | A05         | done        | PR #6; see A06 evidence                |
+| A07 | React Flow, layout worker, overlays and inspector | A06         | done        | PR #7; see A07 evidence                |
+| E01 | Run/event/artifact store and ingestion            | A02         | done        | PR #8; see E01 evidence                |
+| E02 | Process wrapper and output registration           | E01         | done        | PR #9; see E02 evidence                |
+| E03 | Playwright capture helper                         | E01         | done        | PR #10; see E03 evidence               |
+| E04 | Output canvases and isolated preview renderer     | E02,E03,A07 | done        | PR #11; see E04 evidence               |
+| M01 | Watcher and incremental invalidation              | A05,A07     | done        | PRs #13, #14, #15                      |
+| M02 | Model proposal validation, cache and budget       | M01         | done        | PRs #17, #18 (view proposals deferred) |
+| I01 | MCP and generic event SDK                         | E01,A06     | done        | PR #16                                 |
+| I02 | VS Code integration                               | I01         | not started |                                        |
+| I03 | OTLP subset and bundle importer                   | E04         | not started |                                        |
+| I04 | Skena/JSON Canvas bridge                          | I01,A07     | not started |                                        |
+| H01 | Retention, recovery, export and performance       | E04,M01     | not started |                                        |
 
 ## Phase acceptance checklists (plan §15)
 
@@ -361,6 +361,28 @@ Changes:
   - `mcp.test.ts`, which adds proposals and annotate.
   - `claims.spec.ts`.
 - Screenshots of the Inspector were inspected, showing claims and an agent note made by a real `atlas mcp` session.
+
+### M02b (2026-10-26): provider contract, mock providers, cache and budget
+
+- `ModelProvider.enrich(bundle, existingClaims, outputSchemaVersion, budget, signal)`.
+  - Only the deterministic `mock` and `mock-adversarial` providers exist; no network provider ships.
+  - The daemon `Enricher` builds a redacted, bounded bundle with hash-verified excerpts.
+  - Its cache key is the bundle, output schema, provider, model and prompt.
+  - The ledger records estimated and reported usage separately (migration `0007`). A daily budget stops requests before they are sent, and a newer request for the same entity cancels the older one.
+  - Output goes through `proposeClaims`.
+- Explicit triggers only: `POST /worktrees/:id/enrich`, `atlas enrich`, and the Inspector button that appears when a provider is configured. Scans and watchers never enrich.
+- **Bug found:** the validator rejected the TS analyzer's own module evidence (`1-15` for a 14-line file ending in a newline). Line counting now follows the analyzers' convention.
+- `enrich.test.ts` covers:
+  - off by default, with zero calls;
+  - honest output accepted as inferred;
+  - a cached repeat with zero calls and no duplicates;
+  - adversarial invented citations rejected with reasons;
+  - a secret redacted before the provider;
+  - the budget skip, with zero calls;
+  - cancellation of a superseded request;
+  - zero calls during watcher churn.
+- Tried by hand: `atlas enrich` (disabled, configure, run, cached, status) and the Inspector button, screenshot inspected.
+- **Deferred (M02c):** `atlas_propose_view` and the suppress/pin UI for proposed views. Subsystem groupings can be proposed as `subsystem` claims meanwhile.
 
 ## Environment record (2026-10-26)
 

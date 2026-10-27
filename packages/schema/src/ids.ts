@@ -24,6 +24,7 @@ export const ID_PREFIXES = {
   assertion: 'asr',
   issue: 'iss',
   proposal: 'prp',
+  usage: 'use',
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;
