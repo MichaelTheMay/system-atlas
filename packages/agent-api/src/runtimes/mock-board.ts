@@ -300,7 +300,7 @@ async function critique(req: DesignJobRequest, ctx: DesignRuntimeContext) {
   });
   const risks = items.filter((i) => i.section === 'risks');
   return {
-    text: `${risks.length} risk(s): ${risks.map((i) => i.text.replace(/\].*$/, ']')).join(' ')}`,
+    text: `${risks.length} risk(s): ${risks.map((r) => /^\[[^\]]+\]/.exec(r.text)?.[0] ?? '').join(', ')}.`,
     data: r,
   };
 }

@@ -80,6 +80,8 @@
   border-top: 3px solid #7c3aed;
 }
 .ba-result {
+  left: 12px;
+  right: auto;
   bottom: 64px;
   max-height: 40%;
   z-index: 36;
