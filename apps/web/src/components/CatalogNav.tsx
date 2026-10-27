@@ -16,12 +16,32 @@ const LENS_LABEL: Record<string, string> = {
 
 interface Props {
   catalog: CatalogDto | null;
+  /** Workspace whose canvases are listed; canvases without one are architecture views. */
+  workspace?: string;
   currentCanvasId?: string;
   onOpen(canvasId: string): void;
 }
 
 /** Searchable canvas catalog (plan §13). Only expanded branches render, so large catalogs stay cheap. */
-export function CatalogNav({ catalog, currentCanvasId, onOpen }: Props) {
+export function CatalogNav({
+  catalog: all,
+  workspace = 'architecture',
+  currentCanvasId,
+  onOpen,
+}: Props) {
+  const catalog = useMemo(() => {
+    if (!all) return all;
+    const ids = new Set(
+      all.canvases
+        .filter((c) => (c.workspace ?? 'architecture') === workspace && c.state !== 'suppressed')
+        .map((c) => c.id),
+    );
+    return {
+      ...all,
+      canvases: all.canvases.filter((c) => ids.has(c.id)),
+      links: all.links.filter((l) => ids.has(l.fromCanvasId) && ids.has(l.toCanvasId)),
+    };
+  }, [all, workspace]);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<Set<string>>(new Set());
   const { roots, children, byId, ancestors } = useMemo(() => {

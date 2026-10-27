@@ -1,3 +1,4 @@
+import { projectDesign } from './design.ts';
 import type { CanvasSpec } from '@atlas/schema';
 import { canvasId, shortHash } from './ids.ts';
 import { buildNav, descendants, pathOf, type Nav } from './nav.ts';
@@ -46,6 +47,7 @@ export function projectView(
 ): Projection {
   const spec = catalog.canvases.find((c) => c.id === canvasIdArg);
   if (!spec) throw new Error(`unknown canvas ${canvasIdArg}`);
+  if (spec.workspace === 'design') return projectDesign(g, catalog, canvasIdArg);
   const nav = buildNav(g);
   const canvasByOwner = new Map<string, string>();
   for (const c of catalog.canvases)
