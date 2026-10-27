@@ -121,3 +121,13 @@ Ambiguous renames are never merged automatically. Neither are possible renames, 
 - **Resolution.** The issue resolves once every old file is linked. **Dismiss** closes it without linking.
 - **API.** `GET /projects/:id/issues`, `POST /issues/:id/resolve`.
 - **IDs.** Issues record candidate entity IDs when they are raised, so they stay linkable after the old snapshot is compacted.
+
+### One selection across views (Phase 3)
+
+The selection is an entity, not a node of one canvas.
+
+- Navigating to another view keeps an entity selection. Edge and cluster selections reset.
+- Every canvas that shows the entity shows it selected, and the list alternative marks its row with `aria-current`.
+- A canvas that shows the entity only inside an owner, for example the Data lens showing a module's package, marks the nearest visible owner as _contains selection_: a dashed outline and ◎.
+- The Inspector keeps the entity's details throughout.
+- Test: `selection.spec.ts`.

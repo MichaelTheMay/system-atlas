@@ -37,6 +37,10 @@ interface Props {
   refreshKey: number;
   onNavigate(loc: Location): void;
   onSelect(sel: Selection): void;
+  /** The selected entity (any view): its node is shown selected wherever it appears. */
+  selectedEntityId?: string;
+  /** Owner chain of the selected entity, nearest first, for canvases that only show an owner. */
+  selectedAncestors?: string[];
   onProjection(p: ProjectionDto | null, overlay: OverlayDto | null): void;
   overlayRef: React.MutableRefObject<OverlayDto | null>;
   persist(mutate: (o: OverlayDto) => OverlayDto): void;
@@ -79,6 +83,8 @@ export function CanvasView(props: Props) {
     refreshKey,
     onNavigate,
     onSelect,
+    selectedEntityId,
+    selectedAncestors,
     onProjection,
     overlayRef,
     persist,
@@ -94,6 +100,29 @@ export function CanvasView(props: Props) {
   const pendingViewport = useRef<{ viewport?: Viewport } | null>(null);
   /** View currently on screen: a live refresh of the same view keeps the user's viewport. */
   const shownViewId = useRef<string | null>(null);
+  const selectedEntityRef = useRef(selectedEntityId);
+  selectedEntityRef.current = selectedEntityId;
+
+  // one selection across views: whichever node shows the selected entity is selected here too;
+  // if the canvas only shows an owner of it, the nearest visible owner is marked instead
+  useEffect(() => {
+    setNodes((ns) => {
+      const present = ns.some((n) => n.data.entityId && n.data.entityId === selectedEntityId);
+      const visible = new Set(ns.map((n) => n.data.entityId).filter(Boolean));
+      const holder = present ? undefined : selectedAncestors?.find((a) => visible.has(a));
+      let changed = false;
+      const next = ns.map((n) => {
+        if (!n.data.entityId) return n;
+        const sel = n.data.entityId === selectedEntityId;
+        const holds = n.data.entityId === holder;
+        if (n.selected === sel && !!n.data.containsSelection === holds) return n;
+        changed = true;
+        return { ...n, selected: sel, data: { ...n.data, containsSelection: holds } };
+      });
+      // returning the same array when nothing changed keeps this effect from looping
+      return changed ? next : ns;
+    });
+  }, [selectedEntityId, selectedAncestors, nodes, setNodes]);
 
   // Fit (or restore the saved viewport) only once React Flow has measured every node of this canvas.
   // `useNodesInitialized` can stay true across canvas switches, so check measurements directly.
@@ -182,6 +211,7 @@ export function CanvasView(props: Props) {
             type: 'atlas',
             position,
             data,
+            selected: !!n.entityId && n.entityId === selectedEntityRef.current,
             parentId: n.parentId && groupIds.has(n.parentId) ? n.parentId : undefined,
             extent: n.parentId && groupIds.has(n.parentId) ? 'parent' : undefined,
             ariaLabel: `${n.entityKind ?? n.kind} ${n.label}`,

@@ -5,8 +5,10 @@ export function ListView({
   projection,
   onOpen,
   onSelect,
+  selectedEntityId,
 }: {
   projection: ProjectionDto;
+  selectedEntityId?: string;
   onOpen(n: ProjectionNodeDto): void;
   onSelect(n: ProjectionNodeDto): void;
 }) {
@@ -27,7 +29,13 @@ export function ListView({
           {projection.nodes
             .filter((n) => n.kind !== 'group')
             .map((n) => (
-              <tr key={n.id}>
+              <tr
+                key={n.id}
+                className={
+                  n.entityId && n.entityId === selectedEntityId ? 'is-selected' : undefined
+                }
+                aria-current={n.entityId && n.entityId === selectedEntityId ? 'true' : undefined}
+              >
                 <th scope="row">{n.label}</th>
                 <td>{n.entityKind ?? n.kind}</td>
                 <td>

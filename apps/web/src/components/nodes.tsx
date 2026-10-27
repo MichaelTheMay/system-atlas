@@ -2,10 +2,12 @@ import { memo } from 'react';
 import { Handle, Position, useStore, type Node, type NodeProps } from '@xyflow/react';
 import type { ProjectionNodeDto } from '../api.ts';
 
-export type AtlasNodeData = ProjectionNodeDto & { pinned?: boolean; note?: boolean } & Record<
-    string,
-    unknown
-  >;
+export type AtlasNodeData = ProjectionNodeDto & {
+  pinned?: boolean;
+  note?: boolean;
+  /** The selected entity is not on this canvas but lives inside this node. */
+  containsSelection?: boolean;
+} & Record<string, unknown>;
 export type AtlasFlowNode = Node<AtlasNodeData, 'atlas'>;
 export type GroupFlowNode = Node<AtlasNodeData, 'group-box'>;
 
@@ -50,6 +52,7 @@ export const AtlasNode = memo(function AtlasNode({ data, selected }: NodeProps<A
     data.lifecycle ? `lc-${data.lifecycle}` : '',
     data.change ? `ch-${data.change}` : '',
     selected ? 'selected' : '',
+    data.containsSelection ? 'contains-selection' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -65,6 +68,15 @@ export const AtlasNode = memo(function AtlasNode({ data, selected }: NodeProps<A
         {data.pinned && (
           <span className="node-flag" title="Pinned position" aria-label="pinned">
             📌
+          </span>
+        )}
+        {data.containsSelection && (
+          <span
+            className="node-flag"
+            title="Contains the selected element"
+            aria-label="contains selection"
+          >
+            ◎
           </span>
         )}
         {data.note && (

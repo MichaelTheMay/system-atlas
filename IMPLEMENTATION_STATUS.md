@@ -6,7 +6,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**Phase 3 close-out**: a cross-view selection e2e test and an Agent-lens check, then tag `phase-3`. Afterwards, Phase 4 (I02 VS Code integration). M02 was completed in PRs #17 and #18.
+**I02 — VS Code integration** (Phase 4). Phase 3 was closed out in PR #19.
 
 ## Tickets (plan §17)
 
@@ -76,8 +76,15 @@ Phase 2 complete 2026-10-26 (tag `phase-2`).
 - [x] Overlays survive renames where identity is supported. Pins, notes and remembered positions follow content-hash and user-accepted aliases relative to the viewed snapshot (`inspector.test.ts`). In `issues.spec.ts`, a pin on a moved file follows the link made in the UI.
 - [x] Ambiguous renames surface as issues in the UI. A header badge opens a panel where each pair can be linked or the issue dismissed. With several candidates nothing is preselected (`issues.spec.ts`, `reconcile.test.ts`).
 - [x] Model output with invented evidence is rejected. These are rejected with reasons and write nothing: an unknown evidence ID, another project's evidence, a path not in the snapshot, lines past the end, a wrong quote, a file edited after the snapshot, and a stale precondition (`proposals.test.ts`). Through MCP the same holds (`mcp.test.ts`), and in the UI (`claims.spec.ts`).
-- [ ] Cross-view selection uses a single entity identity.
+- [x] Cross-view selection uses a single entity identity. The selection is an entity that survives navigation; the node showing it is selected in every view; a view showing only its owner marks that owner; the list marks the row (`selection.spec.ts`).
 - [x] A single-file update publishes within 3 s on dsh. It takes 2.6 to 2.7 s through the watcher, including the 750 ms debounce; M01a measured 5.3 s plus the debounce.
+
+Known Phase 3 gaps, recorded rather than claimed:
+
+- **Agent/tool, deployment-infrastructure and trust-boundary lenses are not generated.** No analyzer finds agent or tool registries, infrastructure or trust boundaries, so these lenses would be empty. The research-demo's tool calls are visible only as runtime events in Outputs & Audit.
+- **View proposals (M02c) are deferred.** Groupings can be proposed as `subsystem` claims.
+
+Phase 3 complete 2026-10-26 (tag `phase-3`).
 
 Phases 4–5: see plan §15.
 
