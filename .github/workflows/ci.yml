@@ -29,8 +29,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm format:check
-      - run: pnpm test
-      - run: pnpm build
+      # unit tests also drive Chromium (export renderer check), so install it first
       - name: Playwright version
         id: pw
         run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
@@ -48,6 +47,8 @@ jobs:
         # apt mirrors are occasionally very slow (one run took >6 min for 26 MB)
         timeout-minutes: 12
         run: pnpm exec playwright install-deps chromium
+      - run: pnpm test
+      - run: pnpm build
       - run: pnpm e2e
       - run: node apps/cli/src/main.ts doctor
       - name: Reproducible demo (pnpm demo, temporary data dir)
