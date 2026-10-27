@@ -126,11 +126,11 @@ export function App() {
     .find((w) => w.id === worktreeId);
   const projectId = worktree?.project.id;
   // D02b: design agent (one job per project; dialogs and the copilot share it)
-  const designSettings = useDesignSettings(token);
   const designJobs = useDesignJobs(token, projectId);
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const designSettings = useDesignSettings(token, copilotOpen || generateOpen || settingsOpen);
 
   const navigate = useCallback((loc: Location) => {
     // selection is an entity, not a node of one canvas: it follows the user across views

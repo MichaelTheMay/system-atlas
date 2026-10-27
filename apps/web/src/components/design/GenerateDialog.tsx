@@ -53,6 +53,14 @@ export function GenerateDialog({
   /** Set once this dialog started a job: from then on it shows progress, then the review. */
   const [started, setStarted] = useState(() => jobs.active?.job.kind === 'generate');
   const job = jobs.active?.job.kind === 'generate' ? jobs.active : null;
+  // settings may arrive after the dialog opened: start from the configured runtime and model
+  const configured = settings !== null;
+  useEffect(() => {
+    if (!configured || !settings) return;
+    setRuntime(settings.runtime);
+    setModel(settings.model ?? '');
+    // only once, when the settings first arrive
+  }, [configured]);
 
   useEffect(() => {
     let cancelled = false;

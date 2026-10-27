@@ -133,16 +133,21 @@ export function errorText(r: ApiResult<unknown>): string {
 export const isTerminal = (s?: DesignJobDto['state']) =>
   s === 'succeeded' || s === 'failed' || s === 'canceled';
 
-export function useDesignSettings(token: string | null) {
+/**
+ * Settings are loaded only once a design-agent surface is open (`enabled`): reading them checks
+ * every runtime's availability, which runs `claude --version`.
+ */
+export function useDesignSettings(token: string | null, enabled: boolean) {
   const [settings, setSettings] = useState<DesignAgentSettingsDto | null>(null);
   const reload = useCallback(async () => {
     if (!token) return;
     const r = await call<DesignAgentSettingsDto>(token, 'GET', '/settings/design-agent');
     if (r.ok) setSettings(r.body);
   }, [token]);
+  const loaded = settings !== null;
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    if (enabled && !loaded) void reload();
+  }, [reload, enabled, loaded]);
   return { settings, reload, setSettings };
 }
 
