@@ -131,3 +131,19 @@ The selection is an entity, not a node of one canvas.
 - A canvas that shows the entity only inside an owner, for example the Data lens showing a module's package, marks the nearest visible owner as _contains selection_: a dashed outline and ◎.
 - The Inspector keeps the entity's details throughout.
 - Test: `selection.spec.ts`.
+
+## System design lens (D01, in progress)
+
+A third workspace, `design`, shows whiteboard views of the same semantic graph. These are views, not new facts. Nothing in this lens becomes a supported claim or a relation.
+
+- **Lenses.** `design-system` is the root ("System design"). `design-subsystem` canvases nest beneath it, up to three levels deep.
+- **Boxes.** Each box has an archetype: `client`, `api-service`, `worker`, `queue`, `datastore`, `cache`, `external-api`, `library` or `service`. The archetype is inferred deterministically from detected entities and comes with a stated reason.
+- **Flows.** Aggregated relations are labeled HTTP, enqueue, consume, reads/writes, uses, or runs on, and keep their supported, inferred or stale status.
+- **Provenance.**
+  - `detected` means analyzers only.
+  - `proposed` means a model or agent `subsystem` claim, labeled inferred.
+  - `accepted` means a person: human-origin claims, or a promoted proposal.
+- **Overrides** (plan §8): pin, suppress and promote are stored in `view_overrides` and survive regeneration.
+- **Realized by.** Every box links down to the architecture canvas of its entity, keeping the same entity identity, so selection carries across.
+
+Contract types: `Workspace`, `DesignLens` and `CanvasSpec.provenance` in `@atlas/schema`; `Archetype`, `Provenance`, `GraphClaim` and `ViewOverrideRow` in `@atlas/planner`.
