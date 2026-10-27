@@ -105,4 +105,16 @@ describe('analyzers vs hand-authored expected graphs', () => {
     expect(r.falseNegatives).toEqual([]);
     expect(r.falsePositives).toEqual([]);
   });
+
+  for (const name of ['go-service', 'java-service']) {
+    it(name, async () => {
+      const r = await evaluate(name);
+      expect(r.result.snapshot.state).toBe('ready');
+      expect(r.missingEntities).toEqual([]);
+      expect(r.extraEntities).toEqual([]);
+      expect(r.falseNegatives).toEqual([]);
+      expect(r.falsePositives).toEqual([]);
+      expect(r.result.coverage.gaps).toEqual([]);
+    });
+  }
 });

@@ -6,31 +6,32 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**Go and Java/JVM analyzers** (Phase 4). I04 is in PR #21.
+**Waiting for the user's go-ahead** before planning the system-design lens (whiteboard root). It is proposed as the next ticket. L01 is in PR #22.
 
 ## Tickets (plan §17)
 
-| ID  | Ticket                                            | Depends on  | Status      | PR / evidence                                |
-| --- | ------------------------------------------------- | ----------- | ----------- | -------------------------------------------- |
-| A00 | Repository bootstrap, GitHub remote, branch rules | —           | done        | bootstrap commit on `main`                   |
-| A01 | Bootstrap workspace, contracts and ADRs           | —           | not started |                                              |
-| A02 | Project/worktree identity and SQLite migrations   | A01         | not started |                                              |
-| A03 | Inventory and coverage report                     | A02         | not started |                                              |
-| A04 | TS/JS and Python analyzers                        | A03         | not started |                                              |
-| A05 | Semantic identity and snapshot reconciler         | A04         | not started |                                              |
-| A06 | View planner and canvas navigation                | A05         | done        | PR #6; see A06 evidence                      |
-| A07 | React Flow, layout worker, overlays and inspector | A06         | done        | PR #7; see A07 evidence                      |
-| E01 | Run/event/artifact store and ingestion            | A02         | done        | PR #8; see E01 evidence                      |
-| E02 | Process wrapper and output registration           | E01         | done        | PR #9; see E02 evidence                      |
-| E03 | Playwright capture helper                         | E01         | done        | PR #10; see E03 evidence                     |
-| E04 | Output canvases and isolated preview renderer     | E02,E03,A07 | done        | PR #11; see E04 evidence                     |
-| M01 | Watcher and incremental invalidation              | A05,A07     | done        | PRs #13, #14, #15                            |
-| M02 | Model proposal validation, cache and budget       | M01         | done        | PRs #17, #18 (view proposals deferred)       |
-| I01 | MCP and generic event SDK                         | E01,A06     | done        | PR #16                                       |
-| I02 | VS Code integration                               | I01         | dropped     | user decision 2026-10-26                     |
-| I03 | OTLP subset and bundle importer                   | E04         | done        | PR #20                                       |
-| I04 | Skena/JSON Canvas bridge                          | I01,A07     | done        | PR #21 (JSON Canvas export; no Skena bridge) |
-| H01 | Retention, recovery, export and performance       | E04,M01     | not started |                                              |
+| ID  | Ticket                                               | Depends on  | Status      | PR / evidence                                |
+| --- | ---------------------------------------------------- | ----------- | ----------- | -------------------------------------------- |
+| A00 | Repository bootstrap, GitHub remote, branch rules    | —           | done        | bootstrap commit on `main`                   |
+| A01 | Bootstrap workspace, contracts and ADRs              | —           | not started |                                              |
+| A02 | Project/worktree identity and SQLite migrations      | A01         | not started |                                              |
+| A03 | Inventory and coverage report                        | A02         | not started |                                              |
+| A04 | TS/JS and Python analyzers                           | A03         | not started |                                              |
+| A05 | Semantic identity and snapshot reconciler            | A04         | not started |                                              |
+| A06 | View planner and canvas navigation                   | A05         | done        | PR #6; see A06 evidence                      |
+| A07 | React Flow, layout worker, overlays and inspector    | A06         | done        | PR #7; see A07 evidence                      |
+| E01 | Run/event/artifact store and ingestion               | A02         | done        | PR #8; see E01 evidence                      |
+| E02 | Process wrapper and output registration              | E01         | done        | PR #9; see E02 evidence                      |
+| E03 | Playwright capture helper                            | E01         | done        | PR #10; see E03 evidence                     |
+| E04 | Output canvases and isolated preview renderer        | E02,E03,A07 | done        | PR #11; see E04 evidence                     |
+| M01 | Watcher and incremental invalidation                 | A05,A07     | done        | PRs #13, #14, #15                            |
+| M02 | Model proposal validation, cache and budget          | M01         | done        | PRs #17, #18 (view proposals deferred)       |
+| I01 | MCP and generic event SDK                            | E01,A06     | done        | PR #16                                       |
+| I02 | VS Code integration                                  | I01         | dropped     | user decision 2026-10-26                     |
+| I03 | OTLP subset and bundle importer                      | E04         | done        | PR #20                                       |
+| I04 | Skena/JSON Canvas bridge                             | I01,A07     | done        | PR #21 (JSON Canvas export; no Skena bridge) |
+| H01 | Retention, recovery, export and performance          | E04,M01     | not started |                                              |
+| L01 | Go and Java/JVM analyzers (Phase 4; not in plan §17) | A04         | done        | PR #22                                       |
 
 ## Phase acceptance checklists (plan §15)
 
@@ -94,7 +95,11 @@ Phase 3 complete 2026-10-26 (tag `phase-3`).
 - [x] Supported JSON Canvas exports open in the selected renderer with relative asset links. View and run canvases render in json-canvas-viewer 4.3.2 with no errors or failed requests, labels and links visible, and the copied chart image loaded (`export.test.ts`; screenshots inspected).
 - [x] Unsupported export features are disclosed. Fixed disclosures and per-view or per-run ones are printed and written to the sidecar (`export.test.ts`, `docs/export.md`).
 - [x] OTLP incompatibilities produce diagnostics, not silently dropped evidence. Each case in `fixtures/otlp/` yields a diagnostic, and warnings become capture gaps on the run (`import.test.ts`).
-- [ ] Go and Java/JVM analyzer coverage, with capability reports.
+- [x] Go and Java/JVM analyzer coverage, with capability reports. Tree-sitter analyzers with documented boundaries (`docs/capabilities.md`).
+  - Hand-authored expected graphs for `go-service` and `java-service` reach precision and recall of 1.0 with no coverage gaps (`expected-graphs.test.ts`).
+  - Edge cases are covered in `go-java.test.ts`.
+
+Phase 4 complete 2026-10-26 (tag `phase-4`). VS Code integration was dropped by user decision.
 
 Phase 5: see plan §15.
 
@@ -428,6 +433,14 @@ Changes:
   - text nodes clipped their last line.
 - **Tests:** `export.test.ts`, 3 tests: valid linked views opened in the renderer, run export with verified bytes and exclusions, Mermaid, and refusal to write into a non-empty directory.
 - **Skena bridge:** not built. Skena is a VS Code extension, and VS Code was dropped by the user.
+
+### L01 (2026-10-26): Go and Java/JVM analyzers
+
+- Grammars: `tree-sitter-go` 0.25.0 and `tree-sitter-java` 0.23.5 (MIT, prebuilt wasm), verified to load under web-tree-sitter 0.27.1.
+- **Go:** each package directory is a module. Exported symbols and methods are extracted. Imports resolve by the go.mod module path, and third-party imports map to the longest `require` (exact) or else heuristically. Routes are found for net/http (including `METHOD /path` patterns), chi, gin, echo and gorilla; `Handle("/", h)` counts as a router mount. Also `main` entrypoints and SQL.
+- **Java:** each file is a module named by its primary type, and public methods are extracted. Imports (single, wildcard, static) resolve within the project; JDK imports are skipped, and others map to pom or Gradle group IDs (exact) or heuristically. Also Spring MVC and JAX-RS routes with class prefixes, public static `main`, and JDBC or `@Query` SQL.
+- **Fixtures** `go-service` and `java-service` come with hand-authored expected graphs: 0 missing, 0 extra, 0 false positives or negatives, 0 gaps.
+- **Tests:** 163 Vitest tests in 31 files, 18 Playwright tests.
 
 ## Environment record (2026-10-26)
 
