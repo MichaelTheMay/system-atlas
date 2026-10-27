@@ -117,3 +117,32 @@ Measured on the dsh repository, about 8,900 files, over 20 consecutive edited re
 | ------------------------------ | --------------- | ------------- |
 | Database size after 20 rescans | 607 MB, growing | 168 MB, level |
 | Growth per rescan              | 26 MB           | 0.3 MB        |
+
+## Incremental analysis and watching (M01b)
+
+**Per-file facts.** The TS/JS analyzer splits into two steps:
+
+- `factsOf()` parses one file and records plain data in AST visit order: the module, exported symbols, string constants, imports, routes, consumers, SQL, UI routes and queue constructors.
+- `resolveTs()` replays every file's facts to resolve imports and match consumers, endpoints and queues.
+
+Facts depend only on the analyzer version, path, bytes and role. They are cached in the daemon by root and content hash, so a scan reads and parses only new or changed files. The cache keeps only the current tree's entries. A test asserts that an incremental scan publishes exactly the graph of a cold scan, and the refactor left the dsh output byte-identical. The cache lives in memory, so the first scan after a daemon restart is a cold scan.
+
+**Watcher** (`apps/daemon/src/watcher.ts`):
+
+- `atlas open` and `atlas watch` turn it on, as does the UI's Watch button.
+- It watches the directories holding the latest snapshot's files, plus new directories that the built-in excludes and `.atlasignore` allow. Dependency and build folders never use inotify watches.
+- A scan starts after 750 ms without changes, or at the latest about 5 s after the first unscanned change.
+- Watcher scans queue behind a running scan of the same worktree instead of cancelling it, so continuous saves cannot starve publishing. A manual scan still supersedes a running one.
+- Watching is not persisted. A restarted daemon watches nothing until a project is opened again.
+
+The UI drains daemon events from a queue. A single "last event" slot used to lose events when several arrived in one render, for example scan events of other projects.
+
+Measured on dsh, about 8,900 files, 1,410 watched directories, single-file edit until the snapshot is published:
+
+|                                      | Before M01b                   | After                                       |
+| ------------------------------------ | ----------------------------- | ------------------------------------------- |
+| Edit to publish, through the watcher | about 5.3 s plus the debounce | 2.6 to 2.7 s, including the 750 ms debounce |
+| TS/JS analysis                       | 2.7 s                         | 0.5 s                                       |
+| View planning                        | 0.65 s                        | 0.1 s                                       |
+
+View planning got faster because relevance scoring now indexes relations by endpoint. The catalog output is identical.

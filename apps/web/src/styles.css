@@ -239,6 +239,35 @@ select:focus-visible,
   color: #fff;
   cursor: pointer;
 }
+.action.watch {
+  background: transparent;
+  color: var(--accent);
+}
+.action.watch.on {
+  background: #e7f5ee;
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.action.watch.on::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  vertical-align: 1px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .action.watch.on::before {
+    animation: live-pulse 2s ease-in-out infinite;
+  }
+}
+@keyframes live-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
 .action:disabled {
   opacity: 0.6;
   cursor: progress;

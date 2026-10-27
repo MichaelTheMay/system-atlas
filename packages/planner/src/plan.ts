@@ -316,6 +316,26 @@ function gapsUnder(g: PlannerGraph, e: { attributes: Record<string, unknown> }):
   return g.gaps.filter((x) => x.path && (x.path === dir || x.path.startsWith(prefix))).length;
 }
 
+/** Non-containment relation indices by endpoint entity, built once per graph. */
+const relationIndexes = new WeakMap<PlannerGraph, Map<string, number[]>>();
+function relationIndex(g: PlannerGraph): Map<string, number[]> {
+  let idx = relationIndexes.get(g);
+  if (idx) return idx;
+  idx = new Map();
+  const add = (id: string, i: number) => {
+    const l = idx!.get(id);
+    if (l) l.push(i);
+    else idx!.set(id, [i]);
+  };
+  g.relations.forEach((r, i) => {
+    if (r.kind === 'contains') return;
+    add(r.fromId, i);
+    if (r.toId !== r.fromId) add(r.toId, i);
+  });
+  relationIndexes.set(g, idx);
+  return idx;
+}
+
 /**
  * Relevance policy v1 (deterministic, versioned): evidence availability, entrypoints, interfaces,
  * boundary strength and coupling. Weights sum to 1; each factor is in [0, 1].
@@ -330,14 +350,20 @@ function relevance(
   let supported = 0;
   let total = 0;
   let crossing = 0;
-  for (const r of g.relations) {
-    if (r.kind === 'contains') continue;
-    const inFrom = scope.has(r.fromId);
-    const inTo = scope.has(r.toId);
-    if (!inFrom && !inTo) continue;
-    total++;
-    if (r.status === 'supported') supported++;
-    if (inFrom !== inTo) crossing++;
+  // only relations touching the scope, each counted once (same result as scanning all relations)
+  const adj = relationIndex(g);
+  const seen = new Set<number>();
+  for (const id of scope) {
+    for (const i of adj.get(id) ?? []) {
+      if (seen.has(i)) continue;
+      seen.add(i);
+      const r = g.relations[i]!;
+      const inFrom = scope.has(r.fromId);
+      const inTo = scope.has(r.toId);
+      total++;
+      if (r.status === 'supported') supported++;
+      if (inFrom !== inTo) crossing++;
+    }
   }
   let entrypoints = 0;
   let interfaces = 0;

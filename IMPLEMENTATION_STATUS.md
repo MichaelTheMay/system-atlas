@@ -6,31 +6,31 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**M01 — Watcher and incremental invalidation** (Phase 3). The storage part, M01a, is in PR #13. Incremental analysis and the watcher are next.
+**M01 — Watcher and incremental invalidation** (Phase 3). M01a (storage) merged in PR #13. M01b (incremental analysis and watcher) is in PR #14. M01c is next: the reconciliation issues list in the UI and stable layout for new nodes.
 
 ## Tickets (plan §17)
 
-| ID  | Ticket                                            | Depends on  | Status      | PR / evidence                           |
-| --- | ------------------------------------------------- | ----------- | ----------- | --------------------------------------- |
-| A00 | Repository bootstrap, GitHub remote, branch rules | —           | done        | bootstrap commit on `main`              |
-| A01 | Bootstrap workspace, contracts and ADRs           | —           | not started |                                         |
-| A02 | Project/worktree identity and SQLite migrations   | A01         | not started |                                         |
-| A03 | Inventory and coverage report                     | A02         | not started |                                         |
-| A04 | TS/JS and Python analyzers                        | A03         | not started |                                         |
-| A05 | Semantic identity and snapshot reconciler         | A04         | not started |                                         |
-| A06 | View planner and canvas navigation                | A05         | done        | PR #6; see A06 evidence                 |
-| A07 | React Flow, layout worker, overlays and inspector | A06         | done        | PR #7; see A07 evidence                 |
-| E01 | Run/event/artifact store and ingestion            | A02         | done        | PR #8; see E01 evidence                 |
-| E02 | Process wrapper and output registration           | E01         | done        | PR #9; see E02 evidence                 |
-| E03 | Playwright capture helper                         | E01         | done        | PR #10; see E03 evidence                |
-| E04 | Output canvases and isolated preview renderer     | E02,E03,A07 | done        | PR #11; see E04 evidence                |
-| M01 | Watcher and incremental invalidation              | A05,A07     | in progress | M01a PR #13 (no-op rescans, compaction) |
-| M02 | Model proposal validation, cache and budget       | M01         | not started |                                         |
-| I01 | MCP and generic event SDK                         | E01,A06     | not started |                                         |
-| I02 | VS Code integration                               | I01         | not started |                                         |
-| I03 | OTLP subset and bundle importer                   | E04         | not started |                                         |
-| I04 | Skena/JSON Canvas bridge                          | I01,A07     | not started |                                         |
-| H01 | Retention, recovery, export and performance       | E04,M01     | not started |                                         |
+| ID  | Ticket                                            | Depends on  | Status      | PR / evidence              |
+| --- | ------------------------------------------------- | ----------- | ----------- | -------------------------- |
+| A00 | Repository bootstrap, GitHub remote, branch rules | —           | done        | bootstrap commit on `main` |
+| A01 | Bootstrap workspace, contracts and ADRs           | —           | not started |                            |
+| A02 | Project/worktree identity and SQLite migrations   | A01         | not started |                            |
+| A03 | Inventory and coverage report                     | A02         | not started |                            |
+| A04 | TS/JS and Python analyzers                        | A03         | not started |                            |
+| A05 | Semantic identity and snapshot reconciler         | A04         | not started |                            |
+| A06 | View planner and canvas navigation                | A05         | done        | PR #6; see A06 evidence    |
+| A07 | React Flow, layout worker, overlays and inspector | A06         | done        | PR #7; see A07 evidence    |
+| E01 | Run/event/artifact store and ingestion            | A02         | done        | PR #8; see E01 evidence    |
+| E02 | Process wrapper and output registration           | E01         | done        | PR #9; see E02 evidence    |
+| E03 | Playwright capture helper                         | E01         | done        | PR #10; see E03 evidence   |
+| E04 | Output canvases and isolated preview renderer     | E02,E03,A07 | done        | PR #11; see E04 evidence   |
+| M01 | Watcher and incremental invalidation              | A05,A07     | in progress | M01a PR #13, M01b PR #14   |
+| M02 | Model proposal validation, cache and budget       | M01         | not started |                            |
+| I01 | MCP and generic event SDK                         | E01,A06     | not started |                            |
+| I02 | VS Code integration                               | I01         | not started |                            |
+| I03 | OTLP subset and bundle importer                   | E04         | not started |                            |
+| I04 | Skena/JSON Canvas bridge                          | I01,A07     | not started |                            |
+| H01 | Retention, recovery, export and performance       | E04,M01     | not started |                            |
 
 ## Phase acceptance checklists (plan §15)
 
@@ -70,14 +70,14 @@ Phase 2 complete 2026-10-26 (tag `phase-2`).
 
 ### Phase 3 — continuous reconciliation and richer view planning
 
-- [ ] Rapid edits coalesce (M01 watcher).
+- [x] Rapid edits coalesce. In `watch.test.ts`, 20 edits across 3 files become 1 flush and 1 published snapshot, and continuous edits are still published within the max wait. The UI updates live (`watch.spec.ts`).
 - [ ] Stale inference is invalidated (M01/M02).
 - [x] Failed extraction does not erase good state. Covered by `scan.test.ts` "carries a failing analyzer's previous facts forward" and `reconcile.test.ts` "reports stale changes…".
 - [ ] Overlays survive renames where identity is supported.
 - [ ] Ambiguous renames surface as issues **in the UI**. Today they show only in the API and CLI (`reconcile.test.ts`).
 - [ ] Model output with invented evidence is rejected (M02).
 - [ ] Cross-view selection uses a single entity identity.
-- [ ] Edit-to-publish latency is at most 3 s on dsh. M01a measured about 5.3 s, nearly all of it full TS/JS analysis.
+- [x] A single-file update publishes within 3 s on dsh. It takes 2.6 to 2.7 s through the watcher, including the 750 ms debounce; M01a measured 5.3 s plus the debounce.
 
 Phases 4–5: see plan §15.
 
@@ -283,6 +283,23 @@ Changes:
 - `compactSnapshots()` runs after each publish. It keeps the latest snapshot, its predecessor and run-bound snapshots, and drops the graph rows of the others. Graph routes answer 410 for compacted snapshots.
 - After the change, dsh measures 168 MB after 20 edited rescans and is level, growing about 0.3 MB per scan from change rows and coverage. Before the change it was 607 MB and growing.
 - Tests: 131 Vitest tests, 14 Playwright tests. Tests that rescanned an unchanged tree now edit it first, or assert the no-op.
+
+### M01b (2026-10-26): incremental TS/JS analysis and watcher
+
+- TS/JS extraction is split into per-file facts and a resolve step. Facts are cached by content hash and only changed files are parsed. The dsh output is byte-identical before and after the split (sha256 prefix `2129f04c11e85b12`).
+  - `incremental.test.ts`: an edit parses 1 file, and the graph equals a cold scan of the same tree.
+- The daemon watcher watches only directories with inventoried files (1,410 on dsh) plus new non-excluded ones. Debounce is 750 ms with a capped wait. Watcher scans queue behind a running scan instead of cancelling it.
+- Interfaces:
+  - `GET` and `PUT /worktrees/:id/watch`; status lists watched worktrees.
+  - `atlas watch [--detach|--off]`. `atlas open` now watches; `--no-watch` opts out.
+  - A Watch/Live toggle in the UI.
+- View planning on dsh dropped from 0.65 s to 0.1 s through a relation index for relevance scoring. The catalog digest is identical.
+- dsh edit-to-publish: 2.6 to 2.7 s, including debounce.
+- Bugs found while testing:
+  - **UI lost daemon events** that arrived in the same render, leaving it stuck on "Scanning…". It now uses a queue.
+  - **No-op publish events** were ignored even when the UI had not loaded that snapshot yet.
+  - **Shell e2e test** depended on project order. It now registers its own project.
+- Full e2e passed 6 consecutive runs, and the watch test passed `--repeat-each 4`.
 
 ## Environment record (2026-10-26)
 

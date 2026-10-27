@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import type { Workspace } from '@atlas/schema';
 import {
@@ -53,11 +53,18 @@ export function App() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [worktreeId, setWorktreeId] = useState('');
   const [summary, setSummary] = useState<SnapshotSummary | null | undefined>(undefined);
+  const [watching, setWatching] = useState(false);
   const [catalog, setCatalog] = useState<CatalogDto | null>(null);
   const [scan, setScan] = useState<{ state: 'idle' | 'running' | 'failed'; message?: string }>({
     state: 'idle',
   });
-  const [lastEvent, setLastEvent] = useState<BusEvent>();
+  /**
+   * Daemon events queue up here and are drained together on the next render. A single "last
+   * event" slot would lose events that arrive in the same render (other projects' scans and runs
+   * share the stream), leaving the UI stuck on "Scanning…".
+   */
+  const pendingEvents = useRef<BusEvent[]>([]);
+  const [eventTick, setEventTick] = useState(0);
   const [history, setHistory] = useState<{ stack: Location[]; index: number }>({
     stack: [],
     index: -1,
@@ -106,7 +113,8 @@ export function App() {
           (type, data) => {
             if (type === 'hello')
               setConn((c) => (c.state === 'connected' ? { ...c, live: true } : c));
-            setLastEvent({ type, data: (data ?? {}) as Record<string, unknown> });
+            pendingEvents.current.push({ type, data: (data ?? {}) as Record<string, unknown> });
+            setEventTick((t) => t + 1);
           },
           ctrl.signal,
         );
@@ -149,18 +157,50 @@ export function App() {
   }, [refreshSnapshot]);
 
   useEffect(() => {
-    if (!lastEvent) return;
-    if (lastEvent.type === 'project.registered') void loadProjects();
-    if (lastEvent.type.startsWith('run.')) setOutputsRefresh((k) => k + 1);
-    if (lastEvent.data.worktreeId !== worktreeId) return;
-    if (lastEvent.type === 'scan.started') setScan({ state: 'running' });
-    if (lastEvent.type === 'snapshot.published') {
-      setScan({ state: 'idle' });
-      void refreshSnapshot();
+    const batch = pendingEvents.current.splice(0);
+    let refresh = false;
+    for (const ev of batch) {
+      if (ev.type === 'project.registered') void loadProjects();
+      if (ev.type.startsWith('run.')) setOutputsRefresh((k) => k + 1);
+      if (ev.data.worktreeId !== worktreeId) continue;
+      if (ev.type === 'scan.started') setScan({ state: 'running' });
+      if (ev.type === 'snapshot.published') {
+        setScan({ state: 'idle' });
+        // a no-op rescan returns the same snapshot: refresh only if it is not the one shown
+        if (!ev.data.noop || ev.data.snapshotId !== summary?.snapshot.id) refresh = true;
+      }
+      if (ev.type === 'scan.cancelled') setScan({ state: 'idle' });
+      if (ev.type === 'watch.enabled') setWatching(true);
+      if (ev.type === 'scan.failed')
+        setScan({ state: 'failed', message: String(ev.data.error ?? '') });
     }
-    if (lastEvent.type === 'scan.failed')
-      setScan({ state: 'failed', message: String(lastEvent.data.error ?? '') });
-  }, [lastEvent, worktreeId, loadProjects, refreshSnapshot]);
+    if (refresh) void refreshSnapshot();
+  }, [eventTick, worktreeId, loadProjects, refreshSnapshot]);
+
+  useEffect(() => {
+    if (!token || !worktreeId) return;
+    let cancelled = false;
+    api<{ watching: boolean }>(`/worktrees/${worktreeId}/watch`, token)
+      .then((w) => {
+        if (!cancelled) setWatching(w.watching);
+      })
+      .catch(() => {
+        if (!cancelled) setWatching(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, worktreeId]);
+
+  const toggleWatch = async () => {
+    if (!token || !worktreeId) return;
+    const w = await api<{ watching: boolean }>(`/worktrees/${worktreeId}/watch`, token, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: !watching }),
+    });
+    setWatching(w.watching);
+  };
 
   const startScan = async () => {
     if (!token || !worktreeId) return;
@@ -259,6 +299,21 @@ export function App() {
             disabled={scan.state === 'running'}
           >
             {scan.state === 'running' ? 'Scanning…' : summary ? 'Rescan' : 'Scan project'}
+          </button>
+        )}
+        {worktreeId && (
+          <button
+            type="button"
+            className={`action watch${watching ? ' on' : ''}`}
+            aria-pressed={watching}
+            title={
+              watching
+                ? 'Atlas rescans after edits (750 ms after the last change). Click to stop.'
+                : 'Rescan automatically after edits'
+            }
+            onClick={() => void toggleWatch()}
+          >
+            {watching ? 'Live' : 'Watch'}
           </button>
         )}
         <nav className="roots" aria-label="Workspace roots">

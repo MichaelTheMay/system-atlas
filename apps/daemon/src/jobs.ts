@@ -46,10 +46,14 @@ export class JobRunner {
     return this.jobs.get(id);
   }
 
-  enqueueScan(worktree: Worktree): Job {
+  /**
+   * `supersede: false` (watcher) queues behind a running scan of the same worktree instead of
+   * cancelling it, so continuous saves cannot starve publishing; queued requests still coalesce.
+   */
+  enqueueScan(worktree: Worktree, opts: { supersede?: boolean } = {}): Job {
     const queued = this.queue.find((q) => q.job.worktreeId === worktree.id);
     if (queued) return queued.job;
-    if (this.running?.job.worktreeId === worktree.id)
+    if (opts.supersede !== false && this.running?.job.worktreeId === worktree.id)
       this.running.ctrl.abort(new Error('superseded by a newer scan'));
     const job: Job = {
       id: `job_${uuidv7Hex()}`,
@@ -116,6 +120,7 @@ export class JobRunner {
           worktreeId: job.worktreeId,
           snapshotId: r.snapshot.id,
           state: r.snapshot.state,
+          noop: job.noop,
         },
       });
     } catch (e) {

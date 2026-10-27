@@ -1,12 +1,24 @@
 import type { Analyzer, AnalyzerOutput } from '../types.ts';
 import { baseName, manifestDirs } from '../shared/packages.ts';
 import { runWorker } from '../shared/worker-host.ts';
-import type { TsInput } from './extract.ts';
+import type { TsFacts } from './extract.ts';
+import type { TsWorkerInput } from './worker.ts';
 
 export const TS_ANALYZER_ID = 'ts-js';
 export const TS_ANALYZER_VERSION = '0.1.0';
 
 const isTsJs = (lang: string) => lang === 'typescript' || lang === 'javascript';
+
+/**
+ * Per-file syntax facts by root, keyed by path + content hash. Lives as long as the daemon; each
+ * scan keeps only the current tree's entries, so it stays bounded by the registered repositories.
+ */
+const factsCache = new Map<string, Map<string, TsFacts>>();
+const factsKey = (path: string, sha256: string) =>
+  `${TS_ANALYZER_VERSION}\u0000${path}\u0000${sha256}`;
+
+/** Test hook: how many files the last scan of a root had to parse. */
+export const tsAnalyzerStats = new Map<string, { parsed: number; cached: number }>();
 
 export function createTsAnalyzer(): Analyzer {
   return {
@@ -53,8 +65,11 @@ export function createTsAnalyzer(): Analyzer {
       );
     },
     async extract(files, ctx): Promise<AnalyzerOutput> {
-      const input: TsInput = {
-        files: [],
+      const previous = factsCache.get(ctx.rootPath) ?? new Map<string, TsFacts>();
+      const input: TsWorkerInput = {
+        parse: [],
+        cached: [],
+        order: [],
         packageJsons: [],
         tsconfigs: [],
         manifestDirs: manifestDirs(files),
@@ -66,12 +81,17 @@ export function createTsAnalyzer(): Analyzer {
         if (isTsJs(f.language) && f.path.endsWith('.d.ts')) {
           declarations.push(f.path);
         } else if (isTsJs(f.language)) {
-          input.files.push({
-            path: f.path,
-            text: await ctx.readFile(f.path),
-            sha256: f.sha256,
-            role: f.role,
-          });
+          input.order.push(f.path);
+          const hit = previous.get(factsKey(f.path, f.sha256));
+          // facts depend on bytes only, except the module's test/source role
+          if (hit && hit.role === f.role) input.cached.push(hit);
+          else
+            input.parse.push({
+              path: f.path,
+              text: await ctx.readFile(f.path),
+              sha256: f.sha256,
+              role: f.role,
+            });
         } else if (baseName(f.path) === 'package.json') {
           input.packageJsons.push({ path: f.path, text: await ctx.readFile(f.path) });
         } else if (
@@ -81,11 +101,14 @@ export function createTsAnalyzer(): Analyzer {
           input.tsconfigs.push({ path: f.path, text: await ctx.readFile(f.path) });
         }
       }
-      const output = await runWorker<TsInput, AnalyzerOutput>(
-        new URL('./worker.ts', import.meta.url),
-        input,
-        ctx.signal,
-      );
+      const { output, parsed } = await runWorker<
+        TsWorkerInput,
+        { output: AnalyzerOutput; parsed: TsFacts[] }
+      >(new URL('./worker.ts', import.meta.url), input, ctx.signal);
+      const next = new Map<string, TsFacts>();
+      for (const f of [...input.cached, ...parsed]) next.set(factsKey(f.path, f.sha256), f);
+      factsCache.set(ctx.rootPath, next);
+      tsAnalyzerStats.set(ctx.rootPath, { parsed: parsed.length, cached: input.cached.length });
       for (const p of declarations) output.handled.push({ path: p, support: 'syntax' });
       // bin evidence points at package.json; attach the verified hash here
       const hashes = new Map(files.map((f) => [f.path, f.sha256]));
