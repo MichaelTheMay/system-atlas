@@ -43,6 +43,8 @@ The generic configuration for MCP clients that take a JSON server list:
 | `atlas_propose_claims`                                                                    | Propose cited, labeled claims about entities against a snapshot precondition. See below                                                                                               |
 | `atlas_propose_view`                                                                      | Propose system-design subsystems (named groups of entities, nested with `/`). Stored as cited `subsystem` claims. See below                                                           |
 | `atlas_annotate`                                                                          | A short note on an entity, shown on its canvas and labeled as written by an agent                                                                                                     |
+| `atlas_list_boards`, `atlas_get_board`                                                    | Design boards of the project, and one board as a layout-free BoardSpec (components, connections, scenarios, doc items, frames; no drawing data, rejected items left out). See below   |
+| `atlas_propose_board`, `atlas_create_board`                                               | Propose additions to a design board, or draft a new board, as BoardSpec JSON. Everything lands as `proposed` for a person to accept or reject. See below                              |
 
 Not exposed, by design (plan §12):
 
@@ -184,3 +186,40 @@ shell, web, refresh, note or run tools.
   person accepts it.
 
 See [design.md](design.md) for runtimes, consent, privacy and costs.
+
+## Design boards (D03c)
+
+Design boards are design-first whiteboards: how a system _should_ work, drawn by a person or
+drafted by an agent. They are view data, never facts about the code, and need no snapshot.
+
+- `atlas_list_boards {}` → `{ boards: [{ boardId, name, source, componentCount, parentBoardId, updatedAt }] }`.
+- `atlas_get_board { boardId }` → `{ boardId, name, source, revision, spec, plan? }`. `spec` is a
+  BoardSpec: `components [{ id, type, label, props, responsibility?, status, origin }]`,
+  `connections [{ id, from, to, protocol?, mode, direction, payload?, volume? }]`,
+  `scenarios [{ id, name, steps [{ connectionId? | componentId?, text }] }]`,
+  `doc { summary?, items [{ id, section, text, pins }] }` and `frames`. Rejected items are left out.
+- `atlas_propose_board { boardId, spec, model? }` → `{ boardId, accepted [{ kind, id, specId }], rejected [{ kind, specId, reasons }] }`.
+  Every item gets a new `agent-…` id and `status: 'proposed'` with `origin { author: 'agent', name, jobId? }`.
+  Connections, scenario steps and doc-item pins may reference ids from the same spec or existing
+  board ids; a reference to an unknown id is rejected with a reason. Existing items are never
+  changed or removed.
+- `atlas_create_board { name, spec, model? }` → `{ boardId, name, accepted, rejected }`: a new board
+  with `source: 'prompt'` where the whole spec (frames and summary included) lands as proposed.
+
+A person reviews with `POST /api/v1/boards/{boardId}/review { accept: ids, reject: ids }` (the
+board's Agent proposals panel). Only `proposed` items change: accept → `active` (origin kept, so the
+board still says `agent: <model>`), reject → `rejected` (kept for the record and dropped from the
+canvas). Accepting a connection also accepts its proposed endpoints; rejecting a component also
+rejects its proposed connections. Every review is audited in the proposals table (`board-review`).
+
+The design agent (above) runs six board job kinds with the board tools added to its tool set
+(prompt template `board-v1`): `draft-board` (`prompt`, optional `boardId` to redraft),
+`critique-board`, `fill-doc`, `explain-scenario` (`scenarioId`), `variant-board` and
+`implementation-plan`. Board jobs need no snapshot; they are recorded as `design-agent` runs bound to
+the project's worktree, under the same consent gate and API-key budget. `GET /projects/{id}/design/jobs/{jobId}`
+returns `boardId`, `proposedBoardItems` and, for explanations and plans, `result` (the plan is also
+stored on the board as `document.doc.plan`). The daemon keeps an item's `jobId` only while that job
+is the project's running job. The mock runtime drafts from the template catalog by prompt keywords
+and critiques with fixed rules (single-instance service with no load balancer, busy database with no
+cache, worker with no queue, stream with no retention, writers sharing a store, client traffic with no
+auth, unowned services). From the CLI: `atlas board list | show | export [--markdown] | draft | critique | plan`.

@@ -488,6 +488,12 @@ export function restyleScene(doc: BoardDocument, accepted: string[], rejected: s
   });
   const remove = new Set<string>();
   for (const id of rejected) for (const e of elementsOf(id)) remove.add(e);
+  // the "agent: <model>" tag the web draws next to a proposal goes once it is reviewed
+  const reviewed = new Set([...accepted, ...rejected]);
+  for (const el of els) {
+    const tag = tagOf(el);
+    if (tag?.kind === 'proposal-tag' && tag.id && reviewed.has(tag.id)) remove.add(el.id);
+  }
   // arrows bound to a removed box go too (their connections were rejected with it)
   for (const el of els) {
     const ends = [el.startBinding, el.endBinding].filter(isRec).map((b) => str(b.elementId));

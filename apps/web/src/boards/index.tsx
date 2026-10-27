@@ -6,7 +6,13 @@ import { BoardView } from './BoardView.tsx';
 export function BoardsRoot({ token, projectId }: { token: string; projectId: string }) {
   const [open, setOpen] = useState<string>();
   return open ? (
-    <BoardView token={token} boardId={open} onBack={() => setOpen(undefined)} />
+    <BoardView
+      key={open}
+      token={token}
+      boardId={open}
+      onBack={() => setOpen(undefined)}
+      onOpen={setOpen}
+    />
   ) : (
     <BoardsHome token={token} projectId={projectId} onOpen={setOpen} />
   );

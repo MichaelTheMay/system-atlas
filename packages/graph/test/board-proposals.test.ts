@@ -139,6 +139,7 @@ describe('board proposals (D03c)', () => {
     doc.scene.elements = [
       el('e-q', { customData: { atlas: { kind: 'component', id: 'agent-q', proposed: true } } }),
       el('t-q', { type: 'text', containerId: 'e-q' }),
+      el('tag-q', { type: 'text', customData: { atlas: { kind: 'proposal-tag', id: 'agent-q' } } }),
       el('e-w', {
         customData: { atlas: { kind: 'component', id: 'agent-w' } },
         boundElements: [{ id: 'a-k2', type: 'arrow' }],

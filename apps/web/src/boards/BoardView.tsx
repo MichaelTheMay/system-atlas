@@ -2,7 +2,10 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { BoardDocument, DesignBoard } from '@atlas/schema';
 import type { Excalidraw as ExcalidrawComponent } from '@excalidraw/excalidraw';
 import { getBoard, saveBoard } from './api.ts';
+import { BoardAgentMenu } from './BoardAgentMenu.tsx';
+import { decorateProposals } from './drawProposals.ts';
 import { materialize, needsMaterialize } from './materialize.ts';
+import { ProposalsPanel } from './ProposalsPanel.tsx';
 import '@excalidraw/excalidraw/index.css';
 
 // Excalidraw fonts come from the app origin (served by Vite in dev, copied into dist at build).
@@ -37,10 +40,13 @@ export function BoardView({
   token,
   boardId,
   onBack,
+  onOpen,
 }: {
   token: string;
   boardId: string;
   onBack: () => void;
+  /** Open another board (an agent's variant). */
+  onOpen?: (boardId: string) => void;
 }) {
   const [board, setBoard] = useState<DesignBoard | null>(null);
   const [error, setError] = useState<string>();
@@ -51,6 +57,9 @@ export function BoardView({
   const boardRef = useRef<DesignBoard | null>(null);
   const lastSaved = useRef('');
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // agent jobs and reviews change the board on the daemon: re-read it and remount the canvas
+  const [reloadTick, setReloadTick] = useState(0);
+  const [canvasKey, setCanvasKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,11 +67,14 @@ export function BoardView({
       .then((b) => {
         if (cancelled) return;
         // a template/prompt/code board arrives with a registry and no drawing yet
-        const document = needsMaterialize(b.document) ? materialize(b.document) : b.document;
+        const drawn = needsMaterialize(b.document) ? materialize(b.document) : b.document;
+        // agent proposals: drawn if new, dashed and tagged "agent: <model>" (D03c)
+        const document = decorateProposals(drawn);
         const loaded = { ...b, document };
         boardRef.current = loaded;
         lastSaved.current = fingerprint(document.scene.elements as unknown as SceneElement[]);
         setBoard(loaded);
+        setCanvasKey((k) => k + 1);
         if (document !== b.document) void persist(document);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
@@ -70,7 +82,7 @@ export function BoardView({
       cancelled = true;
       clearTimeout(timer.current);
     };
-  }, [token, boardId]);
+  }, [token, boardId, reloadTick]);
 
   const persist = useCallback(
     async (document: BoardDocument) => {
@@ -135,10 +147,19 @@ export function BoardView({
         <span className="board-meta">
           {Object.keys(board.document.components).length} component(s)
         </span>
+        <div className="board-tools">
+          <BoardAgentMenu
+            token={token}
+            board={board}
+            onReload={() => setReloadTick((t) => t + 1)}
+            onOpen={onOpen}
+          />
+        </div>
       </header>
       <div className="board-canvas">
         <Suspense fallback={<p className="board-loading">Loading canvas…</p>}>
           <Excalidraw
+            key={canvasKey}
             excalidrawAPI={(a) => {
               api.current = a;
               // open on the whole drawing, not at 100% around its first corner (after mount)
@@ -160,6 +181,7 @@ export function BoardView({
           />
         </Suspense>
       </div>
+      <ProposalsPanel token={token} board={board} onReviewed={() => setReloadTick((t) => t + 1)} />
     </section>
   );
 }
