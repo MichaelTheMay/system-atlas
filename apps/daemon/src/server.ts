@@ -31,6 +31,8 @@ import { JobRunner } from './jobs.ts';
 import { canvasForEntity, entityDetails, readSource, relationDetails } from './routes/inspect.ts';
 import { getOverlay, putOverlay } from './routes/overlays.ts';
 import { registerRunRoutes, runScopedTarget } from './routes/runs.ts';
+import { DesignJobs, type DesignAgentOptions } from './design-jobs.ts';
+import { registerDesignJobRoutes } from './routes/design-jobs.ts';
 import { ObjectStore } from '@atlas/evidence';
 import type { Db } from '@atlas/store';
 import { EventBus } from './events.ts';
@@ -61,6 +63,8 @@ export interface ServerOptions {
   watch?: WatchOptions;
   /** Model providers by settings name (tests inject instrumented mocks). No network provider ships. */
   providers?: Record<string, () => ModelProvider>;
+  /** Design-agent runtimes and key lookup (D02c; tests inject fakes, never a real model). */
+  designAgent?: DesignAgentOptions;
 }
 
 export interface AtlasServer {
@@ -69,6 +73,7 @@ export interface AtlasServer {
   jobs: JobRunner;
   watches: WatchManager;
   enricher: Enricher;
+  designJobs: DesignJobs;
   startedAt: string;
 }
 
@@ -708,5 +713,17 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     return reply.send(await readStatic(hit.file));
   });
 
-  return { app, bus, jobs, watches, enricher, startedAt };
+  // D02c design-agent jobs: their in-process Atlas tools call this daemon over loopback
+  const designJobs = new DesignJobs({
+    db: opts.db,
+    bus,
+    enricher,
+    dataDir: opts.dataDir,
+    daemon: () => ({ baseUrl: `http://127.0.0.1:${opts.port()}`, token: opts.token }),
+    catalog: (snapshotId) => views(snapshotId).catalog,
+    options: opts.designAgent,
+  });
+  registerDesignJobRoutes(app, designJobs);
+
+  return { app, bus, jobs, watches, enricher, designJobs, startedAt };
 }

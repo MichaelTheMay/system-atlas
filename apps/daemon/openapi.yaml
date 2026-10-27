@@ -131,6 +131,72 @@ paths:
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
       responses:
         '200': { description: '{ settings, usage }' }
+  /api/v1/settings/design-agent:
+    get:
+      summary: >-
+        Design-agent settings (D02c) - runtime, model, consent per runtime, hasApiKey (never the
+        key), availability per runtime (claude-code runs only `claude --version`) and what each
+        runtime sends off the machine.
+      responses:
+        '200': { description: '{ runtime, model, consented, hasApiKey, availability, sends }' }
+    put:
+      summary: >-
+        Update { runtime?, model?, consent?, apiKey? }. consent records the one-time consent for a
+        non-mock runtime; apiKey is written to <dataDir>/secrets/anthropic-api-key (0600) and never
+        echoed.
+      responses:
+        '200': { description: Settings view, as GET }
+        '400': { description: Invalid settings or something that is not an API key }
+  /api/v1/projects/{id}/design/jobs/estimate:
+    get:
+      summary: Estimated tokens, daily budget and what leaves the machine, for the confirm dialog
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: depth, in: query, schema: { type: integer, minimum: 1, maximum: 3 } }
+        - { name: runtime, in: query, schema: { enum: [mock, claude-code, anthropic-api] } }
+        - { name: snapshotId, in: query, schema: { type: string } }
+      responses:
+        '200':
+          {
+            description: '{ snapshotId, runtime, model, units, depth, estimatedInputTokens, estimatedOutputTokens, dailyBudget, sends, external, consented }',
+          }
+        '404': { description: No snapshot yet }
+  /api/v1/projects/{id}/design/jobs:
+    get:
+      summary: Recent design-agent jobs of the project
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: '{ jobs }' }
+    post:
+      summary: >-
+        Start a design-agent job (DesignJobRequest; manual only). Recorded as a run with adapter
+        design-agent; progress streams as design.job events; proposals land as proposed.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '202': { description: The job (queued) }
+        '400': { description: Invalid request }
+        '403': { description: 'consent_required: the runtime sends data off the machine' }
+        '404': { description: Unknown project or snapshot of another project }
+        '409': { description: 'job_running: one job per project at a time' }
+        '429': { description: 'budget_exceeded: the anthropic-api daily token budget' }
+  /api/v1/projects/{id}/design/jobs/{jobId}:
+    get:
+      summary: One job (state, run, proposed claims, usage, copilot output)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: The job }
+        '404': { description: Unknown job }
+    delete:
+      summary: Cancel a running job (the run is finished as cancelled)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+      responses:
+        '202': { description: Cancellation requested }
+        '404': { description: Unknown job }
+        '409': { description: Job already finished }
   /api/v1/proposals/claims:
     post:
       summary: >-
