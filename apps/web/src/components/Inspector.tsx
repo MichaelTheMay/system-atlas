@@ -105,7 +105,9 @@ export function Inspector(p: Props) {
         />
       ) : !p.selection ? (
         <CanvasInfo {...p} />
-      ) : p.selection.type === 'node' && design && p.selection.node.archetype ? (
+      ) : p.selection.type === 'node' &&
+        design &&
+        (p.selection.node.archetype || p.selection.node.designElementId) ? (
         <>
           <DesignBoxInfo
             node={p.selection.node}

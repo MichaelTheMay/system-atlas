@@ -7,6 +7,7 @@ import {
   ProvenanceBadge,
   type Provenance,
 } from './archetypes.tsx';
+import { DesignBoxEditor } from './DesignEditPanel.tsx';
 
 /**
  * Inspector parts of the system-design lens (D01c): what a box is and why, where it is realized in
@@ -238,7 +239,8 @@ export function DesignBoxInfo({
         </span>
       </p>
       {node.archetypeReason && <p className="arch-reason">{node.archetypeReason}</p>}
-      {prov && (
+      {/* a planned (drawn, unbound) box is the person's own: its Edit section says so */}
+      {prov && !node.unbound && (
         <>
           <h4 className="sub">Provenance</h4>
           <p>
@@ -247,6 +249,8 @@ export function DesignBoxInfo({
           <p className="muted small">{PROVENANCE_TEXT[prov]}</p>
         </>
       )}
+      {/* whiteboard (D02a): rename, archetype, subsystem, delete/hide, proposal review */}
+      <DesignBoxEditor node={node} />
       {isSubsystem && (
         <>
           <button
@@ -306,7 +310,8 @@ export function DesignCanvasInfo({
     <section aria-label="Canvas details" className="insp">
       <h3 className="insp-title">{projection.title}</h3>
       <p className="muted">
-        {subsystem ? 'subsystem' : 'system design'} · {projection.nodes.length} box(es) ·{' '}
+        {subsystem ? 'subsystem' : 'system design'} ·{' '}
+        {projection.nodes.filter((n) => n.kind !== 'port' && n.kind !== 'sticky').length} box(es) ·{' '}
         {projection.edges.length} flow(s)
         {projection.truncated && ' · truncated to 200 boxes'}
       </p>

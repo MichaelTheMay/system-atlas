@@ -23,6 +23,7 @@ import { ListView } from './components/ListView.tsx';
 import { useOverlay } from './useOverlay.ts';
 import { OutputsView } from './components/outputs/OutputsView.tsx';
 import { DesignToolbar } from './components/design/DesignToolbar.tsx';
+import { DesignEditsProvider } from './components/design/useDesignEdits.tsx';
 // D02b: design copilot, Generate design dialog and design-agent settings
 import { CopilotPanel } from './components/design/CopilotPanel.tsx';
 import { GenerateDialog } from './components/design/GenerateDialog.tsx';
@@ -229,6 +230,8 @@ export function App() {
         // design canvases are replanned from claims and view overrides without a rescan
         if (ev.data.projectId && ev.data.projectId === projectId) refresh = true;
       }
+      // whiteboard edits (D02a) replan the design canvases of the project without a rescan
+      if (ev.type === 'design.changed' && ev.data.projectId === projectId) refresh = true;
       if (ev.data.worktreeId !== worktreeId) continue;
       if (ev.type === 'scan.started') setScan({ state: 'running' });
       if (ev.type === 'snapshot.published') {
@@ -369,7 +372,7 @@ export function App() {
     };
   }, [token, snapshotId, selectedEntity]);
 
-  return (
+  const shell = (
     <div className="shell">
       <aside className="nav" aria-label="Navigation">
         <div className="brand">
@@ -778,6 +781,21 @@ export function App() {
         )}
       </footer>
     </div>
+  );
+
+  // whiteboard edits (D02a): shared by the design toolbar, the canvas and the Inspector
+  return (
+    <DesignEditsProvider
+      token={token}
+      projectId={projectId}
+      snapshotId={latestSnapshotId}
+      historical={!!viewSnapshotId}
+      projection={root === 'design' ? projection : null}
+      reloadKey={refreshKey}
+      onChanged={() => void refreshSnapshot()}
+    >
+      {shell}
+    </DesignEditsProvider>
   );
 }
 

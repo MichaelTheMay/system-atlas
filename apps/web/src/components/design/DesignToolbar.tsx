@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { ARCHETYPE_ICON, archetypeLabel } from './archetypes.tsx';
+import { WhiteboardTools } from './Palette.tsx';
 
 /**
  * Header toolbar of the System design root. Today it only holds the archetype legend; it is the
@@ -10,6 +11,8 @@ export function DesignToolbar({ children }: { children?: ReactNode } = {}) {
   const [legend, setLegend] = useState(false);
   return (
     <div className="design-toolbar" role="toolbar" aria-label="Design tools">
+      {/* whiteboard (D02a): Edit toggle, undo, redo; the palette lives on the canvas */}
+      <WhiteboardTools />
       <button
         type="button"
         className="icon-btn"

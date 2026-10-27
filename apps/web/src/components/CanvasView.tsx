@@ -19,6 +19,13 @@ import { layoutInWorker } from '../layout.ts';
 import { DESIGN_NODE_SIZE, NODE_SIZE, nodeTypes, type AtlasNodeData } from './nodes.tsx';
 import { isDesignLens } from './design/archetypes.tsx';
 import { edgeTypes, type AtlasEdgeData } from './edges.tsx';
+// whiteboard controls of the design lens (D02a)
+import { DesignFlowEdge, designEdgeExtras, designNodeExtras } from './design/drift.tsx';
+import { useWhiteboard } from './design/useWhiteboard.ts';
+import { useDesignEdits } from './design/useDesignEdits.tsx';
+import { WhiteboardLayer } from './design/Palette.tsx';
+
+const EDGE_TYPES = { ...edgeTypes, 'design-flow': DesignFlowEdge };
 
 export interface Location {
   canvasId: string;
@@ -111,13 +118,19 @@ export function CanvasView(props: Props) {
   const pendingViewport = useRef<{ viewport?: Viewport } | null>(null);
   /** View currently on screen: a live refresh of the same view keeps the user's viewport. */
   const shownViewId = useRef<string | null>(null);
+  const multiSelect = !!useDesignEdits()?.editMode;
   const selectedEntityRef = useRef(selectedEntityId);
+  /** Nodes on screen, so a live refresh of the same view keeps what the person had selected. */
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
   selectedEntityRef.current = selectedEntityId;
 
   // one selection across views: whichever node shows the selected entity is selected here too;
   // if the canvas only shows an owner of it, the nearest visible owner is marked instead
   useEffect(() => {
     setNodes((ns) => {
+      // a multi-selection in whiteboard edit mode is React Flow's own; do not collapse it
+      if (multiSelect && ns.filter((n) => n.selected).length > 1) return ns;
       const present = ns.some((n) => n.data.entityId && n.data.entityId === selectedEntityId);
       const visible = new Set(ns.map((n) => n.data.entityId).filter(Boolean));
       const holder = present ? undefined : selectedAncestors?.find((a) => visible.has(a));
@@ -133,7 +146,7 @@ export function CanvasView(props: Props) {
       // returning the same array when nothing changed keeps this effect from looping
       return changed ? next : ns;
     });
-  }, [selectedEntityId, selectedAncestors, nodes, setNodes]);
+  }, [selectedEntityId, selectedAncestors, nodes, setNodes, multiSelect]);
 
   // Fit (or restore the saved viewport) only once React Flow has measured every node of this canvas.
   // `useNodesInitialized` can stay true across canvas switches, so check measurements directly.
@@ -197,6 +210,11 @@ export function CanvasView(props: Props) {
       });
       if (cancelled) return;
       const abs = layout.positions;
+      const keepSelected = new Set(
+        shownViewId.current === p.viewId
+          ? nodesRef.current.filter((n) => n.selected).map((n) => n.id)
+          : [],
+      );
       const pinned = new Set(overlay.pinnedIds);
       const noted = new Set(overlay.annotations.map((a) => a.targetId));
       const ordered = [...p.nodes].sort(
@@ -209,6 +227,7 @@ export function CanvasView(props: Props) {
           const position = parent ? { x: a.x - parent.x, y: a.y - parent.y } : { x: a.x, y: a.y };
           const data: AtlasNodeData = {
             ...n,
+            ...(design ? designNodeExtras(n, p) : {}),
             pinned: !!(n.entityId && pinned.has(n.entityId)) || !!overlay.nodePositions[n.id],
             note: !!(n.entityId && noted.has(n.entityId)),
           };
@@ -226,10 +245,11 @@ export function CanvasView(props: Props) {
           }
           return {
             id: n.id,
-            type: 'atlas',
+            type: n.kind === 'sticky' ? 'sticky' : 'atlas',
             position,
             data,
-            selected: !!n.entityId && n.entityId === selectedEntityRef.current,
+            selected:
+              (!!n.entityId && n.entityId === selectedEntityRef.current) || keepSelected.has(n.id),
             parentId: n.parentId && groupIds.has(n.parentId) ? n.parentId : undefined,
             extent: n.parentId && groupIds.has(n.parentId) ? 'parent' : undefined,
             ariaLabel: `${n.entityKind ?? n.kind} ${n.label}`,
@@ -240,14 +260,21 @@ export function CanvasView(props: Props) {
         p.edges.map((e): Edge<AtlasEdgeData> => {
           const flowLabel = design ? e.flow : undefined;
           const label = flowLabel ?? edgeLabel(e.kinds);
+          const wb = design ? designEdgeExtras(e, p) : undefined;
           return {
             id: e.id,
-            type: 'atlas',
+            type: wb?.type ?? 'atlas',
             source: e.source,
             target: e.target,
-            className: `atlas-edge edge-${e.status}${flowLabel ? ' flow-edge' : ''}`,
+            className: `atlas-edge edge-${e.status}${flowLabel ? ' flow-edge' : ''}${wb?.className ? ` ${wb.className}` : ''}`,
             markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-            data: { relationIds: e.relationIds, status: e.status, label, flow: !!flowLabel },
+            data: {
+              relationIds: e.relationIds,
+              status: e.status,
+              label,
+              flow: !!flowLabel,
+              ...wb?.data,
+            },
             ariaLabel: `${label} (${e.status})`,
           };
         }),
@@ -281,8 +308,11 @@ export function CanvasView(props: Props) {
     };
   }, [token, snapshotId, projectId, location.canvasId, location.focus, refreshKey]);
 
+  const wb = useWhiteboard({ nodes, setNodes, persist, onSelect });
   const onNodeDragStop = useCallback(
     (_: unknown, node: Node<AtlasNodeData>) => {
+      // edit mode: dropping a box onto a subsystem moves it in (the box is re-projected there)
+      if (wb.onDragStopInto(node)) return;
       const internal = flow.getInternalNode(node.id);
       const abs = internal?.internals.positionAbsolute ?? node.position;
       const pos = { x: Math.round(abs.x), y: Math.round(abs.y) };
@@ -300,7 +330,7 @@ export function CanvasView(props: Props) {
         ns.map((n) => (n.id === node.id ? { ...n, data: { ...n.data, pinned: true } } : n)),
       );
     },
-    [flow, persist, setNodes],
+    [flow, persist, setNodes, wb],
   );
 
   const onMoveEnd = useCallback(
@@ -341,7 +371,7 @@ export function CanvasView(props: Props) {
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
+        edgeTypes={EDGE_TYPES}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeDragStop={onNodeDragStop}
@@ -366,7 +396,9 @@ export function CanvasView(props: Props) {
         edgesFocusable
         elevateEdgesOnSelect
         proOptions={{ hideAttribution: false }}
+        {...wb.flowProps}
       >
+        <WhiteboardLayer place={wb.place} clearSelection={wb.clearSelection} />
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
         <Controls showInteractive={false} />
         <MiniMap pannable zoomable ariaLabel="Canvas overview" />
