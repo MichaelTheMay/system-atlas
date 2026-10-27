@@ -45,7 +45,8 @@ jobs:
         timeout-minutes: 6
         run: pnpm exec playwright install chromium
       - name: Install Chromium system dependencies
-        timeout-minutes: 6
+        # apt mirrors are occasionally very slow (one run took >6 min for 26 MB)
+        timeout-minutes: 12
         run: pnpm exec playwright install-deps chromium
       - run: pnpm e2e
       - run: node apps/cli/src/main.ts doctor

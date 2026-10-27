@@ -6,7 +6,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**M02 — Model proposal validation, cache and budget** (Phase 3). I01 is in PR #16.
+**M02 — Model proposal validation, cache and budget** (Phase 3). M02a (validation, MCP proposals and claims UI) is in PR #17. M02b is next: the provider interface, mock provider, cache and budget.
 
 ## Tickets (plan §17)
 
@@ -25,7 +25,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 | E03 | Playwright capture helper                         | E01         | done        | PR #10; see E03 evidence   |
 | E04 | Output canvases and isolated preview renderer     | E02,E03,A07 | done        | PR #11; see E04 evidence   |
 | M01 | Watcher and incremental invalidation              | A05,A07     | done        | PRs #13, #14, #15          |
-| M02 | Model proposal validation, cache and budget       | M01         | not started |                            |
+| M02 | Model proposal validation, cache and budget       | M01         | in progress | M02a PR #17                |
 | I01 | MCP and generic event SDK                         | E01,A06     | done        | PR #16                     |
 | I02 | VS Code integration                               | I01         | not started |                            |
 | I03 | OTLP subset and bundle importer                   | E04         | not started |                            |
@@ -71,11 +71,11 @@ Phase 2 complete 2026-10-26 (tag `phase-2`).
 ### Phase 3 — continuous reconciliation and richer view planning
 
 - [x] Rapid edits coalesce. In `watch.test.ts`, 20 edits across 3 files become 1 flush and 1 published snapshot, and continuous edits are still published within the max wait. The UI updates live (`watch.spec.ts`).
-- [ ] Stale inference is invalidated (M01/M02).
+- [x] Stale inference is invalidated. A model claim citing `db.ts` turns `stale` after `db.ts` is edited and a rescan publishes (`proposals.test.ts`).
 - [x] Failed extraction does not erase good state. Covered by `scan.test.ts` "carries a failing analyzer's previous facts forward" and `reconcile.test.ts` "reports stale changes…".
 - [x] Overlays survive renames where identity is supported. Pins, notes and remembered positions follow content-hash and user-accepted aliases relative to the viewed snapshot (`inspector.test.ts`). In `issues.spec.ts`, a pin on a moved file follows the link made in the UI.
 - [x] Ambiguous renames surface as issues in the UI. A header badge opens a panel where each pair can be linked or the issue dismissed. With several candidates nothing is preselected (`issues.spec.ts`, `reconcile.test.ts`).
-- [ ] Model output with invented evidence is rejected (M02).
+- [x] Model output with invented evidence is rejected. These are rejected with reasons and write nothing: an unknown evidence ID, another project's evidence, a path not in the snapshot, lines past the end, a wrong quote, a file edited after the snapshot, and a stale precondition (`proposals.test.ts`). Through MCP the same holds (`mcp.test.ts`), and in the UI (`claims.spec.ts`).
 - [ ] Cross-view selection uses a single entity identity.
 - [x] A single-file update publishes within 3 s on dsh. It takes 2.6 to 2.7 s through the watcher, including the 750 ms debounce; M01a measured 5.3 s plus the debounce.
 
@@ -341,6 +341,26 @@ Changes:
   - the generic SDK path.
 
   Also `search.test.ts` and the evidence assertion-rejection test.
+
+### M02a (2026-10-26): claim proposals validated in the daemon
+
+- `proposeClaims`:
+  - Uses a closed predicate set: summary, responsibility, subsystem, role, concern, depends-on.
+  - Verifies every citation, either existing evidence matching the snapshot or project run, or a file range whose bytes and quote match. File citations are stored as hash-pinned evidence.
+  - Model claims are capped at `inferred`, and no relation rows are ever written.
+  - The snapshot precondition is re-checked inside the write transaction.
+  - Every call is audited in migration `0006`, including rejected items with reasons.
+- `rejectClaim` records a human override that survives carry-forward.
+- Routes: `POST /proposals/claims`, `POST /claims/:id/reject`, `GET /projects/:id/proposals`.
+- MCP tools:
+  - `atlas_propose_claims`. Model metadata is what the client reported, never invented.
+  - `atlas_annotate`, which writes an agent-labeled note through the overlay API and retries on 409.
+- Inspector: claims show text labels for origin, reported model, status and citation count, with a Reject action. Agent notes are labeled.
+- Tests:
+  - `proposals.test.ts`, 4 tests: the invented-evidence matrix, a stale precondition, stale-on-edit with a published rescan, rejection surviving carry-forward, and model claims staying inferred with no relations.
+  - `mcp.test.ts`, which adds proposals and annotate.
+  - `claims.spec.ts`.
+- Screenshots of the Inspector were inspected, showing claims and an agent note made by a real `atlas mcp` session.
 
 ## Environment record (2026-10-26)
 

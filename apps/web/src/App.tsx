@@ -56,6 +56,7 @@ export function App() {
   const [summary, setSummary] = useState<SnapshotSummary | null | undefined>(undefined);
   const [watching, setWatching] = useState(false);
   const [issuesOpen, setIssuesOpen] = useState(false);
+  const [claimsKey, setClaimsKey] = useState(0);
   const [catalog, setCatalog] = useState<CatalogDto | null>(null);
   const [scan, setScan] = useState<{ state: 'idle' | 'running' | 'failed'; message?: string }>({
     state: 'idle',
@@ -166,6 +167,7 @@ export function App() {
       if (ev.type.startsWith('run.')) setOutputsRefresh((k) => k + 1);
       // linking a rename changes counts and where pins resolve
       if (ev.type === 'issue.resolved') refresh = true;
+      if (ev.type.startsWith('claims.')) setClaimsKey((k) => k + 1);
       if (ev.data.worktreeId !== worktreeId) continue;
       if (ev.type === 'scan.started') setScan({ state: 'running' });
       if (ev.type === 'snapshot.published') {
@@ -555,6 +557,7 @@ export function App() {
           onEditOverlay={editOverlay}
           onNavigate={navigate}
           onOpenRun={openRun}
+          claimsKey={claimsKey}
         />
       ) : (
         <aside className="inspector" aria-label="Inspector">

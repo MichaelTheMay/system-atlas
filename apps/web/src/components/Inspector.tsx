@@ -26,6 +26,25 @@ interface Props {
   onEditOverlay(mutate: (o: OverlayDto) => OverlayDto): void;
   onNavigate(loc: Location): void;
   onOpenRun(runId: string): void;
+  /** Bumped when claims change (proposals, reviews) so details reload. */
+  claimsKey?: number;
+}
+
+const CLAIM_LABELS: Record<string, string> = {
+  summary: 'Summary',
+  responsibility: 'Responsibility',
+  subsystem: 'Subsystem',
+  role: 'Role',
+  concern: 'Concern',
+  'depends-on': 'Depends on',
+};
+
+function claimValue(c: EntityDetailsDto['claims'][number]): string {
+  if (c.predicate === 'depends-on' && c.value && typeof c.value === 'object') {
+    const v = c.value as { reason?: string };
+    return `${c.targetName ?? 'another element'}${v.reason ? `: ${v.reason}` : ''}`;
+  }
+  return typeof c.value === 'string' ? c.value : JSON.stringify(c.value);
 }
 
 export function Inspector(p: Props) {
@@ -210,7 +229,7 @@ function EntityInfo(
       setD,
       (e: Error) => setErr(e.message),
     );
-  }, [p.snapshotId, p.entityId, p.token]);
+  }, [p.snapshotId, p.entityId, p.token, p.claimsKey]);
   if (err) return <p className="error">{err}</p>;
   if (!d) return <p className="muted">Loading…</p>;
   const e = d.entity;
@@ -279,12 +298,45 @@ function EntityInfo(
       {d.claims.length > 0 && (
         <>
           <h4 className="sub">Claims</h4>
-          <ul className="plain-list">
+          <p className="muted small">
+            Proposed by people or models. Model claims are hypotheses, never facts: they cite
+            evidence and turn stale when it changes.
+          </p>
+          <ul className="plain-list claims">
             {d.claims.map((c) => (
-              <li key={c.id}>
-                <strong>{c.predicate}</strong>: {String(c.value)}{' '}
-                <span className="tag">{c.origin}</span>{' '}
-                <span className={`tag st-${c.status}`}>{c.status}</span>
+              <li key={c.id} className={`claim claim-${c.status}`}>
+                <strong>{CLAIM_LABELS[c.predicate] ?? c.predicate}</strong>: {claimValue(c)}{' '}
+                <span className="tag">
+                  {c.origin === 'model' ? `model${c.model ? ` · ${c.model}` : ''}` : c.origin}
+                </span>{' '}
+                <span className={`tag st-${c.status}`}>{c.status}</span>{' '}
+                <span className="muted small">
+                  {c.evidenceCount} citation{c.evidenceCount === 1 ? '' : 's'}
+                </span>
+                {c.status !== 'rejected' && (
+                  <button
+                    type="button"
+                    className="link"
+                    aria-label={`Reject claim: ${CLAIM_LABELS[c.predicate] ?? c.predicate} ${claimValue(c)}`}
+                    onClick={() => {
+                      void fetch(`/api/v1/claims/${c.id}/reject`, {
+                        method: 'POST',
+                        headers: {
+                          authorization: `Bearer ${p.token}`,
+                          'content-type': 'application/json',
+                        },
+                        body: JSON.stringify({ reason: 'rejected in the inspector' }),
+                      }).then(() =>
+                        api<EntityDetailsDto>(
+                          `/snapshots/${p.snapshotId}/entities/${p.entityId}`,
+                          p.token,
+                        ).then(setD),
+                      );
+                    }}
+                  >
+                    Reject
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -313,9 +365,12 @@ function EntityInfo(
         </ul>
       )}
 
-      <h4 className="sub">Notes (yours, not facts)</h4>
+      <h4 className="sub">Notes (not facts)</h4>
       {notes.map((n) => (
         <p key={n.id} className="note">
+          {n.author === 'agent' && (
+            <span className="tag">agent{n.authorName ? ` · ${n.authorName}` : ''}</span>
+          )}{' '}
           {n.text}
         </p>
       ))}
