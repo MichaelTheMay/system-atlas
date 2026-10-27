@@ -126,14 +126,41 @@ export const DesignJobKind = z.enum([
   'name-subsystem',
   'explain-flow',
   'suggest-responsibilities',
+  // design boards (D03c): read and propose through the board tools, never touch code facts
+  'draft-board',
+  'critique-board',
+  'fill-doc',
+  'explain-scenario',
+  'variant-board',
+  'implementation-plan',
 ]);
+export type DesignJobKind = z.infer<typeof DesignJobKind>;
+
+/** Job kinds that work on a design board (no snapshot needed). */
+export const BOARD_JOB_KINDS = [
+  'draft-board',
+  'critique-board',
+  'fill-doc',
+  'explain-scenario',
+  'variant-board',
+  'implementation-plan',
+] as const satisfies readonly DesignJobKind[];
+export const isBoardJobKind = (k: DesignJobKind): k is (typeof BOARD_JOB_KINDS)[number] =>
+  (BOARD_JOB_KINDS as readonly string[]).includes(k);
 
 /** A manual request; nothing schedules these (watcher and scans never trigger a model). */
 export const DesignJobRequest = z.object({
   kind: DesignJobKind,
   runtime: DesignRuntimeId,
   model: z.string().max(100).optional(),
-  snapshotId: idSchema('snapshot'),
+  /** Snapshot the D02 kinds read and cite (required for them; board kinds need none). */
+  snapshotId: idSchema('snapshot').optional(),
+  /** Board kinds: the board to work on (`draft-board` without one drafts a new board). */
+  boardId: idSchema('board').optional(),
+  /** `draft-board`: what to design; `variant-board`: the idea to explore (optional). */
+  prompt: z.string().trim().min(1).max(4000).optional(),
+  /** `explain-scenario`: the scenario to walk through. */
+  scenarioId: z.string().min(1).max(64).optional(),
   /** generate: recursion depth (levels below the system canvas). */
   depth: z.number().int().min(1).max(3).default(3),
   maxSubsystemsPerLevel: z.number().int().min(2).max(12).default(8),
@@ -174,6 +201,9 @@ export const DesignJobEvent = z.discriminatedUnion('type', [
     runId: idSchema('run').optional(),
     proposedElements: z.number().int().nonnegative(),
     proposedClaims: z.number().int().nonnegative(),
+    /** Board kinds: registry items proposed by this job, and the board they landed on. */
+    proposedBoardItems: z.number().int().nonnegative().optional(),
+    boardId: idSchema('board').optional(),
     error: z.string().max(2_000).optional(),
   }),
 ]);

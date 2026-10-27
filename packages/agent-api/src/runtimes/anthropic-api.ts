@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { isBoardJobKind } from '@atlas/schema';
 import type {
   DesignRuntime,
   DesignRuntimeContext,
@@ -76,7 +77,9 @@ export function createAnthropicDesignRuntime(opts: AnthropicRuntimeOptions = {})
           content:
             request.kind === 'generate'
               ? 'Generate the design now.'
-              : 'Do the task for the selection now.',
+              : isBoardJobKind(request.kind)
+                ? 'Do the board task now.'
+                : 'Do the task for the selection now.',
         },
       ];
       const usage = { inputTokens: 0, outputTokens: 0 };
@@ -138,7 +141,10 @@ export function createAnthropicDesignRuntime(opts: AnthropicRuntimeOptions = {})
         output:
           request.kind === 'generate'
             ? undefined
-            : { text: finalText.slice(0, 4_000), data: parseAnswer(finalText) },
+            : {
+                text: finalText.slice(0, isBoardJobKind(request.kind) ? 20_000 : 4_000),
+                data: parseAnswer(finalText),
+              },
       };
     },
   };

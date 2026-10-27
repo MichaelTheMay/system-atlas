@@ -222,6 +222,12 @@ out({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu
 process.stdout.write('this line is not json\\n');
 out({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tu2', name: 'mcp__atlas__atlas_propose_view', input: {} }] } });
 out({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu2', content: JSON.stringify({ subsystems: [{ name: 'A', accepted: ['e1', 'e2'], rejected: [{ entityId: 'e3' }] }] }) }] } });
+if (mode === 'board') {
+  out({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tb', name: 'mcp__atlas__atlas_propose_board', input: {} }] } });
+  out({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tb', content: JSON.stringify({ accepted: [{ id: 'agent-a' }, { id: 'agent-b' }], rejected: [{ specId: 'k' }] }) }] } });
+  out({ type: 'result', subtype: 'success', is_error: false, result: '# Implementation plan\\n' + 'x'.repeat(6000), usage: { input_tokens: 10, output_tokens: 5 } });
+  process.exit(0);
+}
 out({ type: 'result', subtype: mode === 'error' ? 'error_max_turns' : 'success', is_error: mode === 'error', result: mode === 'answer' ? '\`\`\`json\\n{"name":"Billing"}\\n\`\`\`' : 'done', usage: { input_tokens: 1234, output_tokens: 56 }, total_cost_usd: 0.01 });
 `,
   );
@@ -485,5 +491,69 @@ describe('anthropic-api runtime (injected client, no network)', () => {
       .catch((e: Error) => e);
     expect(String(err)).not.toContain(key);
     expect(String(err)).toContain('[redacted]');
+  });
+});
+
+describe('claude-code runtime on design-board jobs (fake claude)', () => {
+  it('allows the board tools, counts board proposals and keeps long plan answers', async () => {
+    const allowed = claudeCodeArgs({ prompt: 'P', mcpConfigPath: '/t/c.json' });
+    expect(allowed[allowed.indexOf('--allowedTools') + 1]!.split(',')).toEqual(
+      expect.arrayContaining([
+        'mcp__atlas__atlas_get_board',
+        'mcp__atlas__atlas_propose_board',
+        'mcp__atlas__atlas_create_board',
+        'mcp__atlas__atlas_list_boards',
+      ]),
+    );
+    const f = fakeClaude();
+    const { c, events } = ctx(unusedTools, { atlasMcp });
+    const r = await createClaudeCodeRuntime({ env: f.env('board') }).run(
+      request({
+        kind: 'implementation-plan',
+        boardId: `brd_${'d'.repeat(32)}`,
+        snapshotId: undefined,
+      }),
+      c,
+    );
+    expect(r.output?.text).toMatch(/^# Implementation plan/);
+    expect(r.output!.text!.length).toBeGreaterThan(4_000);
+    expect(events.filter((e) => e.type === 'tool-call').at(-1)).toEqual({
+      type: 'tool-call',
+      jobId: JOB,
+      tool: 'atlas_propose_board',
+      accepted: 2,
+      rejected: 1,
+    });
+  });
+});
+
+describe('anthropic-api runtime on design-board jobs (injected client)', () => {
+  it('asks for the board task and keeps a long explanation', async () => {
+    const f = fakeTools();
+    const seen: any[] = [];
+    const client: MessagesClient = {
+      messages: {
+        async create(params) {
+          seen.push(structuredClone(params));
+          return {
+            model: 'claude-sonnet-5-5',
+            stop_reason: 'end_turn',
+            content: [{ type: 'text', text: `1. Web → LB over HTTP. ${'y'.repeat(5000)}` }],
+            usage: { input_tokens: 10, output_tokens: 10 },
+          } as any;
+        },
+      },
+    };
+    const r = await createAnthropicDesignRuntime({ client }).run(
+      request({
+        kind: 'explain-scenario',
+        runtime: 'anthropic-api',
+        boardId: `brd_${'d'.repeat(32)}`,
+        snapshotId: undefined,
+      }),
+      ctx(f.tools).c,
+    );
+    expect(seen[0].messages[0].content).toBe('Do the board task now.');
+    expect(r.output?.text?.length).toBeGreaterThan(4_000);
   });
 });

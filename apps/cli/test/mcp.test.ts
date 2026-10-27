@@ -84,16 +84,20 @@ describe('atlas mcp (stdio, as an external agent)', () => {
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
       'atlas_annotate',
+      'atlas_create_board',
       'atlas_finish_run',
       'atlas_get_artifact_metadata',
+      'atlas_get_board',
       'atlas_get_entity',
       'atlas_get_evidence',
       'atlas_get_run',
       'atlas_get_view',
       'atlas_list_artifacts',
+      'atlas_list_boards',
       'atlas_list_runs',
       'atlas_list_views',
       'atlas_project_status',
+      'atlas_propose_board',
       'atlas_propose_claims',
       'atlas_propose_view',
       'atlas_record_artifact',
@@ -405,5 +409,59 @@ describe('atlas mcp (stdio, as an external agent)', () => {
         authorName: 'atlas-test-agent',
       }),
     ]);
+  });
+
+  it('design boards round trip: list, create a draft, read the spec, propose (dangling refs rejected)', async () => {
+    expect((await call('atlas_list_boards')).boards).toEqual([]);
+    const created = await call('atlas_create_board', {
+      name: 'Checkout',
+      spec: {
+        components: [
+          { id: 'api', type: 'service', label: 'Checkout API' },
+          { id: 'db', type: 'sql-db', label: 'Orders DB', props: { engine: 'postgres' } },
+        ],
+        connections: [{ id: 'k', from: 'api', to: 'db', protocol: 'SQL', volume: '~2k rps' }],
+      },
+    });
+    expect(created.boardId).toMatch(/^brd_/);
+    expect(created.accepted.map((a: any) => a.id)).toEqual(['agent-api', 'agent-db', 'agent-k']);
+    expect((await call('atlas_list_boards')).boards).toEqual([
+      expect.objectContaining({ boardId: created.boardId, name: 'Checkout', source: 'prompt' }),
+    ]);
+
+    const r = await call('atlas_propose_board', {
+      boardId: created.boardId,
+      spec: {
+        components: [{ id: 'cache', type: 'cache', label: 'Orders cache' }],
+        connections: [
+          { id: 'k2', from: 'agent-api', to: 'cache' },
+          { id: 'k3', from: 'cache', to: 'nowhere' },
+        ],
+        doc: {
+          items: [
+            { id: 'r', section: 'risks', text: '[Missing cache] Orders DB', pins: ['agent-db'] },
+          ],
+        },
+      },
+    });
+    expect(r.accepted.map((a: any) => a.id)).toEqual(['agent-cache', 'agent-k2', 'agent-r']);
+    expect(r.rejected).toEqual([
+      { kind: 'connection', specId: 'k3', reasons: ['unknown component "nowhere" (to)'] },
+    ]);
+
+    const b = await call('atlas_get_board', { boardId: created.boardId });
+    expect(b.name).toBe('Checkout');
+    expect(
+      b.spec.components.map((c: any) => [c.id, c.status, c.origin.author, c.origin.name]),
+    ).toEqual([
+      ['agent-api', 'proposed', 'agent', 'atlas-test-agent@1.0.0'],
+      ['agent-db', 'proposed', 'agent', 'atlas-test-agent@1.0.0'],
+      ['agent-cache', 'proposed', 'agent', 'atlas-test-agent@1.0.0'],
+    ]);
+    expect(b.spec.doc.items[0].pins).toEqual(['agent-db']);
+    expect(JSON.stringify(b)).not.toMatch(/"scene"|elementIds/);
+    expect((await call('atlas_get_board', { boardId: 'brd_' + '0'.repeat(32) })).error).toMatch(
+      /unknown_board/,
+    );
   });
 });

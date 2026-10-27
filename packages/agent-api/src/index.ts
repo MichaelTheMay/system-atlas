@@ -5,3 +5,8 @@ export * from './design-runtime.ts';
 export * from './design-tools.ts';
 export { buildDesignPrompt, type DesignPromptInput } from './design-prompt.ts';
 export * from './runtimes/index.ts';
+export {
+  buildBoardPrompt,
+  BOARD_PROMPT_TEMPLATE_VERSION,
+  type BoardPromptInput,
+} from './board-prompt.ts';

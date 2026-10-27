@@ -1,4 +1,5 @@
-import type { DesignJobRequest } from '@atlas/schema';
+import { isBoardJobKind, type DesignJobRequest } from '@atlas/schema';
+import { buildBoardPrompt } from './board-prompt.ts';
 import { DESIGN_PROMPT_TEMPLATE_VERSION } from './design-runtime.ts';
 
 /**
@@ -8,8 +9,10 @@ import { DESIGN_PROMPT_TEMPLATE_VERSION } from './design-runtime.ts';
  * version, so recorded runs say which instructions produced their proposals.
  */
 export interface DesignPromptInput {
-  request: Pick<DesignJobRequest, 'kind' | 'depth' | 'maxSubsystemsPerLevel' | 'targetIds'>;
-  snapshotId: string;
+  request: Pick<DesignJobRequest, 'kind' | 'depth' | 'maxSubsystemsPerLevel' | 'targetIds'> &
+    Partial<Pick<DesignJobRequest, 'boardId' | 'prompt' | 'scenarioId'>>;
+  /** D02 kinds: the snapshot proposals cite (board kinds need none). */
+  snapshotId?: string;
 }
 
 const rules = (snapshotId: string) =>
@@ -24,7 +27,9 @@ const rules = (snapshotId: string) =>
     '- Leave boxes inside accepted subsystems (provenance "accepted") where they are: never propose another subsystem for them.',
   ].join('\n');
 
-export function buildDesignPrompt({ request, snapshotId }: DesignPromptInput): string {
+export function buildDesignPrompt({ request, snapshotId = '' }: DesignPromptInput): string {
+  // design boards (D03c) have their own versioned template
+  if (isBoardJobKind(request.kind)) return buildBoardPrompt({ request });
   const head = `System Atlas design agent (${DESIGN_PROMPT_TEMPLATE_VERSION}).`;
   const targets = request.targetIds.length
     ? `Selection: ${request.targetIds.slice(0, 50).join(', ')}.`
@@ -74,5 +79,7 @@ export function buildDesignPrompt({ request, snapshotId }: DesignPromptInput): s
         targets,
         rules(snapshotId),
       ].join('\n');
+    default:
+      return head;
   }
 }
