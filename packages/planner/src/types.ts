@@ -36,6 +36,24 @@ export interface GapSummary {
   count?: number;
 }
 
+/** A human or model claim about an entity (design lens input; never a fact). */
+export interface GraphClaim {
+  id: string;
+  subjectId: string;
+  predicate: string;
+  value: unknown;
+  origin: string;
+  status: string;
+  /** Model name as reported, for "Proposed by …" labels. */
+  model?: string;
+}
+
+/** A user decision about a view (plan §8): survives regeneration because it keys on stable canvas ids. */
+export interface ViewOverrideRow {
+  targetId: string;
+  action: 'pin' | 'suppress' | 'promote';
+}
+
 export interface PlannerGraph {
   projectId: string;
   snapshotId: string;
@@ -44,7 +62,25 @@ export interface PlannerGraph {
   relations: GraphRelation[];
   gaps: GapSummary[];
   changes: GraphChange[];
+  /** Design lens inputs (D01); absent means none. */
+  claims?: GraphClaim[];
+  overrides?: ViewOverrideRow[];
 }
+
+/** Conceptual whiteboard box kinds of the system-design lens (D01). */
+export type Archetype =
+  | 'client'
+  | 'api-service'
+  | 'worker'
+  | 'queue'
+  | 'datastore'
+  | 'cache'
+  | 'external-api'
+  | 'library'
+  | 'service';
+
+/** Where a design canvas or box comes from: analyzers only, a model/agent claim, or a person. */
+export type Provenance = 'detected' | 'proposed' | 'accepted';
 
 export interface Catalog {
   canvases: CanvasSpec[];
@@ -73,6 +109,12 @@ export interface ProjectionNode {
   change?: string;
   /** Relation kinds for ports: inbound/outbound. */
   direction?: 'in' | 'out' | 'both';
+  /** Design lens: whiteboard box kind and why it was chosen. */
+  archetype?: Archetype;
+  archetypeReason?: string;
+  provenance?: Provenance;
+  /** Design lens: architecture canvas that realizes this box. */
+  realizedByCanvasId?: string;
 }
 
 export interface ProjectionEdge {
@@ -82,6 +124,8 @@ export interface ProjectionEdge {
   kinds: Record<string, number>;
   relationIds: string[];
   status: 'supported' | 'inferred' | 'stale' | 'mixed';
+  /** Design lens: whiteboard flow label (HTTP, enqueue, consume, reads/writes, uses, runs on). */
+  flow?: string;
 }
 
 export interface Projection {

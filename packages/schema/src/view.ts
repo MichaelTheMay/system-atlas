@@ -4,7 +4,7 @@ import { EntityKind, RelationKind } from './semantic.ts';
 
 export const VIEW_SCHEMA_VERSION = 1 as const;
 
-export const Workspace = z.enum(['architecture', 'outputs']);
+export const Workspace = z.enum(['architecture', 'outputs', 'design']);
 export type Workspace = z.infer<typeof Workspace>;
 
 export const ArchitectureLens = z.enum([
@@ -31,7 +31,9 @@ export const OutputsLens = z.enum([
   'audit-trail',
   'run-comparison',
 ]);
-export const Lens = z.union([ArchitectureLens, OutputsLens]);
+/** System design (D01): whiteboard views derived from the semantic graph and subsystem claims. */
+export const DesignLens = z.enum(['design-system', 'design-subsystem']);
+export const Lens = z.union([ArchitectureLens, OutputsLens, DesignLens]);
 export type Lens = z.infer<typeof Lens>;
 
 /**
@@ -88,6 +90,8 @@ export const CanvasSpec = z.object({
   snapshotId: idSchema('snapshot'),
   generationVersion: z.string().min(1),
   state: CanvasState,
+  /** Design canvases (D01): detected by analyzers, proposed by a model/agent claim, or accepted by a person. */
+  provenance: z.enum(['detected', 'proposed', 'accepted']).optional(),
   coverageSummary: z.object({
     entityCount: z.number().int().nonnegative(),
     gapCount: z.number().int().nonnegative(),

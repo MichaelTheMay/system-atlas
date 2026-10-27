@@ -119,6 +119,11 @@ export async function latestSnapshot(
 
 export interface CanvasSpecDto {
   id: string;
+  /** architecture | outputs | design */
+  workspace?: string;
+  state?: 'cataloged' | 'materialized' | 'stale' | 'suppressed';
+  /** Design canvases: detected (analyzers only), proposed (model/agent claims) or accepted (a person). */
+  provenance?: 'detected' | 'proposed' | 'accepted';
   lens: string;
   title: string;
   ownerCanvasId?: string;
@@ -153,6 +158,11 @@ export interface ProjectionNodeDto {
   memberCount?: number;
   counts?: Record<string, number>;
   change?: string;
+  /** Design lens (D01). */
+  archetype?: string;
+  archetypeReason?: string;
+  provenance?: 'detected' | 'proposed' | 'accepted';
+  realizedByCanvasId?: string;
 }
 
 export interface ProjectionEdgeDto {
@@ -162,6 +172,7 @@ export interface ProjectionEdgeDto {
   kinds: Record<string, number>;
   relationIds: string[];
   status: 'supported' | 'inferred' | 'stale' | 'mixed';
+  flow?: string;
 }
 
 export interface ProjectionDto {
