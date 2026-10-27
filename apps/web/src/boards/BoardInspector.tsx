@@ -12,7 +12,9 @@ import {
 import { AgentTabs } from './AgentTabs.tsx';
 import { createBoard } from './api.ts';
 import { useBoard } from './context.ts';
+import { DocPanel } from './DocPanel.tsx';
 import { ComponentIcon, FAMILY_LABEL } from './Palette.tsx';
+import { ScenariosPanel } from './ScenariosPanel.tsx';
 
 /**
  * Board inspector (D03): the right column while a board is open. Wave 1a fills it with the
@@ -40,6 +42,8 @@ export function BoardInspector() {
             <BoardSummary />
           )
         }
+        scenarios={<ScenariosPanel />}
+        doc={<DocPanel />}
       />
     </div>
   );

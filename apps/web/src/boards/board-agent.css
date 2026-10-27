@@ -61,12 +61,13 @@
 /* inspector tabs: Properties | Proposals | Plan */
 .ba-tabs {
   display: flex;
-  gap: 2px;
+  flex-wrap: wrap;
+  gap: 0 2px;
   margin: 0 0 10px;
   border-bottom: 1px solid var(--line, #e2e5ea);
 }
 .ba-tabs button {
-  padding: 6px 10px;
+  padding: 6px 7px;
   border: none;
   border-bottom: 2px solid transparent;
   background: none;

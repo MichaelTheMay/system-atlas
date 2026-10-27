@@ -10,9 +10,13 @@ import { BoardAgentMenu } from './BoardAgentMenu.tsx';
 import { BoardInspector } from './BoardInspector.tsx';
 import { BoardContext, type BoardContextValue } from './context.ts';
 import { BoardController } from './controller.ts';
+import { ExportMenu } from './ExportMenu.tsx';
+import { ImportAsBuilt } from './ImportAsBuilt.tsx';
 import { materialize, needsMaterialize, type El } from './materialize.ts';
 import { PALETTE_MIME, Palette } from './Palette.tsx';
+import { PresentMode } from './PresentMode.tsx';
 import type { BoardSelection } from './registry.ts';
+import { clearDecorations, hasDecorations } from './scenarios.ts';
 import '@excalidraw/excalidraw/index.css';
 
 // Excalidraw fonts come from the app origin (served by Vite in dev, copied into dist at build).
@@ -64,6 +68,8 @@ export function BoardView({
   const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
   const [selection, setSelection] = useState<BoardSelection>({ elementIds: [] });
   const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const [presenting, setPresenting] = useState(false);
+  const [laser, setLaser] = useState(false);
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const boardRef = useRef<DesignBoard | null>(null);
   const lastScene = useRef('');
@@ -109,7 +115,8 @@ export function BoardView({
     if (r.ok) {
       const latest = boardRef.current!;
       boardRef.current = { ...latest, revision: r.board.revision, updatedAt: r.board.updatedAt };
-      setStatus((s) => (s === 'conflict' ? s : 'saved'));
+      // the retry stored this editor's state: it is saved (the conflict note was transient)
+      setStatus('saved');
     } else setStatus('error');
     if (dirty.current) void flush();
   }, [token]);
@@ -150,9 +157,18 @@ export function BoardView({
     getBoard(token, boardId)
       .then(async (b) => {
         // a template/prompt/code board arrives with a registry and no drawing yet
-        const document = needsMaterialize(b.document)
+        let document = needsMaterialize(b.document)
           ? await materialize(b.document, layoutInWorker)
           : b.document;
+        // a scenario left shown (numbers, dimming) is display state, not part of the drawing (1b)
+        if (hasDecorations(document.scene.elements))
+          document = {
+            ...document,
+            scene: {
+              ...document.scene,
+              elements: clearDecorations(document.scene.elements as never) as never,
+            },
+          };
         if (cancelled) return;
         const loaded = { ...b, document };
         boardRef.current = loaded;
@@ -221,7 +237,10 @@ export function BoardView({
   return (
     <BoardContext.Provider value={ctx}>
       <BoardAgentProvider>
-        <section className="board-view" aria-label={`Design board: ${board.name}`}>
+        <section
+          className={`board-view${presenting ? ' board-presenting' : ''}`}
+          aria-label={`Design board: ${board.name}`}
+        >
           <header className="board-header">
             <button type="button" className="icon-btn" onClick={onBack}>
               ← Boards
@@ -251,10 +270,15 @@ export function BoardView({
             </span>
             <div className="board-tools">
               <BoardAgentMenu />
+              <ImportAsBuilt />
+              <ExportMenu />
+              <button type="button" onClick={() => setPresenting(true)} disabled={!api}>
+                Present
+              </button>
             </div>
           </header>
           <div className="board-body">
-            <Palette />
+            {!presenting && <Palette />}
             <div
               className="board-canvas"
               onDragOver={(e) => {
@@ -290,11 +314,24 @@ export function BoardView({
                     files: board.document.scene.files as never,
                   }}
                   onChange={onChange as never}
+                  // host-controlled only while presenting (1b); otherwise Excalidraw keeps its toggles
+                  viewModeEnabled={presenting ? !laser : undefined}
+                  zenModeEnabled={presenting ? laser : undefined}
                   UIOptions={{ canvasActions: { loadScene: false, saveToActiveFile: false } }}
                 />
               </Suspense>
             </div>
           </div>
+          {presenting && (
+            <PresentMode
+              laser={laser}
+              onLaser={setLaser}
+              onExit={() => {
+                setLaser(false);
+                setPresenting(false);
+              }}
+            />
+          )}
         </section>
         {slot && createPortal(<BoardInspector />, slot)}
       </BoardAgentProvider>

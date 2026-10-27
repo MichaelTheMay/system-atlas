@@ -8,21 +8,31 @@ import type { BoardJobDto } from './useBoardJobs.ts';
 import './board-agent.css';
 
 /**
- * Tabs of the board inspector (D03c): the 1a properties form, the agent's proposals (with the
- * last job's progress and result) and the implementation plan.
+ * Tabs of the board inspector: the 1a properties form, 1b's scenarios and design doc, and (D03c)
+ * the agent's proposals (with the last job's progress and result) and the implementation plan.
  */
-export function AgentTabs({ properties }: { properties: ReactNode }) {
+export function AgentTabs({
+  properties,
+  scenarios,
+  doc,
+}: {
+  properties: ReactNode;
+  scenarios: ReactNode;
+  doc: ReactNode;
+}) {
   const { board } = useBoard();
   const agent = useBoardAgent();
   const count = proposedRows(board).length;
   const tabs: [InspectorTab, string][] = [
     ['properties', 'Properties'],
+    ['scenarios', 'Scenarios'],
+    ['doc', 'Design doc'],
     ['proposals', count ? `Proposals (${count})` : 'Proposals'],
     ['plan', 'Plan'],
   ];
   return (
     <>
-      <div className="ba-tabs" role="tablist" aria-label="Inspector tabs">
+      <div className="ba-tabs" role="tablist" aria-label="Board panels">
         {tabs.map(([id, label]) => (
           <button
             key={id}
@@ -36,43 +46,54 @@ export function AgentTabs({ properties }: { properties: ReactNode }) {
           </button>
         ))}
       </div>
-      <div role="tabpanel" aria-label={tabs.find(([id]) => id === agent.tab)![1]}>
-        {agent.tab === 'properties' ? (
-          properties
-        ) : agent.tab === 'proposals' ? (
-          <>
-            <AgentResult />
-            <ProposalsPanel />
-            {!count && !agent.last && (
-              <p className="muted small">
-                No proposals. Use Agent ▾ to draft, critique or fill the design doc; what the agent
-                suggests waits here for you to accept or reject.
-              </p>
-            )}
-          </>
-        ) : board.document.doc.plan ? (
-          <PlanPanel
-            plan={board.document.doc.plan}
-            busy={agent.jobs.running}
-            onRegenerate={() => void agent.start('implementation-plan', 'Implementation plan')}
-          />
-        ) : (
-          <div className="ba-empty">
-            <p className="muted small">No implementation plan yet.</p>
-            <button
-              type="button"
-              className="action-sm primary"
-              disabled={agent.jobs.running}
-              onClick={() => {
-                agent.enable();
-                void agent.start('implementation-plan', 'Implementation plan');
-              }}
-            >
-              Write the implementation plan
-            </button>
-          </div>
-        )}
-      </div>
+      {agent.tab === 'scenarios' || agent.tab === 'doc' ? (
+        // 1b's panels keep their own tab panel names
+        <section
+          className="board-side"
+          role="tabpanel"
+          aria-label={agent.tab === 'scenarios' ? 'Scenarios' : 'Design doc'}
+        >
+          {agent.tab === 'scenarios' ? scenarios : doc}
+        </section>
+      ) : (
+        <div role="tabpanel" aria-label={tabs.find(([id]) => id === agent.tab)![1]}>
+          {agent.tab === 'properties' ? (
+            properties
+          ) : agent.tab === 'proposals' ? (
+            <>
+              <AgentResult />
+              <ProposalsPanel />
+              {!count && !agent.last && (
+                <p className="muted small">
+                  No proposals. Use Agent ▾ to draft, critique or fill the design doc; what the
+                  agent suggests waits here for you to accept or reject.
+                </p>
+              )}
+            </>
+          ) : board.document.doc.plan ? (
+            <PlanPanel
+              plan={board.document.doc.plan}
+              busy={agent.jobs.running}
+              onRegenerate={() => void agent.start('implementation-plan', 'Implementation plan')}
+            />
+          ) : (
+            <div className="ba-empty">
+              <p className="muted small">No implementation plan yet.</p>
+              <button
+                type="button"
+                className="action-sm primary"
+                disabled={agent.jobs.running}
+                onClick={() => {
+                  agent.enable();
+                  void agent.start('implementation-plan', 'Implementation plan');
+                }}
+              >
+                Write the implementation plan
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }

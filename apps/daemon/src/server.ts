@@ -36,6 +36,7 @@ import { registerDesignJobRoutes } from './routes/design-jobs.ts';
 import { registerDesignElementRoutes } from './routes/design-elements.ts';
 import { registerBoardRoutes } from './routes/boards.ts';
 import { registerBoardAgentRoutes } from './routes/board-agent.ts';
+import { registerBoardExportRoutes } from './routes/board-exports.ts';
 import { ObjectStore } from '@atlas/evidence';
 import type { Db } from '@atlas/store';
 import { EventBus } from './events.ts';
@@ -608,6 +609,7 @@ export function buildServer(opts: ServerOptions): AtlasServer {
 
   registerDesignElementRoutes(app, { db: opts.db, bus });
   registerBoardRoutes(app, { db: opts.db, bus });
+  registerBoardExportRoutes(app, { db: opts.db, bus });
 
   /** View overrides (plan §8, D01): pin/suppress/promote keyed on stable canvas ids. */
   const OverrideBody = z

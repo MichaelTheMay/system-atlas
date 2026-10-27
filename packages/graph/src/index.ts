@@ -12,3 +12,4 @@ export * from './overrides.ts';
 export * from './design-elements.ts';
 export * from './boards.ts';
 export * from './board-proposals.ts';
+export * from './boards-from-code.ts';

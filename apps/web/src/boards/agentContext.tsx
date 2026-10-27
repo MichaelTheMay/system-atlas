@@ -25,7 +25,7 @@ import {
  * Proposals / Plan tabs of the board inspector: the running job, its last result, the inspector
  * tab, and `review` (accept / reject proposals). Lives inside `BoardContext`.
  */
-export type InspectorTab = 'properties' | 'proposals' | 'plan';
+export type InspectorTab = 'properties' | 'scenarios' | 'doc' | 'proposals' | 'plan';
 
 export interface BoardAgentValue {
   jobs: BoardJobs;
@@ -61,11 +61,6 @@ export function BoardAgentProvider({ children }: { children: ReactNode }) {
   const [tab, setTab] = useState<InspectorTab>(() =>
     proposedRows(board.board).length ? 'proposals' : 'properties',
   );
-  // selecting something on the canvas shows its properties
-  const picked = board.selection.componentId ?? board.selection.connectionId;
-  useEffect(() => {
-    if (picked) setTab('properties');
-  }, [picked]);
   const [last, setLast] = useState<BoardAgentValue['last']>();
   const [pendingConsent, setPendingConsent] = useState<BoardAgentValue['pendingConsent']>();
   const live = useRef(board);
