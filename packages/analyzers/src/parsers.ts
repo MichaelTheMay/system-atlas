@@ -7,12 +7,14 @@ import { Language, Parser } from 'web-tree-sitter';
  * (no native build). Verified loading under web-tree-sitter 0.27.1 on 2026-10-26:
  * typescript/tsx ABI 14, python ABI 15. Syntax only — semantic resolution is separate.
  */
-export type GrammarId = 'typescript' | 'tsx' | 'python';
+export type GrammarId = 'typescript' | 'tsx' | 'python' | 'go' | 'java';
 
 const GRAMMARS: Record<GrammarId, { pkg: string; file: string }> = {
   typescript: { pkg: 'tree-sitter-typescript', file: 'tree-sitter-typescript.wasm' },
   tsx: { pkg: 'tree-sitter-typescript', file: 'tree-sitter-tsx.wasm' },
   python: { pkg: 'tree-sitter-python', file: 'tree-sitter-python.wasm' },
+  go: { pkg: 'tree-sitter-go', file: 'tree-sitter-go.wasm' },
+  java: { pkg: 'tree-sitter-java', file: 'tree-sitter-java.wasm' },
 };
 
 const require = createRequire(import.meta.url);

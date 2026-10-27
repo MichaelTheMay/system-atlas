@@ -1,0 +1,5 @@
+CREATE TABLE items (
+  id VARCHAR(64) PRIMARY KEY,
+  name VARCHAR(200) NOT NULL,
+  quantity INT NOT NULL
+);
