@@ -10,6 +10,7 @@ import {
   Relation,
   Snapshot,
   type CoverageGap,
+  type DesignElementBody,
   type Diagnostic,
   type SupportLevel,
   type Worktree,
@@ -1148,14 +1149,15 @@ export function loadPlannerGraph(db: Db, snapshotId: string): PlannerGraph {
 
 /**
  * Design lens inputs (D01) of a snapshot: its human/model claims (every status; the planner decides
- * what to show) and the project's view overrides. Kept separate because both change after publish,
+ * what to show), the project's view overrides and its design elements (D02a). Kept separate
+ * because all three change after publish,
  * so the daemon refreshes them without reloading the graph.
  */
 export function loadDesignInputs(
   db: Db,
   snapshotId: string,
   projectId: string,
-): Required<Pick<PlannerGraph, 'claims' | 'overrides'>> {
+): Required<Pick<PlannerGraph, 'claims' | 'overrides' | 'designElements'>> {
   const claims = db
     .prepare(
       'SELECT id, subject_id, predicate, origin, status, body FROM claims WHERE snapshot_id = ? ORDER BY id',
@@ -1187,7 +1189,30 @@ export function loadDesignInputs(
     )
     .all<{ target_id: string; action: 'pin' | 'suppress' | 'promote' }>(projectId)
     .map((o) => ({ targetId: o.target_id, action: o.action }));
-  return { claims, overrides };
+  // user-authored design layer (D02a): project-keyed, so every snapshot of the project sees it
+  const designElements = db
+    .prepare(
+      "SELECT id, body, bound_entity_ids, author, author_name, status, citations FROM design_elements WHERE project_id = ? AND status IN ('active','proposed') ORDER BY created_at, id",
+    )
+    .all<{
+      id: string;
+      body: string;
+      bound_entity_ids: string;
+      author: 'user' | 'agent';
+      author_name: string | null;
+      status: 'active' | 'proposed';
+      citations: string;
+    }>(projectId)
+    .map((r) => ({
+      id: r.id,
+      body: JSON.parse(r.body) as DesignElementBody,
+      boundEntityIds: JSON.parse(r.bound_entity_ids) as string[],
+      author: r.author,
+      ...(r.author_name ? { authorName: r.author_name } : {}),
+      status: r.status,
+      citations: JSON.parse(r.citations) as string[],
+    }));
+  return { claims, overrides, designElements };
 }
 
 /**

@@ -3,9 +3,11 @@ import { canvasId } from './ids.ts';
 import { buildNav, descendants, pathOf, type Nav } from './nav.ts';
 import { GENERATION_VERSION, SCORING_POLICY_VERSION } from './plan.ts';
 import { buildEdges, catalogNav, Scene, type Ctx } from './scene.ts';
+import type { DesignDrift } from '@atlas/schema';
 import type {
   Archetype,
   Catalog,
+  GraphDesignElement,
   GraphEntity,
   GraphRelation,
   NodeKind,
@@ -81,6 +83,9 @@ interface DesignModel {
   subsystems: Map<string, Subsystem>;
   /** normalized path joined by '/' -> canvas id */
   canvasByPath: Map<string, string>;
+  /** Unit keys hidden by a `suppress` override on their anchor entity id (D02a). */
+  hidden: Set<string>;
+  layer: Layer;
 }
 
 export function planDesign(g: PlannerGraph): Catalog {
@@ -154,6 +159,46 @@ export function planDesign(g: PlannerGraph): Catalog {
       }),
     );
   }
+  // drawn subsystems (D02a): one canvas each, under the drawn subsystem they sit in (or the root)
+  const L = m.layer;
+  for (const e of L.elements) {
+    const id = L.canvasOfElement.get(e.id);
+    if (!id || e.body.kind !== 'subsystem') continue;
+    const anc = L.ancestry.get(e.id)!;
+    const parent = anc.length ? L.canvasOfElement.get(anc.at(-1)!)! : m.rootCanvasId;
+    const units = [...L.unitChain].filter(([, c]) => c.includes(e.id)).length;
+    const inside = L.elements.filter((x) => L.ancestry.get(x.id)?.at(-1) === e.id).length;
+    canvases.push(
+      spec({
+        id,
+        ownerCanvasId: parent,
+        lens: 'design-subsystem',
+        title: e.body.label,
+        query: {
+          select: { type: 'ids', ids: e.boundEntityIds.slice(0, 500) },
+          limit: 500,
+        },
+        relevanceReason:
+          (e.author === 'agent'
+            ? `Accepted: proposed by ${e.authorName ?? 'an agent'} and accepted by a person`
+            : 'Drawn by a person') +
+          ` (${inside} drawn element(s), ${units} detected box(es)).` +
+          (e.body.responsibility ? ` ${e.body.responsibility}` : ''),
+        relevanceScore: 0.85,
+        state: 'cataloged',
+        provenance: 'accepted',
+        coverageSummary: { entityCount: units + inside, gapCount: 0, staleCount: 0 },
+      }),
+    );
+    links.push(
+      CanvasLink.parse({
+        schemaVersion: 1,
+        fromCanvasId: parent,
+        toCanvasId: id,
+        relation: 'child',
+      }),
+    );
+  }
   canvases.sort((a, b) => (a.id < b.id ? -1 : 1));
   links.sort((a, b) =>
     `${a.fromCanvasId}${a.toCanvasId}${a.relation}`.localeCompare(
@@ -178,8 +223,14 @@ export function projectDesign(g: PlannerGraph, catalog: Catalog, canvasIdArg: st
       canvasByOwner.set(c.rootEntityId, c.id);
   const ctx: Ctx = { g, nav, catalog, canvasByOwner, spec };
   const scene = new Scene();
-  const here: string[] | undefined =
-    spec.id === m.rootCanvasId ? [] : m.subsystems.get(spec.id)?.path;
+  const L = m.layer;
+  const isRoot = spec.id === m.rootCanvasId;
+  /** Claim subsystem canvases: their path. Root: []. */
+  const here: string[] | undefined = isRoot ? [] : m.subsystems.get(spec.id)?.path;
+  /** Drawn subsystem canvases (D02a): the drawn subsystems from the top down to this one. */
+  const elChain = L.chainOfCanvas.get(spec.id);
+  /** Drawn elements sit on the root and on drawn subsystem canvases. */
+  const layerChain = isRoot ? [] : elChain;
 
   const realizedBy = (u: Unit): string | undefined => {
     for (const id of u.realizedBy) {
@@ -193,35 +244,63 @@ export function projectDesign(g: PlannerGraph, catalog: Catalog, canvasIdArg: st
       }
     return canvasByOwner.get(nav.systemId);
   };
-  const unitNode = (u: Unit, kind?: NodeKind): ProjectionNode => ({
-    id: `box:${u.key}`,
-    kind: kind ?? u.nodeKind,
-    label: u.label,
-    sublabel: u.sublabel,
-    entityId: u.anchorId,
-    entityKind: u.anchorId ? nav.byId.get(u.anchorId)?.kind : undefined,
-    lifecycle: u.anchorId ? nav.byId.get(u.anchorId)?.lifecycle : undefined,
-    memberCount: u.members.length,
-    archetype: u.archetype,
-    archetypeReason: u.reason,
-    provenance: 'detected',
-    realizedByCanvasId: realizedBy(u),
-  });
+  const unitNode = (u: Unit, kind?: NodeKind): ProjectionNode => {
+    const d = L.decor.get(u.key);
+    const body = d?.body.kind === 'box' ? d.body : undefined;
+    return {
+      id: `box:${u.key}`,
+      kind: kind ?? u.nodeKind,
+      label: body?.label ?? u.label,
+      sublabel: u.sublabel,
+      entityId: u.anchorId,
+      entityKind: u.anchorId ? nav.byId.get(u.anchorId)?.kind : undefined,
+      lifecycle: u.anchorId ? nav.byId.get(u.anchorId)?.lifecycle : undefined,
+      memberCount: u.members.length,
+      archetype: body?.archetype ?? u.archetype,
+      archetypeReason: body
+        ? `${body.responsibility ? `${body.responsibility} ` : ''}Drawn as ${body.archetype} by ${drawnBy(d!)}; detected: ${u.reason}`
+        : u.reason,
+      provenance: d ? 'accepted' : 'detected',
+      realizedByCanvasId: realizedBy(u),
+      ...(d ? designProps(d) : {}),
+    };
+  };
 
-  if (here) {
+  if (here || elChain) {
     const ports: Unit[] = [];
     const grouped = new Map<string, Unit[]>();
+    const groupedEl = new Map<string, Unit[]>();
+    const push = (map: Map<string, Unit[]>, k: string, u: Unit) =>
+      (map.get(k) ?? map.set(k, []).get(k)!).push(u);
     for (const u of m.units) {
-      const p = m.pathOf.get(u.key) ?? [];
-      if (!startsWith(p, here)) {
+      if (m.hidden.has(u.key)) {
+        scene.hidden++;
+        continue;
+      }
+      // a detected box placed in a drawn subsystem lives there, not on its claim path
+      const chain = L.unitChain.get(u.key);
+      if (chain) {
+        if (layerChain && chain.length > layerChain.length && startsWith(chain, layerChain))
+          push(groupedEl, chain[layerChain.length]!, u);
+        else if (layerChain && chain.length === layerChain.length && startsWith(chain, layerChain))
+          scene.add(unitNode(u), u.members);
+        else ports.push(u);
+        continue;
+      }
+      if (elChain) {
         ports.push(u);
         continue;
       }
-      if (p.length > here.length) {
-        const next = p.slice(0, here.length + 1).join('/');
+      const p = m.pathOf.get(u.key) ?? [];
+      if (!startsWith(p, here!)) {
+        ports.push(u);
+        continue;
+      }
+      if (p.length > here!.length) {
+        const next = p.slice(0, here!.length + 1).join('/');
         const sid = m.canvasByPath.get(next)!;
         if (m.subsystems.get(sid)!.state !== 'suppressed') {
-          (grouped.get(sid) ?? grouped.set(sid, []).get(sid)!).push(u);
+          push(grouped, sid, u);
           continue;
         }
       }
@@ -246,12 +325,145 @@ export function projectDesign(g: PlannerGraph, catalog: Catalog, canvasIdArg: st
         us.flatMap((u) => u.members),
       );
     }
+    if (layerChain)
+      for (const e of L.elements) {
+        if (e.body.kind !== 'subsystem' || !sameChain(L.ancestry.get(e.id)!, layerChain)) continue;
+        const us = groupedEl.get(e.id) ?? [];
+        const inside = L.elements.filter((x) => L.ancestry.get(x.id)?.at(-1) === e.id).length;
+        const dom = us.length ? dominant(us) : undefined;
+        scene.add(
+          {
+            id: `design:${e.id}`,
+            kind: 'cluster',
+            label: e.body.label,
+            sublabel:
+              e.status === 'proposed'
+                ? `proposed subsystem · ${e.authorName ?? 'agent'}`
+                : `subsystem · ${us.length + inside} box(es)`,
+            entityId: us.find((u) => u.anchorId)?.anchorId,
+            openCanvasId: L.canvasOfElement.get(e.id),
+            memberCount: us.length + inside,
+            ...(dom ? { archetype: dom.archetype } : {}),
+            archetypeReason: e.body.responsibility ?? dom?.reason ?? `Drawn by ${drawnBy(e)}.`,
+            provenance: e.status === 'proposed' ? 'proposed' : 'accepted',
+            ...designProps(e),
+          },
+          us.flatMap((u) => u.members),
+        );
+      }
     // On a subsystem canvas, boxes outside it that exchange flows with it are context ports.
-    if (here.length) for (const u of ports) scene.add(unitNode(u, 'port'), u.members);
+    if (!isRoot) for (const u of ports) scene.add(unitNode(u, 'port'), u.members);
+  }
+
+  // drawn boxes and sticky notes (D02a)
+  const drift: DesignDrift[] = [];
+  const byEntity = new Map(g.entities.map((e) => [e.id, e]));
+  const missing = (id: string) => !byEntity.has(id) || byEntity.get(id)!.lifecycle === 'removed';
+  for (const e of L.elements) {
+    if (e.body.kind === 'sticky') {
+      if (e.body.canvasId !== spec.id) continue;
+      const first = e.body.text.split('\n')[0]!.trim();
+      scene.add({
+        id: `sticky:${e.id}`,
+        kind: 'sticky',
+        label: first.length > 120 ? `${first.slice(0, 119)}…` : first,
+        text: e.body.text,
+        provenance: e.status === 'proposed' ? 'proposed' : 'accepted',
+        ...designProps(e),
+      });
+      continue;
+    }
+    if (e.body.kind === 'flow' || !layerChain) continue;
+    if (!sameChain(L.ancestry.get(e.id)!, layerChain)) continue;
+    const gone = e.boundEntityIds.filter(missing);
+    if (e.status === 'active' && gone.length)
+      drift.push({ kind: 'bound-entity-missing', elementId: e.id, entityIds: gone });
+    if (e.body.kind !== 'box') continue;
+    const bound = e.boundEntityIds;
+    // an accepted box bound to one entity is that entity's detected box (decorated, see unitNode)
+    if (e.status === 'active' && bound.length === 1 && m.unitOf.has(bound[0]!) && !gone.length)
+      continue;
+    scene.add({
+      id: `design:${e.id}`,
+      kind: 'design',
+      label: e.body.label,
+      sublabel:
+        e.status === 'proposed'
+          ? `proposed by ${e.authorName ?? 'an agent'}`
+          : bound.length === 0
+            ? 'planned · not in code yet'
+            : gone.length === bound.length
+              ? 'stale · bound code is gone'
+              : `${bound.length} bound entities`,
+      ...(bound.length === 1
+        ? { entityId: bound[0], entityKind: byEntity.get(bound[0]!)?.kind }
+        : {}),
+      ...(bound.length && gone.length === bound.length ? { lifecycle: 'stale' } : {}),
+      archetype: e.body.archetype,
+      archetypeReason: e.body.responsibility ?? `Drawn as ${e.body.archetype} by ${drawnBy(e)}.`,
+      provenance: e.status === 'proposed' ? 'proposed' : 'accepted',
+      ...(bound.length === 0 ? { unbound: true } : {}),
+      ...designProps(e),
+    });
   }
 
   let edges = flows(g, ctx, scene);
-  if (here?.length) {
+  // drawn flows (D02a): merged into the code flow between the same boxes when there is one
+  let drawnHere = 0;
+  const nodeFor = (end: FlowEnd): string | undefined => {
+    if ('entityId' in end) return scene.owner.get(end.entityId);
+    const seen = new Set<string>();
+    let id: string | undefined = end.elementId;
+    while (id && !seen.has(id)) {
+      seen.add(id);
+      if (scene.nodes.has(`design:${id}`)) return `design:${id}`;
+      const e = L.byId.get(id);
+      if (!e || (e.body.kind !== 'box' && e.body.kind !== 'subsystem')) return undefined;
+      if (e.body.kind === 'box' && e.status === 'active' && e.boundEntityIds.length === 1) {
+        const o = scene.owner.get(e.boundEntityIds[0]!);
+        if (o) return o;
+      }
+      id = e.body.parentId;
+    }
+    return undefined;
+  };
+  for (const f of L.elements) {
+    if (f.body.kind !== 'flow') continue;
+    const source = nodeFor(f.body.from);
+    const target = nodeFor(f.body.to);
+    if (!source || !target || source === target) continue;
+    const active = f.status === 'active';
+    const label = f.body.label || undefined;
+    const i = active
+      ? edges.findIndex((e) => e.source === source && e.target === target && !e.drawn)
+      : -1;
+    const props = designProps(f);
+    if (i >= 0) {
+      edges[i] = { ...edges[i]!, flow: label ?? edges[i]!.flow, drawn: true, ...props };
+    } else {
+      const match = L.codeMatch(f.body.from, f.body.to);
+      const kinds: Record<string, number> = {};
+      for (const r of match) kinds[r.kind] = (kinds[r.kind] ?? 0) + 1;
+      edges.push({
+        id: `flow:${f.id}`,
+        source,
+        target,
+        kinds,
+        relationIds: match.slice(0, 50).map((r) => r.id),
+        status: !match.length
+          ? 'inferred'
+          : match.every((r) => r.status === 'supported')
+            ? 'supported'
+            : 'mixed',
+        flow: label ?? 'flow',
+        ...(active ? { drawn: true } : {}),
+        ...props,
+      });
+      if (active && !match.length) drift.push({ kind: 'flow-not-in-code', elementId: f.id });
+    }
+    if (active) drawnHere++;
+  }
+  if (!isRoot) {
     const isPort = (id: string) => scene.nodes.get(id)?.kind === 'port';
     edges = edges.filter((e) => !(isPort(e.source) && isPort(e.target)));
     const used = new Set(edges.flatMap((e) => [e.source, e.target]));
@@ -266,6 +478,20 @@ export function projectDesign(g: PlannerGraph, catalog: Catalog, canvasIdArg: st
   }
   const keep = new Set(nodes.map((n) => n.id));
   const keptEdges = edges.filter((e) => keep.has(e.source) && keep.has(e.target));
+  // once a person draws flows on a canvas, code flows they left out are drift (ghost edges to adopt)
+  if (drawnHere)
+    for (const e of keptEdges) {
+      if (e.drawn || e.ghost || !e.relationIds.length) continue;
+      const a = scene.nodes.get(e.source)!;
+      const b = scene.nodes.get(e.target)!;
+      if (a.kind === 'port' || b.kind === 'port' || !a.entityId || !b.entityId) continue;
+      drift.push({
+        kind: 'code-flow-not-drawn',
+        fromEntityId: a.entityId,
+        toEntityId: b.entityId,
+        relationIds: e.relationIds,
+      });
+    }
   return {
     viewId: spec.id,
     canvasId: spec.id,
@@ -285,6 +511,7 @@ export function projectDesign(g: PlannerGraph, catalog: Catalog, canvasIdArg: st
       ),
       hiddenNodes: scene.hidden,
     },
+    ...(L.elements.length ? { drift } : {}),
   };
 }
 
@@ -362,8 +589,7 @@ function designModel(g: PlannerGraph): DesignModel {
   const unitOf = new Map<string, Unit>();
   for (const u of units) for (const id of u.members) if (!unitOf.has(id)) unitOf.set(id, u);
   const rootCanvasId = canvasId(g.projectId, 'design', 'design-system', 'root');
-  const subId = (path: string[]) =>
-    canvasId(g.projectId, 'design', 'design-subsystem', path.join('/'));
+  const subId = (path: string[]) => designSubsystemCanvasId(g.projectId, path);
   const overrides = g.overrides ?? [];
   const has = (target: string, action: string) =>
     overrides.some((o) => o.targetId === target && o.action === action);
@@ -414,8 +640,13 @@ function designModel(g: PlannerGraph): DesignModel {
     for (const u of units) {
       const cands = byUnit.get(u.key);
       if (!cands) continue;
-      // acyclic navigation: a unit sits on exactly one path; the lexicographically first wins
-      const best = [...cands].sort((a, b) => a.path.join('/').localeCompare(b.path.join('/')))[0]!;
+      // acyclic navigation: a unit sits on exactly one path. A person's grouping beats an agent's
+      // proposal (D02a); among equals the lexicographically first path wins.
+      const best = [...cands].sort(
+        (a, b) =>
+          Number(b.origin === 'human') - Number(a.origin === 'human') ||
+          a.path.join('/').localeCompare(b.path.join('/')),
+      )[0]!;
       pathOfUnit.set(u.key, best.path);
     }
     // display casing: the first human claim, else the first claim (by id)
@@ -493,7 +724,161 @@ function designModel(g: PlannerGraph): DesignModel {
       entityCount: members.reduce((n, u) => n + u.members.length, 0),
     });
   }
-  return { nav, units, unitOf, pathOf: pathOfUnit, rootCanvasId, subsystems, canvasByPath };
+  // hidden detected boxes (D02a): a suppress override on the box's anchor entity id
+  const hidden = new Set(
+    units.filter((u) => u.anchorId && has(u.anchorId, 'suppress')).map((u) => u.key),
+  );
+  const layer = buildLayer(g, unitOf, hidden);
+  return {
+    nav,
+    units,
+    unitOf,
+    pathOf: pathOfUnit,
+    rootCanvasId,
+    subsystems,
+    canvasByPath,
+    hidden,
+    layer,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// User-authored design layer (D02a)
+
+type FlowEnd = { elementId: string } | { entityId: string };
+
+interface Layer {
+  /** Active and proposed elements, by id. */
+  elements: GraphDesignElement[];
+  byId: Map<string, GraphDesignElement>;
+  /**
+   * Drawn subsystems an element sits in, top down (accepted ones only: a proposed subsystem has no
+   * canvas, so what is inside it is drawn next to it). Dangling or cyclic parents: top level.
+   */
+  ancestry: Map<string, string[]>;
+  /** Accepted drawn subsystem -> its canvas id. */
+  canvasOfElement: Map<string, string>;
+  /** Drawn subsystem canvas -> chain of drawn subsystems (top down, itself last). */
+  chainOfCanvas: Map<string, string[]>;
+  /** Detected box (unit key) placed in a drawn subsystem by an accepted box bound to it. */
+  unitChain: Map<string, string[]>;
+  /** Detected box (unit key) -> the accepted drawn box bound to exactly its entity (relabels it). */
+  decor: Map<string, GraphDesignElement>;
+  /** Code relations from one flow end to the other (directional; `contains` excluded). */
+  codeMatch(from: FlowEnd, to: FlowEnd): GraphRelation[];
+}
+
+const sameChain = (a: string[], b: string[]) => a.length === b.length && startsWith(a, b);
+
+/** Canvas id of a claim subsystem path (normalized segments: trimmed, collapsed, lowercase). */
+export function designSubsystemCanvasId(projectId: string, path: string[]): string {
+  return canvasId(projectId, 'design', 'design-subsystem', path.join('/'));
+}
+
+/** Element canvas ids: keyed on the element id, so they never collide with claim-path canvases. */
+export function designElementCanvasId(projectId: string, elementId: string): string {
+  return canvasId(projectId, 'design', 'design-subsystem', 'element', elementId);
+}
+
+function drawnBy(e: GraphDesignElement): string {
+  return e.author === 'agent' ? `agent: ${e.authorName ?? 'unknown model'}` : 'a person';
+}
+
+/** Projection fields shared by every node/edge that comes from a design element. */
+function designProps(e: GraphDesignElement) {
+  return {
+    designElementId: e.id,
+    author: e.author,
+    ...(e.authorName ? { authorName: e.authorName } : {}),
+    ...(e.status === 'proposed' ? { ghost: true } : {}),
+  };
+}
+
+function buildLayer(g: PlannerGraph, unitOf: Map<string, Unit>, hidden: Set<string>): Layer {
+  const elements = [...(g.designElements ?? [])]
+    .filter((e) => e.status === 'active' || e.status === 'proposed')
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const byId = new Map(elements.map((e) => [e.id, e]));
+  const parentOf = (e: GraphDesignElement) =>
+    e.body.kind === 'box' || e.body.kind === 'subsystem' ? e.body.parentId : undefined;
+  const ancestry = new Map<string, string[]>();
+  for (const e of elements) {
+    const out: string[] = [];
+    const seen = new Set([e.id]);
+    let p = parentOf(e);
+    let ok = true;
+    while (p) {
+      const pe = byId.get(p);
+      if (!pe || pe.body.kind !== 'subsystem') break;
+      if (seen.has(p)) {
+        ok = false; // acyclic navigation: a cyclic chain puts the element at the top level
+        break;
+      }
+      seen.add(p);
+      if (pe.status === 'active') out.unshift(p);
+      p = parentOf(pe);
+    }
+    ancestry.set(e.id, ok ? out : []);
+  }
+  // a parent whose own chain was cut (cycle) must not appear in a child's chain inconsistently
+  for (const [id, chain] of ancestry) {
+    const last = chain.at(-1);
+    if (last && !sameChain(ancestry.get(last)!, chain.slice(0, -1))) ancestry.set(id, []);
+  }
+  const canvasOfElement = new Map<string, string>();
+  const chainOfCanvas = new Map<string, string[]>();
+  for (const e of elements)
+    if (e.body.kind === 'subsystem' && e.status === 'active') {
+      const id = designElementCanvasId(g.projectId, e.id);
+      canvasOfElement.set(e.id, id);
+      chainOfCanvas.set(id, [...ancestry.get(e.id)!, e.id]);
+    }
+  const unitChain = new Map<string, string[]>();
+  const decor = new Map<string, GraphDesignElement>();
+  for (const e of elements) {
+    if (e.body.kind !== 'box' || e.status !== 'active' || e.boundEntityIds.length !== 1) continue;
+    const u = unitOf.get(e.boundEntityIds[0]!);
+    if (!u || hidden.has(u.key)) continue;
+    if (!decor.has(u.key)) decor.set(u.key, e);
+    const chain = ancestry.get(e.id)!;
+    if (chain.length && !unitChain.has(u.key)) unitChain.set(u.key, chain);
+  }
+
+  const unitByKey = new Map([...unitOf.values()].map((u) => [u.key, u]));
+  /** Entities a flow end stands for: the whole detected box of an entity, or what a drawn box binds. */
+  const membersOf = (end: FlowEnd): Set<string> => {
+    const out = new Set<string>();
+    const addEntity = (id: string) => {
+      const u = unitOf.get(id);
+      for (const m of u ? u.members : [id]) out.add(m);
+    };
+    if ('entityId' in end) {
+      addEntity(end.entityId);
+      return out;
+    }
+    const seen = new Set<string>();
+    const visit = (id: string) => {
+      if (seen.has(id)) return;
+      seen.add(id);
+      const e = byId.get(id);
+      if (!e || e.status !== 'active') return;
+      e.boundEntityIds.forEach(addEntity);
+      if (e.body.kind === 'subsystem') {
+        for (const x of elements) if (parentOf(x) === id) visit(x.id);
+        for (const [key, chain] of unitChain)
+          if (chain.includes(id)) for (const m of unitByKey.get(key)?.members ?? []) out.add(m);
+      }
+    };
+    visit(end.elementId);
+    return out;
+  };
+  const codeMatch = (from: FlowEnd, to: FlowEnd) => {
+    const a = membersOf(from);
+    const b = membersOf(to);
+    if (!a.size || !b.size) return [];
+    return g.relations.filter((r) => r.kind !== 'contains' && a.has(r.fromId) && b.has(r.toId));
+  };
+  return { elements, byId, ancestry, canvasOfElement, chainOfCanvas, unitChain, decor, codeMatch };
 }
 
 const ARCHETYPE_ORDER: Archetype[] = [

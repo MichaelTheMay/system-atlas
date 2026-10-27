@@ -243,9 +243,10 @@ paths:
       summary: View catalog of a snapshot (canvas specs and child/sibling links); see docs/views.md
       description: >-
         Persisted architecture canvases plus system-design canvases (workspace "design"), which are
-        planned on read from the snapshot's claims and the project's view overrides and never
-        persisted. They are replanned without a rescan after claims are proposed or reviewed, an
-        issue is resolved or an override is written.
+        planned on read from the snapshot's claims, the project's view overrides and its design
+        elements, and never persisted. They are replanned without a rescan after claims are
+        proposed or reviewed, an issue is resolved, an override is written or a design element
+        changes (design.changed).
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
       responses:
         '200': { description: OK }
@@ -254,6 +255,10 @@ paths:
   /api/v1/snapshots/{id}/canvases/{cid}/projection:
     get:
       summary: Lazily computed nodes, edges, ports, breadcrumbs, siblings and children of one canvas
+      description: >-
+        Design canvases with design elements also carry drift (DesignDrift[] - flow-not-in-code,
+        code-flow-not-drawn once a flow is drawn on the canvas, bound-entity-missing); drawn nodes
+        and edges carry designElementId, author, authorName, and unbound / drawn / ghost flags.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
         - { name: cid, in: path, required: true, schema: { type: string } }
@@ -372,6 +377,139 @@ paths:
       responses:
         '200': { description: '{ projectId, overrides: [{ targetId, action, createdAt }] }' }
         '404': { description: Unknown project }
+  /api/v1/projects/{id}/design/elements:
+    get:
+      summary: User-authored design elements of a project (D02a; boxes, flows, sticky notes, subsystems)
+      description: >-
+        Keyed by project, so they survive every rescan. Active and proposed (agent ghost) elements;
+        all=1 also lists rejected ones (audit). View data only - never entities, relations or claims.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: all, in: query, required: false, schema: { type: string, enum: ['1'] } }
+      responses:
+        '200': { description: '{ projectId, elements: DesignElement[] }' }
+        '404': { description: Unknown project }
+    post:
+      summary: Draw an element (author user, status active); publishes design.changed
+      description: >-
+        Body is DesignElementInput { body, boundEntityIds? } (packages/schema/src/design.ts).
+        References are checked - parentId must be a live subsystem element of the project, flow
+        ends live box/subsystem elements or entities of the project's latest snapshot, bound
+        entities must exist there. Agent proposals are not created here (design jobs, D02c).
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [body] } } }
+      responses:
+        '201': { description: The stored DesignElement (revision 0) }
+        '400': { description: Invalid body or reference }
+        '404': { description: Unknown project }
+  /api/v1/projects/{id}/design/elements/{elementId}:
+    patch:
+      summary: Edit an element with optimistic concurrency; publishes design.changed
+      description: >-
+        DesignElementPatch { body?, boundEntityIds?, status?, revision }. The kind never changes;
+        status may only move proposed -> active or proposed -> rejected. A subsystem can never
+        become its own ancestor.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: elementId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [revision] } } }
+      responses:
+        '200': { description: The updated element (revision incremented) }
+        '400': { description: Invalid patch or reference }
+        '404': { description: Unknown project or element }
+        '409':
+          {
+            description: Revision conflict (body.current is the stored element) or element rejected,
+          }
+    delete:
+      summary: Delete an element; publishes design.changed
+      description: >-
+        User elements are deleted; agent elements (proposed or accepted) are marked rejected and
+        audited (proposals kind design-review). Flows ending at the element go with it; elements
+        inside a deleted subsystem move up to its parent.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: elementId, in: path, required: true, schema: { type: string } }
+        - { name: revision, in: query, required: false, schema: { type: integer, minimum: 0 } }
+      responses:
+        '200': { description: '{ deleted: string[], rejected: string[], reparented: string[] }' }
+        '404': { description: Unknown project or element }
+        '409': { description: Revision conflict }
+  /api/v1/projects/{id}/design/elements/{elementId}/accept:
+    post:
+      summary: Accept an agent proposal (proposed -> active; author stays agent); publishes design.changed
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: elementId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            { schema: { type: object, properties: { revision: { type: integer } } } }
+      responses:
+        '200': { description: The accepted element }
+        '404': { description: Unknown project or element }
+        '409':
+          {
+            description: Not proposed,
+            revision conflict,
+            or it refers to an element still proposed,
+          }
+  /api/v1/projects/{id}/design/group:
+    post:
+      summary: Group detected boxes into a subsystem as human subsystem claims; publishes design.changed
+      description: >-
+        { snapshotId (latest), path ('/'-separated, up to 3 levels, 80 chars), entityIds (box
+        entity ids) }. One human subsystem claim per entity through the claim validator, citing the
+        entity's analyzer evidence. Regrouping moves a box (its earlier human subsystem claims are
+        rejected, audited). Writes no entities, relations or evidence.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [snapshotId, path, entityIds]
+              properties:
+                snapshotId: { type: string }
+                path: { type: string, maxLength: 80 }
+                entityIds: { type: array, items: { type: string }, maxItems: 200 }
+      responses:
+        '200':
+          {
+            description: '{ proposalIds, accepted: [{ entityId, claimId, status }], rejected: [{ entityId, reasons }], alreadyGrouped, moved }',
+          }
+        '400': { description: Invalid body or path }
+        '404': { description: Unknown project or snapshot }
+        '409':
+          { description: Every claim was rejected, or stale_precondition (a newer snapshot exists) }
+  /api/v1/projects/{id}/design/hide:
+    post:
+      summary: Hide or show a detected design box; publishes design.changed
+      description: >-
+        Records (enabled) or removes a suppress view override whose target id is the box's anchor
+        entity id (the entityId of its box node). The entity and its relations stay in the snapshot.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [entityId, enabled]
+              properties:
+                entityId: { type: string }
+                enabled: { type: boolean }
+      responses:
+        '200': { description: '{ projectId, targetId, action: suppress, enabled }' }
+        '400': { description: Invalid body }
+        '404': { description: Unknown project, or the entity is not in the latest snapshot }
   /api/v1/runs:
     post:
       summary: Create a run (rootPath or worktreeId, adapter, commandSummary, environmentSummary). Returns the run, a run-scoped ingestToken and whether it is bound to a snapshot of exactly the current tree. See docs/evidence.md.

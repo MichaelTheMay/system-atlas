@@ -1,4 +1,4 @@
-import type { CanvasLink, CanvasSpec } from '@atlas/schema';
+import type { CanvasLink, CanvasSpec, DesignDrift, DesignElementBody } from '@atlas/schema';
 
 /** The slice of a snapshot the planner and projector need. Built from DB rows or in-memory scan output. */
 export interface GraphEntity {
@@ -54,6 +54,18 @@ export interface ViewOverrideRow {
   action: 'pin' | 'suppress' | 'promote';
 }
 
+/** A user-drawn or agent-proposed design element (D02a): view data keyed by project, never a fact. */
+export interface GraphDesignElement {
+  id: string;
+  body: DesignElementBody;
+  boundEntityIds: string[];
+  author: 'user' | 'agent';
+  authorName?: string;
+  /** Rejected elements are never loaded. */
+  status: 'active' | 'proposed';
+  citations: string[];
+}
+
 export interface PlannerGraph {
   projectId: string;
   snapshotId: string;
@@ -65,6 +77,8 @@ export interface PlannerGraph {
   /** Design lens inputs (D01); absent means none. */
   claims?: GraphClaim[];
   overrides?: ViewOverrideRow[];
+  /** User-authored design layer (D02a): active and proposed elements; absent means none. */
+  designElements?: GraphDesignElement[];
 }
 
 /** Conceptual whiteboard box kinds of the system-design lens (D01). */
@@ -87,7 +101,17 @@ export interface Catalog {
   links: CanvasLink[];
 }
 
-export type NodeKind = 'entity' | 'cluster' | 'port' | 'aggregate' | 'gap' | 'group';
+export type NodeKind =
+  | 'entity'
+  | 'cluster'
+  | 'port'
+  | 'aggregate'
+  | 'gap'
+  | 'group'
+  /** Design lens (D02a): a drawn box that is unbound, bound to several entities, or stale. */
+  | 'design'
+  /** Design lens (D02a): a sticky note. */
+  | 'sticky';
 
 export interface ProjectionNode {
   id: string;
@@ -115,6 +139,17 @@ export interface ProjectionNode {
   provenance?: Provenance;
   /** Design lens: architecture canvas that realizes this box. */
   realizedByCanvasId?: string;
+  /** Design layer (D02a): the drawn element behind (or decorating) this node. */
+  designElementId?: string;
+  /** Drawn box bound to no code entity: "planned, not in code yet" (drawn dashed). */
+  unbound?: boolean;
+  /** Agent proposal awaiting review (drawn as a ghost). */
+  ghost?: boolean;
+  /** Who drew it: a person, or an agent (with `authorName` = the model). */
+  author?: 'user' | 'agent';
+  authorName?: string;
+  /** Sticky notes: the full note text (`label` is its first line). */
+  text?: string;
 }
 
 export interface ProjectionEdge {
@@ -126,6 +161,12 @@ export interface ProjectionEdge {
   status: 'supported' | 'inferred' | 'stale' | 'mixed';
   /** Design lens: whiteboard flow label (HTTP, enqueue, consume, reads/writes, uses, runs on). */
   flow?: string;
+  /** Design layer (D02a): a flow a person (or an accepted agent) drew. */
+  drawn?: boolean;
+  designElementId?: string;
+  ghost?: boolean;
+  author?: 'user' | 'agent';
+  authorName?: string;
 }
 
 export interface Projection {
@@ -144,4 +185,6 @@ export interface Projection {
   siblings: { canvasId: string; lens: string; title: string }[];
   children: { canvasId: string; title: string; viaEntityId?: string }[];
   stats: { entities: number; relations: number; hiddenNodes: number };
+  /** Design lens (D02a): drift between the board and the code on this canvas; absent when none. */
+  drift?: DesignDrift[];
 }
