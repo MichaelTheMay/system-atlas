@@ -155,6 +155,12 @@ test('group detected boxes into a subsystem, and hide a detected box with undo',
   await expect(views.getByRole('button', { name: /^Jobs/ })).toHaveAccessibleName('Jobs accepted');
   await expect(node(page, 'Jobs').locator('.node-archetype')).toHaveText('subsystem · 2 boxes');
   await expect(node(page, 'worker')).toHaveCount(0);
+  // undo rejects the human claims (the boxes are back on the root); redo groups them again
+  await page.keyboard.press('Control+z');
+  await expect(node(page, 'Jobs')).toHaveCount(0);
+  await expect(node(page, 'worker')).toBeVisible();
+  await page.keyboard.press('Control+Shift+z');
+  await expect(node(page, 'Jobs').locator('.node-archetype')).toHaveText('subsystem · 2 boxes');
   await node(page, 'Jobs').dblclick();
   await expect(page.getByRole('main')).toHaveAccessibleName('System design canvas: Jobs');
   await page.keyboard.press('Escape'); // the canvas details show when nothing is selected
@@ -211,6 +217,24 @@ test('sticky notes and drawn subsystems: add, edit text, dissolve and undo', asy
     .selectOption({ label: 'New subsystem' });
   await expect(node(page, 'New datastore')).toHaveCount(0);
   await expect(node(page, 'New subsystem')).toContainText('subsystem · 1 box');
+
+  // inside a drawn subsystem: box tools work there, and a box can move back out
+  await node(page, 'New subsystem').dblclick();
+  await expect(page.getByRole('main')).toHaveAccessibleName('System design canvas: New subsystem');
+  await expect(node(page, 'New datastore')).toBeVisible();
+  await page.getByRole('button', { name: 'Add cache' }).click();
+  await expect(node(page, 'New cache')).toBeVisible();
+  await node(page, 'New cache').click();
+  await page
+    .locator('.wb-selbar')
+    .getByRole('combobox', { name: 'Move to subsystem' })
+    .selectOption({
+      label: 'Out of this subsystem',
+    });
+  await expect(node(page, 'New cache')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Back' }).click();
+  await expect(page.getByRole('main')).toHaveAccessibleName('System design canvas: System design');
+  await expect(node(page, 'New cache')).toBeVisible();
 
   // dissolve: the box moves back up; undo restores the subsystem around it
   await node(page, 'New subsystem').click();

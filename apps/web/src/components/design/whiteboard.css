@@ -49,6 +49,7 @@
   gap: 4px;
 }
 .wb-mini {
+  white-space: nowrap;
   font: inherit;
   font-size: 11px;
   line-height: 1.4;

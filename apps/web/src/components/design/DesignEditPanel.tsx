@@ -23,7 +23,9 @@ export function DesignBoxEditor({ node }: { node: ProjectionNodeDto }) {
       : el
         ? 'drawn by you'
         : undefined;
-  if (node.ghost && node.designElementId)
+  // the element's own status: the selection may predate an accept
+  const proposed = el ? el.status === 'proposed' : !!node.ghost;
+  if (proposed && node.designElementId)
     return (
       <section className="wb-insp" aria-label="Proposal review">
         <h4 className="sub">Proposal</h4>
