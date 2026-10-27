@@ -247,6 +247,49 @@ export class DesignJobs {
     return { ok: true };
   }
 
+  // ------------------------------------------------------------------ design claims
+
+  /**
+   * Non-rejected `subsystem` and `responsibility` claims of a snapshot with their ids, for the
+   * review sheet (reject per subsystem) and the copilot (boxes without a responsibility). Read only.
+   */
+  designClaims(snapshotId: string) {
+    return this.db
+      .prepare(
+        `SELECT c.id, c.subject_id, c.predicate, c.origin, c.status, c.body, e.display_name
+           FROM claims c LEFT JOIN entities e ON e.snapshot_id = c.snapshot_id AND e.id = c.subject_id
+          WHERE c.snapshot_id = ? AND c.predicate IN ('subsystem', 'responsibility') AND c.status != 'rejected'
+          ORDER BY c.predicate, c.id LIMIT 5000`,
+      )
+      .all<{
+        id: string;
+        subject_id: string;
+        predicate: string;
+        origin: string;
+        status: string;
+        body: string;
+        display_name: string | null;
+      }>(snapshotId)
+      .map((r) => {
+        const b = JSON.parse(r.body) as {
+          value?: unknown;
+          evidenceIds?: string[];
+          modelMetadata?: { model?: string };
+        };
+        return {
+          id: r.id,
+          subjectId: r.subject_id,
+          subjectName: r.display_name ?? r.subject_id,
+          predicate: r.predicate,
+          value: b.value ?? null,
+          origin: r.origin,
+          status: r.status,
+          evidenceIds: b.evidenceIds ?? [],
+          ...(b.modelMetadata?.model ? { model: b.modelMetadata.model } : {}),
+        };
+      });
+  }
+
   // ------------------------------------------------------------------ estimate
 
   estimate(projectId: string, q: { snapshotId?: string; depth?: number; runtime?: string }) {
