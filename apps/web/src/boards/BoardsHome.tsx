@@ -8,7 +8,7 @@ import {
   type DesignBoardSummary,
 } from './api.ts';
 
-/** Board list and "New board" of a project (D03 wave 0). Wave 1 adds prompt and code starts. */
+/** Board list and "New board" of a project (D03). Wave 1b/1c add prompt and code starts. */
 export function BoardsHome({
   token,
   projectId,
@@ -72,6 +72,10 @@ export function BoardsHome({
         <button type="submit" className="primary">
           Create board
         </button>
+        <p className="boards-template-desc" aria-live="polite">
+          {templates.find((t) => t.id === start)?.description ??
+            'An empty whiteboard: add components from the palette, draw arrows between them.'}
+        </p>
         <p className="boards-hint">
           Boards are design-first: draw how the system should work, then hand it to people or
           agents. Nothing on a board is read as a fact about the code.
