@@ -219,10 +219,11 @@ export function DesignBoxInfo({
         {node.label}
       </h3>
       <p className="muted">
-        {isSubsystem ? 'subsystem' : node.kind === 'port' ? 'outside this subsystem' : 'box'}
-        {node.sublabel ? ` · ${node.sublabel}` : ''}
+        {isSubsystem
+          ? (node.sublabel ?? 'subsystem')
+          : `${node.kind === 'port' ? 'outside this subsystem' : 'box'}${node.sublabel ? ` · ${node.sublabel}` : ''}`}
       </p>
-      <h4 className="sub">Archetype</h4>
+      <h4 className="sub">{isSubsystem ? 'Dominant archetype' : 'Archetype'}</h4>
       <p>
         <span className={`arch-chip arch-${a}`}>
           {ARCHETYPE_ICON[a] ?? '•'} {archetypeLabel(a)}
