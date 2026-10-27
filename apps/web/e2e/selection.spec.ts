@@ -68,6 +68,8 @@ test('one selection across views: the selected entity stays selected in every vi
 
   // selecting another entity moves the one selection, across views as well
   await page.getByRole('button', { name: 'Data data', exact: true }).click();
+  // wait for the Data canvas itself: the previous canvas also shows a "reports" (as a port)
+  await expect(page.getByRole('main')).toHaveAccessibleName('Architecture canvas: Data');
   await node(page, 'reports').click();
   await expect(details.locator('.insp-title')).toHaveText('reports');
   await page.getByRole('button', { name: 'Project structure component', exact: true }).click();

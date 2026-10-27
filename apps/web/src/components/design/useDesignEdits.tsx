@@ -722,40 +722,66 @@ export function DesignEditsProvider({
     [run, revOf, api],
   );
 
-  const undo = useCallback(async () => {
-    const step = undoStack.at(-1);
-    if (!step || busy) return;
-    setUndoStack((s) => s.slice(0, -1));
-    await run(async () => {
-      try {
-        await step.undo();
-      } catch (e) {
-        setUndoStack((s) => [...s, step]);
-        throw e;
-      }
-      setRedoStack((s) => [...s, step]);
-      return null;
-    });
-  }, [undoStack, busy, run]);
+  // Undo/redo clicks that arrive while an operation is still in flight are queued, not dropped:
+  // each runs after the previous one and reads the stacks as they are then.
+  const undoRef = useRef(undoStack);
+  undoRef.current = undoStack;
+  const redoRef = useRef(redoStack);
+  redoRef.current = redoStack;
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const enqueue = useCallback((fn: () => Promise<void>) => {
+    const next = queue.current.then(fn, fn);
+    queue.current = next.catch(() => undefined);
+    return next;
+  }, []);
 
-  const redo = useCallback(async () => {
-    const step = redoStack.at(-1);
-    if (!step || busy) return;
-    setRedoStack((s) => s.slice(0, -1));
-    if (!api) return;
-    setBusy(true);
-    try {
-      await step.redo();
-      setUndoStack((s) => [...s, step]);
-      await reload();
-      onChangedRef.current();
-    } catch (e) {
-      setRedoStack((s) => [...s, step]);
-      fail(e);
-    } finally {
-      setBusy(false);
-    }
-  }, [redoStack, busy, api, reload, fail]);
+  const undo = useCallback(
+    () =>
+      enqueue(async () => {
+        const step = undoRef.current.at(-1);
+        if (!step) return;
+        undoRef.current = undoRef.current.slice(0, -1);
+        setUndoStack(undoRef.current);
+        await run(async () => {
+          try {
+            await step.undo();
+          } catch (e) {
+            undoRef.current = [...undoRef.current, step];
+            setUndoStack(undoRef.current);
+            throw e;
+          }
+          redoRef.current = [...redoRef.current, step];
+          setRedoStack(redoRef.current);
+          return null;
+        });
+      }),
+    [enqueue, run],
+  );
+
+  const redo = useCallback(
+    () =>
+      enqueue(async () => {
+        const step = redoRef.current.at(-1);
+        if (!step || !api) return;
+        redoRef.current = redoRef.current.slice(0, -1);
+        setRedoStack(redoRef.current);
+        setBusy(true);
+        try {
+          await step.redo();
+          undoRef.current = [...undoRef.current, step];
+          setUndoStack(undoRef.current);
+          await reload();
+          onChangedRef.current();
+        } catch (e) {
+          redoRef.current = [...redoRef.current, step];
+          setRedoStack(redoRef.current);
+          fail(e);
+        } finally {
+          setBusy(false);
+        }
+      }),
+    [enqueue, api, reload, fail],
+  );
 
   const setEditMode = useCallback((on: boolean) => {
     setEditModeState(on);

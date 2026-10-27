@@ -180,12 +180,18 @@ export function App() {
   }, [token, loadProjects]);
 
   /** Latest snapshot + catalog for the selected worktree; keeps the current canvas if it still exists. */
+  const refreshSeq = useRef(0);
   const refreshSnapshot = useCallback(async () => {
     if (!token || !worktreeId) return;
+    // a refresh that finishes after a newer one (e.g. after switching projects) is dropped, so a
+    // snapshot of one worktree is never paired with a canvas of another
+    const seq = ++refreshSeq.current;
     const s = await latestSnapshot(token, worktreeId);
+    if (seq !== refreshSeq.current) return;
     setSummary(s);
     const shown = viewSnapshotId ?? s?.snapshot.id;
     const cat = shown ? await apiOptional<CatalogDto>(`/snapshots/${shown}/canvases`, token) : null;
+    if (seq !== refreshSeq.current) return;
     catalogRef.current = cat;
     setCatalog(cat);
     const keep = (ws: CanvasRoot, h: History): History => {
@@ -203,6 +209,7 @@ export function App() {
 
   // a different worktree starts fresh; a different snapshot of the same worktree keeps navigation
   useEffect(() => {
+    refreshSeq.current++;
     setSummary(undefined);
     setCatalog(null);
     catalogRef.current = null;
