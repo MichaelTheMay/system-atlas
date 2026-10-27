@@ -46,6 +46,8 @@ export const CreateRunInput = z.object({
     .max(100)
     .default([]),
   startAt: z.iso.datetime({ offset: true }).optional(),
+  /** Stable key of an imported run (e.g. `otlp:<traceId>`); a re-import reopens that run. */
+  externalRef: z.string().min(1).max(300).optional(),
 });
 export type CreateRunInput = z.input<typeof CreateRunInput>;
 
@@ -70,8 +72,8 @@ export function createRun(db: Db, input: CreateRunInput): { run: Run; ingestToke
   });
   const ingestToken = randomBytes(32).toString('hex');
   db.prepare(
-    `INSERT INTO runs (id, project_id, worktree_id, snapshot_id, status, start_at, end_at, body, ingest_token_hash, source_manifest_digest, worktree_digest_matched)
-     VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
+    `INSERT INTO runs (id, project_id, worktree_id, snapshot_id, status, start_at, end_at, body, ingest_token_hash, source_manifest_digest, worktree_digest_matched, external_ref)
+     VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
   ).run(
     run.id,
     run.projectId,
@@ -83,8 +85,24 @@ export function createRun(db: Db, input: CreateRunInput): { run: Run; ingestToke
     sha(ingestToken),
     run.sourceManifestDigest ?? null,
     run.snapshotId ? 1 : 0,
+    i.externalRef ?? null,
   );
   return { run, ingestToken };
+}
+
+/** The run an import created earlier, with a fresh ingest token (the old one is never stored in clear). */
+export function reopenImportedRun(
+  db: Db,
+  projectId: string,
+  externalRef: string,
+): { run: Run; ingestToken: string } | undefined {
+  const row = db
+    .prepare('SELECT id FROM runs WHERE project_id = ? AND external_ref = ?')
+    .get<{ id: string }>(projectId, externalRef);
+  if (!row) return undefined;
+  const ingestToken = randomBytes(32).toString('hex');
+  db.prepare('UPDATE runs SET ingest_token_hash = ? WHERE id = ?').run(sha(ingestToken), row.id);
+  return { run: getRunRecord(db, row.id)!, ingestToken };
 }
 
 export function runTokenMatches(db: Db, runId: string, token: string | undefined): boolean {

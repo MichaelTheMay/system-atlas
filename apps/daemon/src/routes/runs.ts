@@ -12,6 +12,7 @@ import {
   getRunDetail,
   listRuns,
   markArtifactMissing,
+  reopenImportedRun,
   reserveArtifact,
   runTokenMatches,
   uploadArtifactBytes,
@@ -51,6 +52,13 @@ const CreateRunBody = z.object({
     .optional(),
   /** Snapshot the current tree before returning, so the run binds before the command changes it. */
   waitForSnapshot: z.boolean().optional(),
+  /**
+   * `none` for imported evidence: it did not run against the current tree, so it is never bound to
+   * a snapshot (a capture gap says so) and no scan is started.
+   */
+  binding: z.enum(['current-tree', 'none']).default('current-tree'),
+  externalRef: z.string().min(1).max(300).optional(),
+  startAt: z.iso.datetime({ offset: true }).optional(),
 });
 
 export function registerRunRoutes(
@@ -85,6 +93,39 @@ export function registerRunRoutes(
     if (!worktree && b.rootPath) worktree = (await registerRoot(db, b.rootPath)).worktree;
     if (!worktree) return reply.code(400).send({ error: 'rootPath or worktreeId required' });
 
+    if (b.externalRef) {
+      const again = reopenImportedRun(db, worktree.projectId, b.externalRef);
+      if (again)
+        return reply
+          .code(200)
+          .send({ ...again, snapshotBound: !!again.run.snapshotId, existing: true });
+    }
+    if (b.binding === 'none') {
+      const { run, ingestToken } = createRun(db, {
+        projectId: worktree.projectId,
+        worktreeId: worktree.id,
+        adapter: b.adapter,
+        commandSummary: b.commandSummary,
+        environmentSummary: (b.environmentSummary ?? {}) as never,
+        instrumentationCapabilities: b.instrumentationCapabilities,
+        captureGaps: [
+          ...(b.captureGaps ?? []),
+          {
+            kind: 'imported',
+            detail:
+              'imported evidence: the source tree it ran against is unknown, so it is not linked to a snapshot',
+          },
+        ],
+        startAt: b.startAt,
+        externalRef: b.externalRef,
+      });
+      bus.publish({
+        type: 'run.started',
+        data: { runId: run.id, projectId: run.projectId, worktreeId: worktree.id },
+      });
+      return reply.code(201).send({ run, ingestToken, snapshotBound: false, existing: false });
+    }
+
     // Bind the run to the snapshot of exactly the tree it runs against; otherwise scan that tree and
     // bind when a snapshot with the same digest is published (never to a different dirty tree).
     const digest = await currentTreeDigest(worktree.rootPath);
@@ -115,6 +156,8 @@ export function registerRunRoutes(
       environmentSummary: (b.environmentSummary ?? {}) as never,
       instrumentationCapabilities: b.instrumentationCapabilities,
       captureGaps: gaps,
+      startAt: b.startAt,
+      externalRef: b.externalRef,
     });
     if (!matches && !b.waitForSnapshot) jobs.enqueueScan(worktree);
     bus.publish({

@@ -320,6 +320,10 @@ paths:
   /api/v1/runs:
     post:
       summary: Create a run (rootPath or worktreeId, adapter, commandSummary, environmentSummary). Returns the run, a run-scoped ingestToken and whether it is bound to a snapshot of exactly the current tree. See docs/evidence.md.
+      description: >-
+        Optional body fields for importers - binding none (never linked to a snapshot; adds an
+        "imported" capture gap; no scan), externalRef (a re-import with the same reference reopens
+        that run with a fresh ingest token, answering 200 with existing true), startAt.
       responses:
         '201': { description: Created }
         '400': { description: Invalid body }

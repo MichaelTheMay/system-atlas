@@ -144,3 +144,73 @@ An e2e test uploads HTML disguised as PNG that tries to write the parent DOM, re
 Anything else is shown as "unknown". Nothing is inferred from file names or timing.
 
 **Cross-navigation.** Entity details list associated runs ("Outputs"). A run's linked components open the architecture **at the run's own snapshot**, with a visible "viewing an earlier snapshot, back to latest" badge, and select the entity so its evidence and source are one click away.
+
+## Importing evidence (I03)
+
+`atlas import <source> [--root <project>]` imports evidence the user approves.
+
+**Imported runs are never linked to a snapshot.** They did not run against the current tree, so a capture gap `imported` says so. Each import has an external reference, and importing again reopens the same run:
+
+- **Duplicates.** Events with the same stable producer ID dedupe.
+- **Late events.** Late spans or events are appended.
+- **Outcome.** The first outcome is kept.
+
+### OpenTelemetry traces: a documented subset, not a collector
+
+This mapping follows the OTLP/JSON encoding of `ExportTraceServiceRequest`, either a single document or one per line as the file exporter writes it.
+
+| OTLP                                                                    | Atlas                                                                                         |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| trace                                                                   | one run (`adapter: otlp`, `externalRef: otlp:<traceId>`), start and end from its spans        |
+| span                                                                    | `step.started` and `step.completed` (or `step.failed` on status ERROR), nested by parent span |
+| span with `gen_ai.tool.name`, or `gen_ai.operation.name = execute_tool` | `tool.call.requested` and `tool.call.completed` (`ok: false` on ERROR)                        |
+| attributes (string, int, double, bool, array, kvlist)                   | event payload, at most 64 per span, values at most 500 characters                             |
+| span events, for example `exception`                                    | inside the end event's payload, at most 20                                                    |
+| root status ERROR / OK / UNSET                                          | run failed / succeeded / unknown (OTLP has no run outcome)                                    |
+
+Anything else produces a **diagnostic**, printed by the CLI. Warnings also become capture gaps on the run, so no evidence is dropped silently:
+
+- protobuf, logs or metrics input (refused);
+- invalid IDs (the span is skipped);
+- base64 IDs (converted);
+- a missing start time (skipped) or end time (imported as unfinished);
+- bytes attributes (shown as `[bytes omitted]`);
+- links (counted, not imported as relations);
+- orphan spans, kept top-level until a later import supplies the parent;
+- truncation;
+- more than 20,000 spans.
+
+Fixtures are in `fixtures/otlp/`, and the tests in `apps/cli/test/import.test.ts`.
+
+### Atlas run bundle v1
+
+A directory containing `atlas-run.json`:
+
+```json
+{
+  "format": "atlas-run-bundle",
+  "version": 1,
+  "producer": "ci-agent",
+  "run": {
+    "key": "nightly-42",
+    "name": "nightly evaluation",
+    "status": "failed",
+    "startedAt": "2026-10-26T01:00:00Z",
+    "endedAt": "2026-10-26T01:00:09Z"
+  },
+  "events": [
+    { "id": "root", "type": "step.started", "occurredAt": "…", "payload": { "name": "evaluate" } },
+    {
+      "id": "check",
+      "type": "assertion.result",
+      "occurredAt": "…",
+      "parent": "root",
+      "payload": { "outcome": "fail", "description": "score above 0.8" }
+    }
+  ],
+  "artifacts": [{ "path": "out/report.json", "role": "report", "event": "root" }]
+}
+```
+
+- **Events.** Local event IDs become stable producer event IDs, and a `parent` must name an earlier event of the bundle. Event types and assertion payloads are validated like any ingestion, and invalid events are rejected with a reason.
+- **Artifact paths.** They must resolve inside the bundle, after symlinks. Traversal and escapes are refused and recorded as missing with a reason. Listed files that are absent are recorded as missing, and the limit is 100 MiB per file.

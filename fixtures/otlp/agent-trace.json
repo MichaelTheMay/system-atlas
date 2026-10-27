@@ -1,0 +1,205 @@
+{
+ "resourceSpans": [
+  {
+   "resource": {
+    "attributes": [
+     {
+      "key": "service.name",
+      "value": {
+       "stringValue": "research-agent"
+      }
+     }
+    ]
+   },
+   "scopeSpans": [
+    {
+     "scope": {
+      "name": "agent"
+     },
+     "spans": [
+      {
+       "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+       "spanId": "00f067aa0ba902b7",
+       "name": "research agent",
+       "kind": 1,
+       "startTimeUnixNano": "1761500000000000000",
+       "attributes": [
+        {
+         "key": "gen_ai.agent.name",
+         "value": {
+          "stringValue": "researcher"
+         }
+        }
+       ],
+       "endTimeUnixNano": "1761500004200000000",
+       "status": {
+        "code": 1
+       }
+      },
+      {
+       "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+       "spanId": "1111111111111111",
+       "name": "plan",
+       "kind": 1,
+       "startTimeUnixNano": "1761500000010000000",
+       "attributes": [],
+       "endTimeUnixNano": "1761500000300000000",
+       "parentSpanId": "00f067aa0ba902b7"
+      },
+      {
+       "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+       "spanId": "2222222222222222",
+       "name": "execute_tool web_search",
+       "kind": 1,
+       "startTimeUnixNano": "1761500000320000000",
+       "attributes": [
+        {
+         "key": "gen_ai.operation.name",
+         "value": {
+          "stringValue": "execute_tool"
+         }
+        },
+        {
+         "key": "gen_ai.tool.name",
+         "value": {
+          "stringValue": "web_search"
+         }
+        },
+        {
+         "key": "results",
+         "value": {
+          "intValue": "5"
+         }
+        }
+       ],
+       "endTimeUnixNano": "1761500001500000000",
+       "parentSpanId": "00f067aa0ba902b7"
+      },
+      {
+       "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+       "spanId": "3333333333333333",
+       "name": "execute_tool summarize",
+       "kind": 1,
+       "startTimeUnixNano": "1761500001600000000",
+       "attributes": [
+        {
+         "key": "gen_ai.tool.name",
+         "value": {
+          "stringValue": "summarize"
+         }
+        }
+       ],
+       "endTimeUnixNano": "1761500003000000000",
+       "parentSpanId": "00f067aa0ba902b7",
+       "status": {
+        "code": 2,
+        "message": "timeout after 1.4 s"
+       },
+       "events": [
+        {
+         "timeUnixNano": "1761500002999000000",
+         "name": "exception",
+         "attributes": [
+          {
+           "key": "exception.type",
+           "value": {
+            "stringValue": "TimeoutError"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+       "spanId": "4444444444444444",
+       "name": "GET https://example.org/page",
+       "kind": 3,
+       "startTimeUnixNano": "1761500000400000000",
+       "attributes": [
+        {
+         "key": "http.request.method",
+         "value": {
+          "stringValue": "GET"
+         }
+        },
+        {
+         "key": "raw.body",
+         "value": {
+          "bytesValue": "aGVsbG8="
+         }
+        }
+       ],
+       "endTimeUnixNano": "1761500000900000000",
+       "parentSpanId": "2222222222222222",
+       "links": [
+        {
+         "traceId": "0af7651916cd43dd8448eb211c80319c",
+         "spanId": "b7ad6b7169203331"
+        }
+       ]
+      },
+      {
+       "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+       "spanId": "5555555555555555",
+       "name": "broken span",
+       "kind": 1,
+       "attributes": [],
+       "endTimeUnixNano": "1761500000100000000",
+       "parentSpanId": "00f067aa0ba902b7"
+      },
+      {
+       "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+       "spanId": "6666666666666666",
+       "name": "callback from elsewhere",
+       "kind": 1,
+       "startTimeUnixNano": "1761500003100000000",
+       "attributes": [],
+       "endTimeUnixNano": "1761500003200000000",
+       "parentSpanId": "9999999999999999"
+      },
+      {
+       "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+       "spanId": "7777777777777777",
+       "name": "write report",
+       "kind": 1,
+       "startTimeUnixNano": "1761500003300000000",
+       "attributes": [],
+       "parentSpanId": "00f067aa0ba902b7"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "resource": {
+    "attributes": [
+     {
+      "key": "service.name",
+      "value": {
+       "stringValue": "batch-job"
+      }
+     }
+    ]
+   },
+   "scopeSpans": [
+    {
+     "scope": {
+      "name": "job"
+     },
+     "spans": [
+      {
+       "traceId": "CvdlGRbNQ92ESOshHIAxnA==",
+       "spanId": "t61rcWkgMzE=",
+       "name": "nightly export",
+       "kind": 1,
+       "startTimeUnixNano": "1761500000000000000",
+       "endTimeUnixNano": "1761500000500000000",
+       "status": {}
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

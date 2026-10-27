@@ -30,7 +30,18 @@ export async function startRun(o: {
   environmentSummary?: Record<string, unknown>;
   instrumentationCapabilities?: string[];
   producerId?: string;
-}): Promise<{ client: IngestClient; target: IngestTarget; snapshotBound: boolean; runId: string }> {
+  /** `none` for imported evidence (never bound to the current tree). */
+  binding?: 'current-tree' | 'none';
+  externalRef?: string;
+  startAt?: string;
+  captureGaps?: { kind: string; detail: string }[];
+}): Promise<{
+  client: IngestClient;
+  target: IngestTarget;
+  snapshotBound: boolean;
+  runId: string;
+  existing: boolean;
+}> {
   const res = await fetch(`${o.daemon.baseUrl}/api/v1/runs`, {
     method: 'POST',
     headers: { authorization: `Bearer ${o.daemon.token}`, 'content-type': 'application/json' },
@@ -40,14 +51,19 @@ export async function startRun(o: {
       commandSummary: o.commandSummary,
       environmentSummary: o.environmentSummary ?? {},
       instrumentationCapabilities: o.instrumentationCapabilities ?? [],
-      waitForSnapshot: true,
+      waitForSnapshot: o.binding !== 'none',
+      binding: o.binding ?? 'current-tree',
+      externalRef: o.externalRef,
+      startAt: o.startAt,
+      captureGaps: o.captureGaps,
     }),
   });
   if (!res.ok) throw new Error(`could not create run: ${res.status} ${await res.text()}`);
-  const { run, ingestToken, snapshotBound } = (await res.json()) as {
+  const { run, ingestToken, snapshotBound, existing } = (await res.json()) as {
     run: { id: string };
     ingestToken: string;
     snapshotBound: boolean;
+    existing?: boolean;
   };
   const target = { baseUrl: o.daemon.baseUrl, runId: run.id, runToken: ingestToken };
   return {
@@ -55,5 +71,6 @@ export async function startRun(o: {
     target,
     snapshotBound,
     runId: run.id,
+    existing: !!existing,
   };
 }
