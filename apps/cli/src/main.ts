@@ -252,6 +252,72 @@ program
     if (c.gaps.length > 15) console.log(`    … ${c.gaps.length - 15} more (use --json)`);
   });
 program
+  .command('enrich')
+  .description(
+    'Optional model enrichment (off by default): configure the provider and budget, show usage, or propose claims for entities',
+  )
+  .argument('[path]', 'project root', '.')
+  .option('--provider <name>', 'none | mock | mock-adversarial (no network provider ships)')
+  .option('--max-tokens-per-day <n>', 'daily token budget across requests')
+  .option('--entity <ids...>', 'entity ids to enrich (from atlas mcp / the UI)')
+  .option('--json', 'machine-readable output')
+  .action(
+    async (
+      path: string,
+      opts: { provider?: string; maxTokensPerDay?: string; entity?: string[]; json?: boolean },
+    ) => {
+      const { daemon } = await ensureDaemon(paths);
+      const reg = await daemon.api<Registration>('/projects', {
+        method: 'POST',
+        body: JSON.stringify({ rootPath: resolve(path) }),
+      });
+      if (opts.provider || opts.maxTokensPerDay) {
+        await daemon.api('/settings/enrichment', {
+          method: 'PUT',
+          body: JSON.stringify({
+            ...(opts.provider ? { provider: opts.provider } : {}),
+            ...(opts.maxTokensPerDay ? { maxTokensPerDay: Number(opts.maxTokensPerDay) } : {}),
+          }),
+        });
+      }
+      if (opts.entity?.length) {
+        const r = await daemon.api<{
+          results: {
+            entityId: string;
+            status: string;
+            accepted: number;
+            rejected: { reasons: string[] }[];
+            detail?: string;
+          }[];
+        }>(`/worktrees/${reg.worktree.id}/enrich`, {
+          method: 'POST',
+          body: JSON.stringify({ entityIds: opts.entity }),
+        });
+        if (opts.json) return console.log(JSON.stringify(r, null, 2));
+        for (const x of r.results) {
+          console.log(
+            `${x.entityId}: ${x.status}, ${x.accepted} claim(s) accepted${x.detail ? ` (${x.detail})` : ''}`,
+          );
+          for (const rej of x.rejected) console.log(`  rejected: ${rej.reasons.join('; ')}`);
+        }
+        return;
+      }
+      const s = await daemon.api<{
+        settings: Record<string, unknown>;
+        usage: Record<string, unknown>;
+      }>(`/projects/${reg.project.id}/enrichment`);
+      if (opts.json) return console.log(JSON.stringify(s, null, 2));
+      console.log(
+        `provider: ${String(s.settings.provider)} (budget ${String(s.settings.maxTokensPerDay)} tokens/day)`,
+      );
+      console.log(
+        `today: ${String(s.usage.requests)} request(s), ${String(s.usage.cached)} cached, ${String(s.usage.skippedBudget)} skipped by budget; ` +
+          `tokens counted ${String(s.usage.tokensCounted)} (estimated ${String(s.usage.estimated)}, reported ${String(s.usage.reported)})`,
+      );
+    },
+  );
+
+program
   .command('mcp')
   .description(
     'Serve the Atlas MCP tools over stdio for a coding agent, scoped to one project (see docs/agents.md)',

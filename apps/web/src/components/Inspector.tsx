@@ -28,6 +28,9 @@ interface Props {
   onOpenRun(runId: string): void;
   /** Bumped when claims change (proposals, reviews) so details reload. */
   claimsKey?: number;
+  worktreeId?: string;
+  /** Configured model provider ("none" hides the action). */
+  enrichmentProvider?: string;
 }
 
 const CLAIM_LABELS: Record<string, string> = {
@@ -223,6 +226,7 @@ function EntityInfo(
   const [d, setD] = useState<EntityDetailsDto | null>(null);
   const [err, setErr] = useState<string>();
   const [note, setNote] = useState('');
+  const [enrich, setEnrich] = useState<{ busy: boolean; message?: string }>({ busy: false });
   useEffect(() => {
     setD(null);
     api<EntityDetailsDto>(`/snapshots/${p.snapshotId}/entities/${p.entityId}`, p.token).then(
@@ -341,6 +345,51 @@ function EntityInfo(
             ))}
           </ul>
         </>
+      )}
+
+      {p.enrichmentProvider && p.enrichmentProvider !== 'none' && p.worktreeId && (
+        <p className="enrich-row">
+          <button
+            type="button"
+            className="icon-btn"
+            disabled={enrich.busy}
+            onClick={() => {
+              setEnrich({ busy: true });
+              void fetch(`/api/v1/worktrees/${p.worktreeId}/enrich`, {
+                method: 'POST',
+                headers: { authorization: `Bearer ${p.token}`, 'content-type': 'application/json' },
+                body: JSON.stringify({ entityIds: [e.id] }),
+              })
+                .then(
+                  (r) =>
+                    r.json() as Promise<{
+                      results: {
+                        status: string;
+                        accepted: number;
+                        rejected: unknown[];
+                        detail?: string;
+                      }[];
+                    }>,
+                )
+                .then(({ results: [r] }) => {
+                  setEnrich({
+                    busy: false,
+                    message: r
+                      ? `${r.status}: ${r.accepted} accepted, ${r.rejected.length} rejected${r.detail ? ` (${r.detail})` : ''}`
+                      : 'no result',
+                  });
+                  return api<EntityDetailsDto>(
+                    `/snapshots/${p.snapshotId}/entities/${p.entityId}`,
+                    p.token,
+                  ).then(setD);
+                })
+                .catch((x: Error) => setEnrich({ busy: false, message: x.message }));
+            }}
+          >
+            {enrich.busy ? 'Asking…' : `Propose claims (${p.enrichmentProvider})`}
+          </button>{' '}
+          {enrich.message && <span className="muted small">{enrich.message}</span>}
+        </p>
       )}
 
       <h4 className="sub">Outputs ({d.runs.length})</h4>

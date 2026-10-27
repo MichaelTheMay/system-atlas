@@ -21,6 +21,8 @@ import {
 import { projectView, type Catalog, type PlannerGraph } from '@atlas/planner';
 import { defaultAnalyzers, type Analyzer } from '@atlas/analyzers';
 import { WatchManager, type WatchOptions } from './watcher.ts';
+import { Enricher } from './enrich.ts';
+import type { ModelProvider } from '@atlas/agent-api';
 import { JobRunner } from './jobs.ts';
 import { canvasForEntity, entityDetails, readSource, relationDetails } from './routes/inspect.ts';
 import { getOverlay, putOverlay } from './routes/overlays.ts';
@@ -53,6 +55,8 @@ export interface ServerOptions {
   signPreview?: (artifactId: string, kind: 'a' | 'v') => { path: string; expiresAt: string };
   /** Watcher timing (tests use short debounces). */
   watch?: WatchOptions;
+  /** Model providers by settings name (tests inject instrumented mocks). No network provider ships. */
+  providers?: Record<string, () => ModelProvider>;
 }
 
 export interface AtlasServer {
@@ -60,6 +64,7 @@ export interface AtlasServer {
   bus: EventBus;
   jobs: JobRunner;
   watches: WatchManager;
+  enricher: Enricher;
   startedAt: string;
 }
 
@@ -100,6 +105,7 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     },
   });
   const watches = new WatchManager(opts.db, jobs, bus, opts.watch);
+  const enricher = new Enricher(opts.db, bus, opts.providers);
   app.addHook('onClose', async () => watches.closeAll());
   bus.subscribe((m) => {
     if (m.type !== 'snapshot.published') return;
@@ -212,6 +218,32 @@ export function buildServer(opts: ServerOptions): AtlasServer {
       data: { issueId: r.issue.id, projectId: r.issue.projectId, status: r.issue.status },
     });
     return r;
+  });
+
+  app.get(`${API_PREFIX}/settings/enrichment`, async () => enricher.settings());
+  app.put(`${API_PREFIX}/settings/enrichment`, async (req, reply) => {
+    const r = enricher.setSettings(req.body ?? {});
+    return r.ok ? r.settings : reply.code(400).send({ error: r.error });
+  });
+  app.get<{ Params: { id: string } }>(`${API_PREFIX}/projects/:id/enrichment`, async (req) => ({
+    settings: enricher.settings(),
+    usage: enricher.usage(req.params.id),
+  }));
+  /** Explicit request only: enrichment never runs on scans or watcher churn. */
+  app.post<{ Params: { id: string } }>(`${API_PREFIX}/worktrees/:id/enrich`, async (req, reply) => {
+    if (!getWorktree(opts.db, req.params.id))
+      return reply.code(404).send({ error: 'unknown_worktree' });
+    const body = z
+      .object({
+        entityIds: z
+          .array(z.string().regex(/^ent_[0-9a-f]{16,64}$/))
+          .min(1)
+          .max(20),
+      })
+      .safeParse(req.body);
+    if (!body.success)
+      return reply.code(400).send({ error: 'expected { entityIds: ent_…[] (1-20) }' });
+    return { results: await enricher.enrichEntities(req.params.id, body.data.entityIds) };
   });
 
   /** Claims proposed by an agent/model or a person; validated against the precondition snapshot. */
@@ -550,5 +582,5 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     return reply.send(await readStatic(hit.file));
   });
 
-  return { app, bus, jobs, watches, startedAt };
+  return { app, bus, jobs, watches, enricher, startedAt };
 }

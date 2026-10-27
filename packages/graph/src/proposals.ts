@@ -254,7 +254,8 @@ export async function proposeClaims(db: Db, raw: unknown): Promise<ProposeOutcom
         reasons.push(`${where}: ${f}`);
         continue;
       }
-      const lineCount = f.lines.at(-1) === '' ? f.lines.length - 1 : f.lines.length;
+      // same convention as the analyzers: the position after a final newline is a (last) line
+      const lineCount = f.lines.length;
       if (cit.endLine > lineCount) {
         reasons.push(`${where}: ${cit.path} has ${lineCount} lines, not ${cit.endLine}`);
         continue;

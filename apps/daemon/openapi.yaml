@@ -104,6 +104,33 @@ paths:
         '400': { description: Invalid body or ids that are not candidates of this issue }
         '404': { description: Unknown issue }
         '409': { description: Issue not open, or a candidate already linked }
+  /api/v1/settings/enrichment:
+    get:
+      summary: Enrichment settings (provider none|mock|mock-adversarial, daily token budget, per-request limits)
+      responses:
+        '200': { description: Settings }
+    put:
+      summary: Update enrichment settings (validated; no network provider exists)
+      responses:
+        '200': { description: Settings }
+        '400': { description: Invalid settings }
+  /api/v1/worktrees/{id}/enrich:
+    post:
+      summary: >-
+        Explicitly request model claims for up to 20 entities. Per entity - disabled, completed,
+        cached, skipped-budget, cancelled, failed or stale-precondition, with accepted/rejected
+        counts. Output goes through the claim validator.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: '{ results }' }
+        '400': { description: 'Body is not { entityIds }' }
+        '404': { description: Unknown worktree }
+  /api/v1/projects/{id}/enrichment:
+    get:
+      summary: Settings and today's usage (estimated vs reported tokens, cached, skipped, cancelled, recent ledger)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: '{ settings, usage }' }
   /api/v1/proposals/claims:
     post:
       summary: >-
