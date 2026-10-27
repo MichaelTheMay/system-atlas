@@ -166,3 +166,21 @@ Duplicate events, identified by producer and producer event ID, are deduplicated
 The claims are labeled `inferred`. The design workspace shows them as `proposed` boxes, without a rescan.
 
 **Promotion.** Only a person can turn a proposal into an accepted subsystem, with `PUT /api/v1/views/{viewId}/override { action: 'promote', … }`. This re-proposes the matching model claims as human claims citing the same evidence, and the validator checks them again. If the cited files changed since the claims were made, the promotion is refused with reasons.
+
+## Design agent (D02)
+
+Atlas can also drive an agent itself, for the copilot's Ask actions and for **Generate design**. It
+runs on Claude Code (your Claude account, through the documented headless `claude -p` CLI), the
+Anthropic API with your key, or a deterministic mock. The agent gets only the design subset of
+these tools: the read tools plus `atlas_propose_view` and `atlas_propose_claims`. It has no file,
+shell, web, refresh, note or run tools.
+
+- Jobs start only from an explicit click or `atlas design generate`; one job per project.
+- Non-mock runtimes need recorded consent first (`403 consent_required` otherwise).
+- Each job is a run with adapter `design-agent`, so every tool call, the usage and the outcome
+  appear in Outputs & Audit. Copilot answers come back on `GET /projects/{id}/design/jobs/{jobId}`
+  (`output`) and are kept in the run.
+- Everything it proposes is `inferred` and shown as `proposed` with `agent: <model>`, until a
+  person accepts it.
+
+See [design.md](design.md) for runtimes, consent, privacy and costs.

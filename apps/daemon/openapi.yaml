@@ -161,6 +161,18 @@ paths:
             description: '{ snapshotId, runtime, model, units, depth, estimatedInputTokens, estimatedOutputTokens, dailyBudget, sends, external, consented }',
           }
         '404': { description: No snapshot yet }
+  /api/v1/snapshots/{id}/design/claims:
+    get:
+      summary: >-
+        Non-rejected subsystem and responsibility claims of a snapshot, with ids, origin, status
+        and model, for the design review sheet and the copilot. Read only.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200':
+          {
+            description: '{ snapshotId, claims: [{ id, subjectId, subjectName, predicate, value, origin, status, evidenceIds, model? }] }',
+          }
+        '404': { description: Malformed snapshot id }
   /api/v1/projects/{id}/design/jobs:
     get:
       summary: Recent design-agent jobs of the project
