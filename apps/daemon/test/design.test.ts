@@ -4,8 +4,6 @@ import { appendFileSync, cpSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defaultAnalyzers } from '@atlas/analyzers';
-import { loadPlannerGraph, registerRoot, scanWorktree } from '@atlas/graph';
 import type * as planner from '@atlas/planner';
 import { planDesign, type Catalog, type PlannerGraph } from '@atlas/planner';
 import type { CanvasSpec } from '@atlas/schema';
@@ -28,15 +26,6 @@ const fixtureRoot = () => {
   });
   return root;
 };
-
-/** Whether the real design planner (D01 part A) is merged: it plans ≥1 canvas for the fixture. */
-const designPlannerImplemented = await (async () => {
-  const db = openDb(':memory:');
-  migrate(db);
-  const { worktree } = await registerRoot(db, fixtureRoot());
-  const r = await scanWorktree(db, worktree, { analyzers: defaultAnalyzers() });
-  return realPlanDesign(loadPlannerGraph(db, r.snapshot.id)).canvases.length > 0;
-})();
 
 const token = 'd'.repeat(64);
 const port = 47996;
@@ -338,39 +327,41 @@ describe('system-design lens API (D01b)', () => {
     expect((await t.j('GET', `/api/v1/projects/${t.projectId}/overrides`)).overrides).toEqual([]);
   });
 
-  it.skipIf(!designPlannerImplemented)(
-    'end to end: a subsystem proposal makes a design-subsystem canvas appear without rescan',
-    async () => {
-      const t = await setup();
-      const before = await t.design();
-      expect(before.some((c: any) => c.lens === 'design-system')).toBe(true);
-      expect(before.some((c: any) => c.lens === 'design-subsystem')).toBe(false);
-      await t.proposeSubsystem(t.snapshotId, 'Persistence', [
-        [t.dbId, 'packages/api/src/db.ts'],
-        [t.serverId, 'packages/api/src/server.ts'],
-      ]);
-      const sub = (await t.design()).find(
-        (c: any) => c.lens === 'design-subsystem' && /persistence/i.test(c.title),
-      );
-      expect(sub).toMatchObject({ provenance: 'proposed' });
-      const proj = await t.j(
-        'GET',
-        `/api/v1/snapshots/${t.snapshotId}/canvases/${sub.id}/projection`,
-      );
-      expect(proj.nodes.map((n: any) => n.entityId)).toEqual(
-        expect.arrayContaining([t.dbId, t.serverId]),
-      );
-      // promoting it makes it accepted
-      await t.j('PUT', `/api/v1/views/${sub.id}/override`, {
-        action: 'promote',
-        enabled: true,
-        projectId: t.projectId,
-        snapshotId: t.snapshotId,
-        subsystemPath: 'Persistence',
-      });
-      expect((await t.design()).find((c: any) => c.id === sub.id)).toMatchObject({
-        provenance: 'accepted',
-      });
-    },
-  );
+  it('end to end: a subsystem proposal makes a design-subsystem canvas appear without rescan', async () => {
+    const t = await setup();
+    const before = await t.design();
+    expect(before.some((c: any) => c.lens === 'design-system')).toBe(true);
+    expect(before.some((c: any) => c.lens === 'design-subsystem')).toBe(false);
+    await t.proposeSubsystem(t.snapshotId, 'Persistence', [
+      [t.dbId, 'packages/api/src/db.ts'],
+      [t.serverId, 'packages/api/src/server.ts'],
+    ]);
+    const sub = (await t.design()).find(
+      (c: any) => c.lens === 'design-subsystem' && /persistence/i.test(c.title),
+    );
+    expect(sub).toMatchObject({ provenance: 'proposed' });
+    const proj = await t.j(
+      'GET',
+      `/api/v1/snapshots/${t.snapshotId}/canvases/${sub.id}/projection`,
+    );
+    // claims on modules lift to their unit: the api package is the subsystem's one box, and the
+    // boxes it exchanges flows with appear as context ports
+    const boxes = proj.nodes.filter((n: any) => n.kind === 'entity');
+    expect(boxes.map((n: any) => [n.label, n.archetype])).toEqual([['api', 'api-service']]);
+    expect(boxes[0].entityId).toMatch(/^ent_/);
+    expect(proj.nodes.some((n: any) => n.kind === 'port' && n.archetype === 'datastore')).toBe(
+      true,
+    );
+    // promoting it makes it accepted
+    await t.j('PUT', `/api/v1/views/${sub.id}/override`, {
+      action: 'promote',
+      enabled: true,
+      projectId: t.projectId,
+      snapshotId: t.snapshotId,
+      subsystemPath: 'Persistence',
+    });
+    expect((await t.design()).find((c: any) => c.id === sub.id)).toMatchObject({
+      provenance: 'accepted',
+    });
+  });
 });
