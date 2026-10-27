@@ -437,7 +437,7 @@ export function rejectClaim(
 export function listProposals(db: Db, projectId: string, limit = 50) {
   return db
     .prepare(
-      'SELECT * FROM proposals WHERE project_id = ? ORDER BY created_at DESC, id DESC LIMIT ?',
+      'SELECT * FROM proposals WHERE project_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?',
     )
     .all<{
       id: string;

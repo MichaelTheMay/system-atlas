@@ -1,6 +1,6 @@
 import {
   DesignElement,
-  DesignElementBody,
+  type DesignElementBody,
   DesignElementInput,
   DesignElementPatch,
   idSchema,
