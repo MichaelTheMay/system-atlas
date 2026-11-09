@@ -37,6 +37,13 @@ import type {
 export const MAX_SUBSYSTEM_DEPTH = 3;
 /** Directory groups of a single-package repo drawn individually; the rest fold into "more". */
 export const MAX_CODE_GROUPS = 10;
+/**
+ * A canvas that would show more boxes than this is split into detected subsystems by repository
+ * layout (D04). Smaller whiteboards are left exactly as they are.
+ */
+export const LAYOUT_SPLIT_ABOVE = 12;
+/** Top-level folders whose code is examples or test data, not the running system. */
+const FIXTURE_DIRS = new Set(['fixtures', 'examples', 'testdata', '__fixtures__', 'samples']);
 
 const DESIGN_SCORING = 'design-v1';
 
@@ -56,6 +63,14 @@ interface Unit {
   deployableId?: string;
   /** True for code units (archetype computed from signals). */
   code: boolean;
+  /**
+   * Repository directory the box lives in ('' = the root), when its anchor says so: a package
+   * directory, a module's folder, the folder of a compose file, Dockerfile or migration. Queues
+   * and external systems have none. Used only to group a crowded whiteboard (D04).
+   */
+  dir?: string;
+  /** Build/test tooling: a root-level config file or the scripts folder (D04 grouping only). */
+  tooling?: boolean;
 }
 
 interface Subsystem {
@@ -268,6 +283,8 @@ export function projectDesign(g: PlannerGraph, catalog: Catalog, canvasIdArg: st
 
   if (here || elChain) {
     const ports: Unit[] = [];
+    /** Outside boxes that sit in another subsystem: one port per subsystem, not per box (D04). */
+    const portGroups = new Map<string, Unit[]>();
     const grouped = new Map<string, Unit[]>();
     const groupedEl = new Map<string, Unit[]>();
     const push = (map: Map<string, Unit[]>, k: string, u: Unit) =>
@@ -293,7 +310,11 @@ export function projectDesign(g: PlannerGraph, catalog: Catalog, canvasIdArg: st
       }
       const p = m.pathOf.get(u.key) ?? [];
       if (!startsWith(p, here!)) {
-        ports.push(u);
+        let k = 0;
+        while (k < p.length && k < here!.length && p[k] === here![k]) k++;
+        const sid = p.length > k ? m.canvasByPath.get(p.slice(0, k + 1).join('/')) : undefined;
+        if (sid && m.subsystems.get(sid)!.state !== 'suppressed') push(portGroups, sid, u);
+        else ports.push(u);
         continue;
       }
       if (p.length > here!.length) {
@@ -352,7 +373,28 @@ export function projectDesign(g: PlannerGraph, catalog: Catalog, canvasIdArg: st
         );
       }
     // On a subsystem canvas, boxes outside it that exchange flows with it are context ports.
-    if (!isRoot) for (const u of ports) scene.add(unitNode(u, 'port'), u.members);
+    if (!isRoot) {
+      for (const u of ports) scene.add(unitNode(u, 'port'), u.members);
+      for (const [sid, us] of [...portGroups].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+        const s = m.subsystems.get(sid)!;
+        const { archetype, reason } = dominant(us);
+        scene.add(
+          {
+            id: `port:${sid}`,
+            kind: 'port',
+            label: s.title,
+            sublabel: `subsystem · ${us.length} box(es)`,
+            entityId: us.find((u) => u.anchorId)?.anchorId,
+            openCanvasId: sid,
+            memberCount: us.length,
+            archetype,
+            archetypeReason: reason,
+            provenance: s.provenance,
+          },
+          us.flatMap((u) => u.members),
+        );
+      }
+    }
   }
 
   // drawn boxes and sticky notes (D02a)
@@ -636,46 +678,54 @@ function designModel(g: PlannerGraph): DesignModel {
   const pathOfUnit = new Map<string, string[]>();
   const titleOf = new Map<string, string>();
   const detectedReason = new Map<string, string>();
-  if (usableClaims.length) {
-    for (const u of units) {
-      const cands = byUnit.get(u.key);
-      if (!cands) continue;
-      // acyclic navigation: a unit sits on exactly one path. A person's grouping beats an agent's
-      // proposal (D02a); among equals the lexicographically first path wins.
-      const best = [...cands].sort(
-        (a, b) =>
-          Number(b.origin === 'human') - Number(a.origin === 'human') ||
-          a.path.join('/').localeCompare(b.path.join('/')),
-      )[0]!;
-      pathOfUnit.set(u.key, best.path);
-    }
-    // display casing: the first human claim, else the first claim (by id)
-    for (const c of [...usableClaims.filter((x) => x.origin === 'human'), ...usableClaims])
-      c.path.forEach((_, i) => {
-        const key = c.path.slice(0, i + 1).join('/');
-        if (!titleOf.has(key)) titleOf.set(key, c.titles[i]!);
-      });
-  } else {
-    // Baseline: a deployable that runs several packages is a detected subsystem.
-    const byDeployable = new Map<string, Unit[]>();
-    for (const u of units)
-      if (u.deployableId)
-        (
-          byDeployable.get(u.deployableId) ??
-          byDeployable.set(u.deployableId, []).get(u.deployableId)!
-        ).push(u);
-    for (const [d, us] of [...byDeployable].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
-      if (us.length < 2) continue;
-      const name = nav.byId.get(d)!.displayName;
-      const path = [`${normalizeSubsystemName(name)}#${d}`];
-      titleOf.set(path[0]!, name);
-      detectedReason.set(
-        path[0]!,
-        `Detected: deployable ${name} runs ${us.length} packages (${us.map((u) => u.label).join(', ')}).`,
-      );
-      for (const u of us) pathOfUnit.set(u.key, path);
-    }
+  /** Detected layout groups (D04): path key -> how to describe the group once its members are known. */
+  const layoutWhy = new Map<string, (members: Unit[]) => string>();
+  for (const u of units) {
+    const cands = byUnit.get(u.key);
+    if (!cands) continue;
+    // acyclic navigation: a unit sits on exactly one path. A person's grouping beats an agent's
+    // proposal (D02a); among equals the lexicographically first path wins.
+    const best = [...cands].sort(
+      (a, b) =>
+        Number(b.origin === 'human') - Number(a.origin === 'human') ||
+        a.path.join('/').localeCompare(b.path.join('/')),
+    )[0]!;
+    pathOfUnit.set(u.key, best.path);
   }
+  // display casing: the first human claim, else the first claim (by id)
+  for (const c of [...usableClaims.filter((x) => x.origin === 'human'), ...usableClaims])
+    c.path.forEach((_, i) => {
+      const key = c.path.slice(0, i + 1).join('/');
+      if (!titleOf.has(key)) titleOf.set(key, c.titles[i]!);
+    });
+
+  // Detected subsystems place the units no claim placed. A claim moves only its own unit, so
+  // accepting one grouping never dissolves the detected ones (D04).
+  // 1. A deployable that runs several packages.
+  const byDeployable = new Map<string, Unit[]>();
+  for (const u of units)
+    if (u.deployableId && !pathOfUnit.has(u.key))
+      (
+        byDeployable.get(u.deployableId) ??
+        byDeployable.set(u.deployableId, []).get(u.deployableId)!
+      ).push(u);
+  for (const [d, us] of [...byDeployable].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    if (us.length < 2) continue;
+    const name = nav.byId.get(d)!.displayName;
+    const path = [`${normalizeSubsystemName(name)}#${d}`];
+    titleOf.set(path[0]!, name);
+    detectedReason.set(
+      path[0]!,
+      `Detected: deployable ${name} runs ${us.length} packages (${us.map((u) => u.label).join(', ')}).`,
+    );
+    for (const u of us) pathOfUnit.set(u.key, path);
+  }
+  // 2. Repository layout, only when the whiteboard would be crowded.
+  const hiddenKey = (u: Unit) => !!u.anchorId && has(u.anchorId, 'suppress');
+  const rootBoxes =
+    units.filter((u) => !pathOfUnit.has(u.key) && !hiddenKey(u)).length +
+    new Set([...pathOfUnit.values()].map((p) => p[0])).size;
+  if (rootBoxes > LAYOUT_SPLIT_ABOVE) layoutPaths(nav, units, pathOfUnit, titleOf, layoutWhy);
 
   // ---- canvases for every path prefix that has members
   const subsystems = new Map<string, Subsystem>();
@@ -695,6 +745,8 @@ function designModel(g: PlannerGraph): DesignModel {
       (c) => startsWith(c.path, path) && pathOfUnit.get(c.unitKey)?.join('/') === c.path.join('/'),
     );
     const human = contributing.some((c) => c.origin === 'human');
+    const why = layoutWhy.get(key);
+    if (why) detectedReason.set(key, why(members));
     const provenance: Provenance = detectedReason.has(key)
       ? 'detected'
       : human || has(id, 'promote')
@@ -740,6 +792,160 @@ function designModel(g: PlannerGraph): DesignModel {
     hidden,
     layer,
   };
+}
+
+/**
+ * Detected subsystems from the repository layout (D04), for the units that have no path yet. In
+ * order:
+ * 1. units under a fixture/example folder -> "Fixtures & examples", then one group per fixture;
+ * 2. root-level config files and the scripts folder -> "Build & test tooling";
+ * 3. units that share a top-level folder (two or more) -> that folder;
+ * 4. inside any group still above the threshold, the next folder level, down to the depth limit;
+ *    where a level is a flat folder of many siblings, families that share a name prefix
+ *    (`client-ui-…`);
+ * A unit with no location of its own (a queue, an external system) counts as sitting in the
+ * deepest folder shared by every box it exchanges flows with.
+ * Path segments are `name#layout:…`, so they never collide with a claim path. Deterministic.
+ */
+function layoutPaths(
+  nav: Nav,
+  units: Unit[],
+  pathOfUnit: Map<string, string[]>,
+  titleOf: Map<string, string>,
+  layoutWhy: Map<string, (members: Unit[]) => string>,
+): void {
+  const free = units.filter((u) => !pathOfUnit.has(u.key));
+  // a unit with no location of its own sits where everything it exchanges flows with sits
+  const owner = new Map<string, Unit>();
+  for (const u of units) for (const m of u.members) if (!owner.has(m)) owner.set(m, u);
+  const dirOf = new Map<string, string>();
+  for (const u of free) if (u.dir !== undefined) dirOf.set(u.key, u.dir);
+  for (const u of free) {
+    if (u.dir !== undefined || u.key === 'libraries') continue;
+    const peers = new Set<string>();
+    for (const m of u.members)
+      for (const r of nav.relationsByEntity.get(m) ?? []) {
+        const o = owner.get(r.fromId === m ? r.toId : r.fromId);
+        if (o && o !== u && o.key !== 'libraries' && o.dir !== undefined) peers.add(o.dir);
+      }
+    if (peers.size) dirOf.set(u.key, commonDir([...peers]));
+  }
+  const segsOf = (u: Unit) => dirOf.get(u.key)!.split('/').filter(Boolean);
+  const names = (us: Unit[]) => list(us.map((u) => u.label).sort(), 4);
+  const group = (
+    parent: string[],
+    id: string,
+    title: string,
+    us: Unit[],
+    why: (members: Unit[]) => string,
+  ): string[] => {
+    const path = [...parent, `${normalizeSubsystemName(title)}#layout:${id}`];
+    const key = path.join('/');
+    titleOf.set(key, title);
+    layoutWhy.set(key, why);
+    for (const u of us) pathOfUnit.set(u.key, path);
+    return path;
+  };
+  const folderWhy = (dir: string) => (ms: Unit[]) =>
+    `Detected: ${ms.length} box(es) under ${dir}/ (${names(ms)}).`;
+  /** Name tokens of a unit: its folder name, else its label without a package scope. */
+  const tokensOf = (u: Unit) =>
+    (segsOf(u).at(-1) ?? u.label.replace(/^@[^/]+\//, ''))
+      .toLowerCase()
+      .split(/[-_.\s]+/)
+      .filter(Boolean);
+  /** Splits a flat group into name families (two or more units sharing the next name token). */
+  const families = (us: Unit[], path: string[]): void => {
+    if (us.length <= LAYOUT_SPLIT_ABOVE || path.length >= MAX_SUBSYSTEM_DEPTH) return;
+    const toks = new Map(us.map((u) => [u.key, tokensOf(u)]));
+    const first = toks.get(us[0]!.key)!;
+    let shared = first.length;
+    for (const t of toks.values()) {
+      let i = 0;
+      while (i < shared && i < t.length && t[i] === first[i]) i++;
+      shared = i;
+    }
+    const buckets = new Map<string, Unit[]>();
+    for (const u of us) {
+      const tok = toks.get(u.key)![shared];
+      if (tok !== undefined) (buckets.get(tok) ?? buckets.set(tok, []).get(tok)!).push(u);
+    }
+    for (const [tok, inside] of [...buckets].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+      if (inside.length < 2) continue;
+      const title = [...first.slice(0, shared), tok].join('-');
+      families(
+        inside,
+        group(
+          path,
+          `name:${title}`,
+          title,
+          inside,
+          (ms) => `Detected: ${ms.length} box(es) named ${title}-… (${names(ms)}).`,
+        ),
+      );
+    }
+  };
+  /** Splits a group by the folder segment at `at` while it is above the threshold. */
+  const split = (us: Unit[], at: number, path: string[]): void => {
+    if (us.length <= LAYOUT_SPLIT_ABOVE || path.length >= MAX_SUBSYSTEM_DEPTH) return;
+    const buckets = new Map<string, Unit[]>();
+    for (const u of us) {
+      const seg = segsOf(u)[at];
+      if (seg !== undefined) (buckets.get(seg) ?? buckets.set(seg, []).get(seg)!).push(u);
+    }
+    // everything in one folder: that level says nothing, look one deeper
+    if (buckets.size === 1 && [...buckets.values()][0]!.length === us.length)
+      return split(us, at + 1, path);
+    // a flat folder of many siblings (`client-ui-plan`, `client-ui-input`, `client-store`):
+    // folders say nothing more, so group by shared name prefix instead
+    if (![...buckets.values()].some((inside) => inside.length >= 2)) return families(us, path);
+    for (const [seg, inside] of [...buckets].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+      if (inside.length < 2) continue;
+      const dir = segsOf(inside[0]!)
+        .slice(0, at + 1)
+        .join('/');
+      split(
+        inside,
+        at + 1,
+        group(path, `dir:${dir.replaceAll('/', ':')}`, seg, inside, folderWhy(dir)),
+      );
+    }
+  };
+
+  const located = free.filter((u) => dirOf.has(u.key));
+  const fixtures = located.filter((u) => FIXTURE_DIRS.has(segsOf(u)[0] ?? ''));
+  const tooling = located.filter((u) => u.tooling && !fixtures.includes(u));
+  const rest = located.filter((u) => !fixtures.includes(u) && !tooling.includes(u));
+  if (fixtures.length >= 2) {
+    const dirs = [...new Set(fixtures.map((u) => segsOf(u)[0]!))].sort();
+    const path = group(
+      [],
+      'fixtures',
+      'Fixtures & examples',
+      fixtures,
+      (ms) =>
+        `Detected: ${ms.length} box(es) under ${dirs.map((d) => `${d}/`).join(', ')} (${names(ms)}); examples and test data, not part of the running system.`,
+    );
+    split(fixtures, 1, path);
+  }
+  if (tooling.length >= 2)
+    group(
+      [],
+      'tooling',
+      'Build & test tooling',
+      tooling,
+      (ms) =>
+        `Detected: ${ms.length} box(es) of root-level tool configuration and scripts (${names(ms)}).`,
+    );
+  const top = new Map<string, Unit[]>();
+  for (const u of rest) {
+    const seg = segsOf(u)[0];
+    if (seg !== undefined) (top.get(seg) ?? top.set(seg, []).get(seg)!).push(u);
+  }
+  for (const [seg, inside] of [...top].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    if (inside.length < 2) continue;
+    split(inside, 1, group([], `dir:${seg}`, seg, inside, folderWhy(seg)));
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -915,6 +1121,38 @@ const BROKER_IMAGE_RE = /kafka|rabbitmq|nats|activemq|redpanda|pulsar/i;
 const STORE_IMAGE_RE =
   /postgres|mysql|mariadb|mongo|cockroach|clickhouse|cassandra|elastic|opensearch|minio|sqlite/i;
 const TRANSPARENT_DIRS = new Set(['cmd', 'internal', 'pkg', 'src', 'lib']);
+/** Root-level files that configure build, lint or test tools (`vite.config.ts`, `.eslintrc.js`). */
+const TOOLING_FILE_RE = /(^|\.)config\.[cm]?[jt]sx?$|^\.[a-z0-9-]+rc(\.[a-z]+)?$/i;
+const TOOLING_DIRS = new Set(['scripts']);
+
+const parentDir = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
+/** True when `path` is `dir` or lies under it ('' contains everything). */
+const within = (dir: string, path: string) =>
+  dir === '' || path === dir || path.startsWith(`${dir}/`);
+/** Deepest directory shared by all the given directories. */
+function commonDir(dirs: string[]): string {
+  if (!dirs.length) return '';
+  const first = dirs[0]!.split('/').filter(Boolean);
+  let n = first.length;
+  for (const d of dirs) {
+    const segs = d.split('/').filter(Boolean);
+    let i = 0;
+    while (i < n && i < segs.length && segs[i] === first[i]) i++;
+    n = i;
+  }
+  return first.slice(0, n).join('/');
+}
+/** Repository directory an entity's own attributes place it in, if any. */
+function dirOfEntity(e: GraphEntity): string | undefined {
+  const a = e.attributes;
+  if (typeof a.directory === 'string') return a.directory === '.' ? '' : a.directory;
+  if (typeof a.path === 'string')
+    // directory modules (Go) are their own folder; file modules sit in theirs
+    return e.kind === 'module' && !/\.[^/]+$/.test(a.path) ? a.path : parentDir(a.path);
+  for (const k of ['dockerfile', 'declaredIn', 'composeFile'])
+    if (typeof a[k] === 'string') return parentDir(a[k]);
+  return undefined;
+}
 const CODE_KINDS = new Set([
   'module',
   'entrypoint',
@@ -961,6 +1199,7 @@ function buildUnits(g: PlannerGraph, nav: Nav): Unit[] {
       reason,
       realizedBy: [e.id],
       code: false,
+      dir: dirOfEntity(e),
     });
   };
 
@@ -989,11 +1228,38 @@ function buildUnits(g: PlannerGraph, nav: Nav): Unit[] {
   for (const e of ofKind('queue', 'topic'))
     simple(e, 'queue', `Detected ${e.kind} ${e.displayName}${channelUse(g, e.id)}.`);
 
-  // Stores: databases take the tables (the first primary store when there are several).
+  // Stores: a database takes the tables of its own project. A table belongs to the database whose
+  // compose folder contains the table's file (the deepest such folder), else to one in the same
+  // package; tables that match no database are drawn as their own store, one per package.
   const dbs = ofKind('database');
   const tables = ofKind('table');
   const isCache = (e: GraphEntity) => CACHE_RE.test(e.displayName) || CACHE_RE.test(image(e));
-  const primary = dbs.find((d) => !isCache(d));
+  const stores = dbs.filter((d) => !isCache(d));
+  const pkgDirs = ofKind('package')
+    .filter((p) => !nav.isExternal(p.id) && p.id !== nav.rootPackageId)
+    .map((p) => ({ p, dir: String(p.attributes.directory ?? '') }))
+    .filter((x) => x.dir && x.dir !== '.')
+    .sort((a, b) => b.dir.length - a.dir.length || byName(a.p, b.p));
+  /** Nearest enclosing non-root package of a path ('' = the root project). */
+  const projectOf = (path: string | undefined) =>
+    path === undefined ? undefined : pkgDirs.find((x) => within(x.dir, path));
+  const storeHome = (d: GraphEntity) => dirOfEntity(d) ?? '';
+  const tablesOf = new Map<string, GraphEntity[]>();
+  const freeTables: GraphEntity[] = [];
+  for (const t of tables) {
+    const path = pathOf(t);
+    let home: GraphEntity | undefined;
+    if (path === undefined) home = stores[0];
+    else {
+      const inside = stores
+        .filter((d) => within(storeHome(d), path))
+        .sort((a, b) => storeHome(b).length - storeHome(a).length);
+      const proj = projectOf(path)?.dir ?? '';
+      home = inside[0] ?? stores.find((d) => (projectOf(storeHome(d))?.dir ?? '') === proj);
+    }
+    if (home) (tablesOf.get(home.id) ?? tablesOf.set(home.id, []).get(home.id)!).push(t);
+    else freeTables.push(t);
+  }
   for (const d of dbs) {
     if (isCache(d)) {
       simple(
@@ -1003,13 +1269,13 @@ function buildUnits(g: PlannerGraph, nav: Nav): Unit[] {
       );
       continue;
     }
-    const withTables = d === primary ? tables.map((t) => t.id) : [];
+    const withTables = (tablesOf.get(d.id) ?? []).map((t) => t.id);
     simple(
       d,
       'datastore',
       `Database ${d.displayName}${image(d) ? ` (image ${image(d)})` : ''}` +
         (withTables.length
-          ? ` holding ${withTables.length} table(s)${dbs.length > 1 ? ' (assigned to the first primary database)' : ''}.`
+          ? ` holding ${withTables.length} table(s)${stores.length > 1 ? ' (declared in its project)' : ''}.`
           : '.'),
       [...subtree(d.id), ...withTables.flatMap(subtree)],
     );
@@ -1033,22 +1299,33 @@ function buildUnits(g: PlannerGraph, nav: Nav): Unit[] {
       simple(e, 'datastore', `Heuristic: infrastructure ${desc} runs a database image.`);
     else simple(e, 'service', `Infrastructure resource ${desc}.`);
   }
-  if (!primary) {
-    const free = tables.filter((t) => !taken.has(t.id));
-    const ms = claim(free.flatMap((t) => subtree(t.id)));
-    if (ms.length)
+  {
+    const byProject = new Map<string, GraphEntity[]>();
+    for (const t of freeTables.filter((t) => !taken.has(t.id))) {
+      const k = projectOf(pathOf(t))?.p.id ?? '';
+      (byProject.get(k) ?? byProject.set(k, []).get(k)!).push(t);
+    }
+    for (const [pid, free] of [...byProject].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+      const ms = claim(free.flatMap((t) => subtree(t.id)));
+      if (!ms.length) continue;
+      const pkg = pid ? nav.byId.get(pid)! : undefined;
+      const where = stores.length
+        ? 'no database service was detected in their project'
+        : 'no database service was detected';
       units.push({
-        key: 'tables',
+        key: pid ? `tables:${pid}` : 'tables',
         anchorId: free[0]!.id,
-        label: 'Database tables',
+        label: pkg ? `${pkg.displayName} tables` : 'Database tables',
         sublabel: `${free.length} table(s)`,
         nodeKind: 'aggregate',
         members: ms.sort(),
         archetype: 'datastore',
-        reason: `${free.length} table(s) declared in schema or migrations; no database service was detected, so they are drawn as one store.`,
+        reason: `${free.length} table(s) declared in schema or migrations${pkg ? ` of ${pkg.displayName}` : ''}; ${where}, so they are drawn as one store.`,
         realizedBy: [free[0]!.id],
         code: false,
+        dir: pkg ? String(pkg.attributes.directory) : '',
       });
+    }
   }
 
   // Code: deployables fused with the package they run; remaining packages; then loose modules.
@@ -1105,6 +1382,7 @@ function buildUnits(g: PlannerGraph, nav: Nav): Unit[] {
           reason: '',
           realizedBy: [p.id, d.id],
           code: true,
+          dir: dirOfEntity(p),
         });
     } else if (ps.length > 1) {
       ps.forEach((pid, i) => {
@@ -1123,6 +1401,7 @@ function buildUnits(g: PlannerGraph, nav: Nav): Unit[] {
             realizedBy: [pid, d.id],
             deployableId: d.id,
             code: true,
+            dir: dirOfEntity(p),
           });
       });
     } else {
@@ -1139,6 +1418,7 @@ function buildUnits(g: PlannerGraph, nav: Nav): Unit[] {
           reason: '',
           realizedBy: [d.id],
           code: true,
+          dir: dirOfEntity(d),
         });
     }
   }
@@ -1157,6 +1437,7 @@ function buildUnits(g: PlannerGraph, nav: Nav): Unit[] {
       reason: '',
       realizedBy: [p.id],
       code: true,
+      dir: dirOfEntity(p),
     });
   }
 
@@ -1222,6 +1503,8 @@ function buildUnits(g: PlannerGraph, nav: Nav): Unit[] {
     const ms = claim(es.flatMap((e) => subtree(e.id)));
     if (!ms.length) continue;
     const single = es.length === 1;
+    const dir = commonDir(es.map(dirOf));
+    const file = pathOf(anchor)!.split('/').pop()!;
     looseUnits.push({
       key: anchor.id,
       anchorId: anchor.id,
@@ -1233,6 +1516,11 @@ function buildUnits(g: PlannerGraph, nav: Nav): Unit[] {
       reason: '',
       realizedBy: [anchor.id],
       code: true,
+      dir,
+      ...((single && dir === '' && TOOLING_FILE_RE.test(file)) ||
+      TOOLING_DIRS.has(dir.split('/')[0]!)
+        ? { tooling: true }
+        : {}),
     });
   }
   if (more.length) {
@@ -1249,6 +1537,7 @@ function buildUnits(g: PlannerGraph, nav: Nav): Unit[] {
       reason: '',
       realizedBy: [anchor.id],
       code: true,
+      dir: commonDir(more.map(dirOf)),
     });
   }
   // Entrypoints and other unpathed loose items join the unit of the code they start.
@@ -1285,6 +1574,7 @@ function buildUnits(g: PlannerGraph, nav: Nav): Unit[] {
       reason: '',
       realizedBy: [p.id],
       code: true,
+      dir: '',
     });
     taken.add(p.id);
   }
