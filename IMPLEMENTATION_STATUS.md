@@ -6,36 +6,36 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**D04: recursive system design and user-flow mapping**, planned in `docs/plan/D04-recursive-design-and-flows.md`. Milestones M0 (baseline), M1 (detected hierarchy), M2 (recursive from-code boards), M3 (user-flow mapper), M4 (verification). Integration branch `feat/D04-recursive-design`; milestone PRs go into it, and nothing reaches `develop` without the owner's go-ahead. Revert point: tag `checkpoint-2026-11-09-d03` (= `main` `bb47ae0`).
+**D04: recursive system design and user-flow mapping**, planned in `docs/plan/D04-recursive-design-and-flows.md`. M0 (baseline) and M1 (detected hierarchy) are in review. Next: **M2, recursive from-code boards**, then M3 (user-flow mapper) and M4 (verification). Integration branch `feat/D04-recursive-design`; milestone PRs go into it, and nothing reaches `develop` without the owner's go-ahead. Revert point: tag `checkpoint-2026-11-09-d03` (= `main` `bb47ae0`).
 
 ## Tickets (plan §17)
 
-| ID  | Ticket                                               | Depends on  | Status      | PR / evidence                                       |
-| --- | ---------------------------------------------------- | ----------- | ----------- | --------------------------------------------------- |
-| A00 | Repository bootstrap, GitHub remote, branch rules    | —           | done        | bootstrap commit on `main`                          |
-| A01 | Bootstrap workspace, contracts and ADRs              | —           | not started |                                                     |
-| A02 | Project/worktree identity and SQLite migrations      | A01         | not started |                                                     |
-| A03 | Inventory and coverage report                        | A02         | not started |                                                     |
-| A04 | TS/JS and Python analyzers                           | A03         | not started |                                                     |
-| A05 | Semantic identity and snapshot reconciler            | A04         | not started |                                                     |
-| A06 | View planner and canvas navigation                   | A05         | done        | PR #6; see A06 evidence                             |
-| A07 | React Flow, layout worker, overlays and inspector    | A06         | done        | PR #7; see A07 evidence                             |
-| E01 | Run/event/artifact store and ingestion               | A02         | done        | PR #8; see E01 evidence                             |
-| E02 | Process wrapper and output registration              | E01         | done        | PR #9; see E02 evidence                             |
-| E03 | Playwright capture helper                            | E01         | done        | PR #10; see E03 evidence                            |
-| E04 | Output canvases and isolated preview renderer        | E02,E03,A07 | done        | PR #11; see E04 evidence                            |
-| M01 | Watcher and incremental invalidation                 | A05,A07     | done        | PRs #13, #14, #15                                   |
-| M02 | Model proposal validation, cache and budget          | M01         | done        | PRs #17, #18 (view proposals deferred)              |
-| I01 | MCP and generic event SDK                            | E01,A06     | done        | PR #16                                              |
-| I02 | VS Code integration                                  | I01         | dropped     | user decision 2026-10-26                            |
-| I03 | OTLP subset and bundle importer                      | E04         | done        | PR #20                                              |
-| I04 | Skena/JSON Canvas bridge                             | I01,A07     | done        | PR #21 (JSON Canvas export; no Skena bridge)        |
-| H01 | Retention, recovery, export and performance          | E04,M01     | not started |                                                     |
-| L01 | Go and Java/JVM analyzers (Phase 4; not in plan §17) | A04         | done        | PR #22                                              |
-| D01 | System-design lens (not in plan §17)                 | A06,M02     | done        | PRs #24, #27, #25, #29, #28; see D01 evidence       |
-| D02 | Whiteboard, design copilot, on-demand generation     | D01         | done        | PRs #26, #30, #31, #33, #34; see D02 evidence       |
-| D03 | Design boards (design-first whiteboard)              | D02         | done        | PRs #36, #40, #38, #39 and wave 2; see D03 evidence |
-| D04 | Recursive system design and user-flow mapping        | D03         | not started | plan: `docs/plan/D04-recursive-design-and-flows.md` |
+| ID  | Ticket                                               | Depends on  | Status      | PR / evidence                                                                              |
+| --- | ---------------------------------------------------- | ----------- | ----------- | ------------------------------------------------------------------------------------------ |
+| A00 | Repository bootstrap, GitHub remote, branch rules    | —           | done        | bootstrap commit on `main`                                                                 |
+| A01 | Bootstrap workspace, contracts and ADRs              | —           | not started |                                                                                            |
+| A02 | Project/worktree identity and SQLite migrations      | A01         | not started |                                                                                            |
+| A03 | Inventory and coverage report                        | A02         | not started |                                                                                            |
+| A04 | TS/JS and Python analyzers                           | A03         | not started |                                                                                            |
+| A05 | Semantic identity and snapshot reconciler            | A04         | not started |                                                                                            |
+| A06 | View planner and canvas navigation                   | A05         | done        | PR #6; see A06 evidence                                                                    |
+| A07 | React Flow, layout worker, overlays and inspector    | A06         | done        | PR #7; see A07 evidence                                                                    |
+| E01 | Run/event/artifact store and ingestion               | A02         | done        | PR #8; see E01 evidence                                                                    |
+| E02 | Process wrapper and output registration              | E01         | done        | PR #9; see E02 evidence                                                                    |
+| E03 | Playwright capture helper                            | E01         | done        | PR #10; see E03 evidence                                                                   |
+| E04 | Output canvases and isolated preview renderer        | E02,E03,A07 | done        | PR #11; see E04 evidence                                                                   |
+| M01 | Watcher and incremental invalidation                 | A05,A07     | done        | PRs #13, #14, #15                                                                          |
+| M02 | Model proposal validation, cache and budget          | M01         | done        | PRs #17, #18 (view proposals deferred)                                                     |
+| I01 | MCP and generic event SDK                            | E01,A06     | done        | PR #16                                                                                     |
+| I02 | VS Code integration                                  | I01         | dropped     | user decision 2026-10-26                                                                   |
+| I03 | OTLP subset and bundle importer                      | E04         | done        | PR #20                                                                                     |
+| I04 | Skena/JSON Canvas bridge                             | I01,A07     | done        | PR #21 (JSON Canvas export; no Skena bridge)                                               |
+| H01 | Retention, recovery, export and performance          | E04,M01     | not started |                                                                                            |
+| L01 | Go and Java/JVM analyzers (Phase 4; not in plan §17) | A04         | done        | PR #22                                                                                     |
+| D01 | System-design lens (not in plan §17)                 | A06,M02     | done        | PRs #24, #27, #25, #29, #28; see D01 evidence                                              |
+| D02 | Whiteboard, design copilot, on-demand generation     | D01         | done        | PRs #26, #30, #31, #33, #34; see D02 evidence                                              |
+| D03 | Design boards (design-first whiteboard)              | D02         | done        | PRs #36, #40, #38, #39 and wave 2; see D03 evidence                                        |
+| D04 | Recursive system design and user-flow mapping        | D03         | in progress | plan: `docs/plan/D04-recursive-design-and-flows.md`; M0 and M1 in review; see D04 evidence |
 
 ## Phase acceptance checklists (plan §15)
 
@@ -445,6 +445,40 @@ Changes:
 - **Java:** each file is a module named by its primary type, and public methods are extracted. Imports (single, wildcard, static) resolve within the project; JDK imports are skipped, and others map to pom or Gradle group IDs (exact) or heuristically. Also Spring MVC and JAX-RS routes with class prefixes, public static `main`, and JDBC or `@Query` SQL.
 - **Fixtures** `go-service` and `java-service` come with hand-authored expected graphs: 0 missing, 0 extra, 0 false positives or negatives, 0 gaps.
 - **Tests:** 163 Vitest tests in 31 files, 18 Playwright tests.
+
+### D04 (2026-11-09): recursive system design and user-flow mapping
+
+Plan: `docs/plan/D04-recursive-design-and-flows.md`. Milestone PRs go into `feat/D04-recursive-design`.
+
+#### M0 and M1: baseline and detected hierarchy
+
+The design lens was measured before any change (M0) and after M1, by scanning each target into an in-memory database and projecting every design canvas. Targets were read only.
+
+| Target                 | Root before                     | Root after         | Design canvases | Largest sub-canvas | `planDesign` |
+| ---------------------- | ------------------------------- | ------------------ | --------------- | ------------------ | ------------ |
+| 6 fixtures             | 1 to 8 boxes                    | identical          | 1 each          | none               | under 3 ms   |
+| Atlas (this repo)      | 31 boxes, 82 flows              | 5 boxes, 8 flows   | 1 → 10          | 11 boxes, 3 ports  | 4 → 8 ms     |
+| `~/Dev/dsh` (9k files) | 200 boxes (capped), 1,665 flows | 12 boxes, 20 flows | 1 → 49          | 51 boxes, 21 ports | 175 → 194 ms |
+
+- **What changed** (`packages/planner/src/design.ts`, rules in `docs/views.md`):
+  - Detected subsystems from the repository layout when the root would show more than 12 boxes: fixtures and examples, build and test tooling, top-level folders, the next folder level, and name families in a flat folder.
+  - A box with no folder of its own (a queue) sits with the boxes that use it.
+  - A claim moves only its own box, so one accepted grouping no longer dissolves the detected ones.
+  - Outside boxes in another subsystem fold into one port per subsystem.
+  - Tables join the database of their own project. Before, all 35 tables in this repo, including Atlas's own 30, were drawn inside a fixture's Postgres.
+- **Fixtures unchanged.** A structural dump of every design canvas (labels, kinds, archetypes, reasons, flows) of `ts-web-service`, `py-cli-api`, `go-service`, `java-service`, `research-demo` and `elixir-unsupported` has the same SHA-256 before and after. Raw bytes cannot be compared across registrations, because every id derives from a random project id.
+- **Tests.** New `packages/graph/test/design-layout.test.ts`, 11 tests on hand-built graphs: flat at the threshold, the three top-level rules, queue placement, folded ports, next-level split, name families, no claims cliff, determinism, and three table cases. Checked by mutation: with the layout rule disabled 6 fail, and with port folding disabled 1 fails.
+- **Commands** (worktree `d04-recursive-design`):
+  - `pnpm -s format && pnpm check`: exit 0. Vitest 281 tests in 50 files.
+  - `ATLAS_E2E_PORT=4463 pnpm e2e` (36 tests), three runs: 35/36, 36/36, 36/36. The failure was `whiteboard.spec.ts` "sticky notes and drawn subsystems…", the same test that failed on unmodified `develop` in the D03 baseline.
+- **Manual.** Scratch daemon from this branch on this repo, driven with agent-browser. Screenshots inspected: the root (5 boxes), `packages` (11 boxes with the `@atlas/store tables` store and 3 ports), `Fixtures & examples > ts-web-service` (web → api → queue and db, with the worker), and the Copilot open on the root. Breadcrumbs and the catalog tree showed the nesting with no UI change. `atlas design generate --runtime mock --depth 2` succeeded (34 claims proposed).
+- **Gaps:**
+  - Two dsh canvases stay crowded: `packages` (51 folder groups, 606 flows) and `packages > client > ui` (37 boxes, at the depth limit). Layout groups are not capped per canvas.
+  - The dsh result was read as text only, not rendered in the browser.
+  - An agent proposal moves its boxes out of their detected group while it is still `proposed`. After a mock Generate on this repo, the proposed grouping replaces the layout until it is rejected.
+  - Edit actions on a detected subsystem box (group, hide) act on its first member box only; this was not changed or tested.
+  - Root-level config files in a repo below the threshold are still drawn as `service` boxes.
+  - The folder names and the threshold of 12 are heuristics tuned on two repos.
 
 ### D03 (2026-11-09): design boards
 
