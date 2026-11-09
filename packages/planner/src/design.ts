@@ -1,4 +1,5 @@
 import { CanvasLink, CanvasSpec } from '@atlas/schema';
+import { deriveFlows, flowText, type EntityFlow, type FlowFact } from './design-flows.ts';
 import { canvasId } from './ids.ts';
 import { buildNav, descendants, pathOf, type Nav } from './nav.ts';
 import { GENERATION_VERSION, SCORING_POLICY_VERSION } from './plan.ts';
@@ -14,6 +15,7 @@ import type {
   PlannerGraph,
   Projection,
   ProjectionEdge,
+  ProjectionFlow,
   ProjectionNode,
   Provenance,
 } from './types.ts';
@@ -101,6 +103,8 @@ interface DesignModel {
   /** Unit keys hidden by a `suppress` override on their anchor entity id (D02a). */
   hidden: Set<string>;
   layer: Layer;
+  /** Request flows derived from code (D04), computed the first time a projection asks for them. */
+  entityFlows?: EntityFlow[];
 }
 
 export function planDesign(g: PlannerGraph): Catalog {
@@ -223,7 +227,15 @@ export function planDesign(g: PlannerGraph): Catalog {
   return { canvases, links };
 }
 
-export function projectDesign(g: PlannerGraph, catalog: Catalog, canvasIdArg: string): Projection {
+/** Most derived flows drawn on one canvas (the ones with the most steps). */
+export const MAX_FLOWS_PER_CANVAS = 8;
+
+export function projectDesign(
+  g: PlannerGraph,
+  catalog: Catalog,
+  canvasIdArg: string,
+  opts: { /** Also derive request flows over this canvas's boxes (D04). */ flows?: boolean } = {},
+): Projection {
   const spec = catalog.canvases.find((c) => c.id === canvasIdArg);
   if (!spec) throw new Error(`unknown canvas ${canvasIdArg}`);
   const m = designModel(g);
@@ -507,7 +519,21 @@ export function projectDesign(g: PlannerGraph, catalog: Catalog, canvasIdArg: st
   }
   if (!isRoot) {
     const isPort = (id: string) => scene.nodes.get(id)?.kind === 'port';
-    edges = edges.filter((e) => !(isPort(e.source) && isPort(e.target)));
+    // a flow between two context ports is dropped, unless a derived request flow runs along it:
+    // then it stays as context, so the flow told on this canvas has no hole (D04)
+    const needed = new Set<string>();
+    if (opts.flows)
+      for (const f of entityFlowsOf(g, m)) {
+        if (!touchesOwnBox(f, scene)) continue;
+        for (const h of f.hops) {
+          const a = scene.owner.get(h.fromId);
+          const b = scene.owner.get(h.toId);
+          if (a && b && a !== b) needed.add(`${a}>${b}`);
+        }
+      }
+    edges = edges.filter(
+      (e) => !(isPort(e.source) && isPort(e.target)) || needed.has(`${e.source}>${e.target}`),
+    );
     const used = new Set(edges.flatMap((e) => [e.source, e.target]));
     for (const [id, n] of [...scene.nodes])
       if (n.kind === 'port' && !used.has(id)) scene.nodes.delete(id);
@@ -554,7 +580,84 @@ export function projectDesign(g: PlannerGraph, catalog: Catalog, canvasIdArg: st
       hiddenNodes: scene.hidden,
     },
     ...(L.elements.length ? { drift } : {}),
+    ...(opts.flows ? { flows: flowsOn(g, m, scene, keep, keptEdges) } : {}),
   };
+}
+
+/**
+ * True when a flow passes through a box that belongs to the canvas (not a context port). A flow
+ * that only runs between outside boxes is not told there, and keeps no outside edges there.
+ */
+function touchesOwnBox(f: EntityFlow, scene: Scene): boolean {
+  const own = (entityId: string) => {
+    const n = scene.owner.get(entityId);
+    return !!n && scene.nodes.get(n)?.kind !== 'port';
+  };
+  return f.hops.some((h) => own(h.fromId) || own(h.toId));
+}
+
+/** The request flows of a graph at entity level, derived once per model. */
+function entityFlowsOf(g: PlannerGraph, m: DesignModel): EntityFlow[] {
+  return (m.entityFlows ??= deriveFlows(g, m.nav, (id) => {
+    const u = m.unitOf.get(id);
+    return u && { key: u.key, label: u.label };
+  }));
+}
+
+/**
+ * The derived flows as steps over one canvas's boxes: a hop between two boxes follows the edge
+ * between them, a hop inside one box (a subsystem) happens in it. A box pair or a box appears once
+ * per flow; later hops that land on it add to its text. A flow is told only where it passes
+ * through one of the canvas's own boxes; there, its hops between two context ports are kept too
+ * (see the port filter in `projectDesign`), so it has no hole.
+ */
+function flowsOn(
+  g: PlannerGraph,
+  m: DesignModel,
+  scene: Scene,
+  keep: Set<string>,
+  edges: ProjectionEdge[],
+): ProjectionFlow[] {
+  const drawn = new Set(edges.map((e) => `${e.source}>${e.target}`));
+  const out: (ProjectionFlow & { callers: number })[] = [];
+  for (const f of entityFlowsOf(g, m)) {
+    if (!touchesOwnBox(f, scene)) continue;
+    const steps: { source: string; target?: string; facts: FlowFact[] }[] = [];
+    const at = new Map<string, number>();
+    for (const h of f.hops) {
+      const a = scene.owner.get(h.fromId);
+      const b = scene.owner.get(h.toId);
+      if (!a || !b || !keep.has(a) || !keep.has(b)) continue;
+      if (a !== b && !drawn.has(`${a}>${b}`)) continue;
+      const key = a === b ? a : `${a}>${b}`;
+      const i = at.get(key);
+      if (i !== undefined) steps[i]!.facts.push(h.fact);
+      else {
+        at.set(key, steps.length);
+        steps.push(
+          a === b ? { source: a, facts: [h.fact] } : { source: a, target: b, facts: [h.fact] },
+        );
+      }
+    }
+    if (steps.length >= 2)
+      out.push({
+        id: f.id,
+        name: f.name,
+        description: f.description,
+        callers: f.callers,
+        steps: steps.map(({ facts, ...s }) => ({ ...s, text: flowText(facts) })),
+      });
+  }
+  // flows a client calls first, then the longest; the rest are left off a crowded canvas
+  return out
+    .sort(
+      (x, y) =>
+        Number(y.callers > 0) - Number(x.callers > 0) ||
+        y.steps.length - x.steps.length ||
+        x.name.localeCompare(y.name),
+    )
+    .slice(0, MAX_FLOWS_PER_CANVAS)
+    .map(({ callers: _c, ...f }) => f);
 }
 
 /** Same hard cap as other projections (plan §16). */

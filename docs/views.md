@@ -277,6 +277,22 @@ Overrides are presentation decisions keyed on stable canvas ids. They are stored
   - A subject that already has the same human claim is not re-proposed.
 - **Reject.** Rejecting the claims of a proposal (`POST /api/v1/claims/:id/reject`) removes the subsystem. Rejected claims are always ignored.
 
+### Request flows derived from code (D04)
+
+`projectDesign(g, catalog, canvasId, { flows: true })` adds `flows` to a design projection. They are used by the from-code board import (see [design.md](design.md#design-boards-d03)) and are never part of a normal canvas response. They are views, never facts.
+
+- **One flow per endpoint,** in order:
+  1. Each module with a `calls` relation to the endpoint calls it (at most three callers).
+  2. From the module that `exposes` the endpoint, follow internal `imports` breadth-first. For each module reached that has an effect, emit the imports that lead to it (box to box; imports inside one box are skipped) and then its effects: tables it `reads` or `writes` (one step per store box), queues it `publishes` to, and endpoints of other boxes it `calls`.
+  3. For each queue published to, each module that `subscribes` consumes it, and its own imports are followed the same way, two queues deep.
+- **Safe methods.** For a GET, HEAD or OPTIONS endpoint, writes and publishes are left out.
+- **Grouping.** Endpoints whose flows are identical after step 1 (typically routes of one file) are one flow named after its routes.
+- **What it does not claim.** Relations are per module and there is no call graph, so two routes in one file share the same downstream. Each flow's description says a step may be reachable without being taken.
+- **On a canvas.** A hop between two boxes is a step along the edge between them. A hop inside one box (a subsystem) is a step in that box. A box pair, or a box, appears once per flow; later hops add to its text. Reads and writes of one box in one store are one sentence.
+- **Where a flow is told.** Only on a canvas where it passes through one of the canvas's own boxes. There, the edges it takes between two context ports are kept, where they are otherwise dropped, so the flow has no hole.
+- **Ranking.** Flows a client calls come first, then the longest. At most eight per canvas, and none with fewer than two steps.
+- **Ids.** A flow has the same id (`flow-post-orders`) on every canvas, which is how a board step links to the same flow one level down.
+
 ### Realized by
 
 Every box links to the architecture canvas that realizes it, through `realizedByCanvasId`. The planner looks for a component or module-detail canvas in this order:

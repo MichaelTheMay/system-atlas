@@ -86,8 +86,10 @@ describe('from-code board tree (D04)', () => {
     const { graph } = await scanned('monorepo-nested');
     const apps = child(boardTreeFromDesign(graph)!, 'apps').tree;
     const stubs = apps.spec.components.filter((c) => isStub(c.label));
+    // db exchanges nothing with apps itself: it is drawn because POST /orders runs through it
     expect(stubs.map((c) => c.label).sort()).toEqual([
       'outside: Third-party libraries',
+      'outside: db',
       'outside: order-jobs',
       'outside: packages',
     ]);

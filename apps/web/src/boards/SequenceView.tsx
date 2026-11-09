@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
-import type { Scenario } from '@atlas/schema';
+import { useEffect, useMemo, useState } from 'react';
+import type { DesignBoard, Scenario } from '@atlas/schema';
 import { useBoard } from './context.ts';
-import { scenarioToMermaid } from './scenarios.ts';
+import { drillResolver, loadDrillBoards } from './drill.ts';
+import { scenarioGaps, scenarioToMermaid } from './scenarios.ts';
 
 let renderSeq = 0;
 
@@ -11,8 +12,28 @@ let renderSeq = 0;
  * `securityLevel: 'strict'` makes Mermaid sanitize labels, which come from the board.
  */
 export function SequenceView({ scenario }: { scenario: Scenario }) {
-  const { board } = useBoard();
-  const text = scenarioToMermaid(board.document, scenario);
+  const { board, token } = useBoard();
+  // the internals boards this flow drills into: their flows are drawn inside the diagram (D04)
+  const drills = scenario.steps
+    .flatMap((s) => (s.drillInto ? [`${s.drillInto.boardId}/${s.drillInto.scenarioId}`] : []))
+    .join(',');
+  const [below, setBelow] = useState<Map<string, DesignBoard>>(new Map());
+  useEffect(() => {
+    let live = true;
+    if (!drills) setBelow(new Map());
+    else void loadDrillBoards(token, board.document, scenario.id).then((m) => live && setBelow(m));
+    return () => {
+      live = false;
+    };
+    // the document is read when the drill targets change, not on every edit
+  }, [token, drills, scenario.id]);
+  const text = useMemo(
+    () => scenarioToMermaid(board.document, scenario, drillResolver(below)),
+    [board.document, scenario, below],
+  );
+  const gaps = scenario.steps.flatMap((s, i) =>
+    scenarioGaps(board.document, scenario).has(s.id) ? [i + 1] : [],
+  );
   const [svg, setSvg] = useState('');
   const [error, setError] = useState<string>();
   const [copied, setCopied] = useState<string>();
@@ -79,6 +100,12 @@ export function SequenceView({ scenario }: { scenario: Scenario }) {
           {copied ?? 'Copy Mermaid'}
         </button>
       </div>
+      {gaps.length > 0 && (
+        <p className="scenario-gap-note" role="note">
+          Step {gaps.join(', ')} starts at a component the flow has not reached. See Steps to insert
+          the missing hops.
+        </p>
+      )}
       {error ? (
         <>
           <p className="board-error">Could not render the diagram: {error}</p>

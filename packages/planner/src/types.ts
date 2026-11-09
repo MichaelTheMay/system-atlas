@@ -169,6 +169,19 @@ export interface ProjectionEdge {
   authorName?: string;
 }
 
+/**
+ * A request flow derived from code, told over the boxes of one canvas (D04). A step takes the flow
+ * from `source` to `target` along the edge between them, or happens inside `source` when it has no
+ * target. View data, never a fact: see `design-flows.ts` for what it does and does not claim.
+ */
+export interface ProjectionFlow {
+  /** The same id on every canvas the flow appears on. */
+  id: string;
+  name: string;
+  description: string;
+  steps: { source: string; target?: string; text: string }[];
+}
+
 export interface Projection {
   /** Overlay key: the canvas id, or a derived id for a cluster drill-down. */
   viewId: string;
@@ -187,4 +200,6 @@ export interface Projection {
   stats: { entities: number; relations: number; hiddenNodes: number };
   /** Design lens (D02a): drift between the board and the code on this canvas; absent when none. */
   drift?: DesignDrift[];
+  /** Design lens (D04): request flows derived from code, on request (`projectDesign` option). */
+  flows?: ProjectionFlow[];
 }

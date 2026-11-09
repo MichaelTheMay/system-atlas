@@ -55,6 +55,12 @@ export class Repo {
   table(name: string, declaredIn: string): string {
     return this.add('table', name, { declaredIn });
   }
+  /** An endpoint exposed by a module (as the route analyzers record it). */
+  endpoint(name: string, method: string, moduleId: string): string {
+    const id = this.add('endpoint', name, { method, path: name.split(' ')[1] ?? '/' }, moduleId);
+    this.rel('exposes', moduleId, id);
+    return id;
+  }
   rel(kind: string, fromId: string, toId: string): void {
     this.relations.push({
       id: `rel_${hex()}`,

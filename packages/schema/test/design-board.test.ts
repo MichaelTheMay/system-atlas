@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOARD_TEMPLATES,
+  BoardDocument,
   BoardSpec,
   COMPONENT_CATALOG,
   componentTypeInfo,
@@ -101,5 +102,47 @@ describe('design boards contract (D03)', () => {
       },
     });
     expect(bad.success).toBe(false);
+  });
+
+  it('a D03 document without drill-downs still parses, and a step may drill into a board (D04)', () => {
+    // exactly what D03 stored: steps with a hop or a component and text, nothing else
+    const d03 = {
+      ...emptyBoardDocument(),
+      scenarios: [
+        {
+          id: 's1',
+          name: 'Old flow',
+          steps: [
+            { id: 'a', connectionId: 'k1', text: 'hop' },
+            { id: 'b', componentId: 'c1', text: 'work', elementId: 'el' },
+          ],
+        },
+      ],
+    };
+    const parsed = BoardDocument.parse(d03);
+    expect(parsed.scenarios[0]!.steps.every((s) => s.drillInto === undefined)).toBe(true);
+    const drill = { boardId: `brd_${'0'.repeat(32)}`, scenarioId: 'flow-post-orders' };
+    const withDrill = BoardDocument.parse({
+      ...d03,
+      scenarios: [
+        {
+          ...d03.scenarios[0]!,
+          steps: [{ id: 'a', componentId: 'c1', text: '', drillInto: drill }],
+        },
+      ],
+    });
+    expect(withDrill.scenarios[0]!.steps[0]!.drillInto).toEqual(drill);
+    // the target must be a board id
+    expect(
+      BoardDocument.safeParse({
+        ...d03,
+        scenarios: [
+          {
+            ...d03.scenarios[0]!,
+            steps: [{ id: 'a', text: '', drillInto: { boardId: 'not-a-board', scenarioId: 's' } }],
+          },
+        ],
+      }).success,
+    ).toBe(false);
   });
 });

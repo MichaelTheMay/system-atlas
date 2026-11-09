@@ -189,6 +189,26 @@ describe('mock design-board agent (D03c)', () => {
     expect(text.split('\n').filter((l) => /^\d\. /.test(l))).toHaveLength(5);
     expect(text).toMatch(/Shortener API → Click events, over Kafka, asynchronously/);
 
+    // a step that drills into an internals board is explained one level down (D04)
+    const brd = `brd_${'1'.repeat(32)}`;
+    const top = BoardSpec.parse({
+      ...shortener,
+      scenarios: [
+        {
+          ...shortener.scenarios[0]!,
+          steps: shortener.scenarios[0]!.steps.map((st, i) =>
+            i === 1 ? { ...st, drillInto: { boardId: brd, scenarioId: 's1' } } : st,
+          ),
+        },
+      ],
+    });
+    const nested = explainScenario(top, 's1', new Map([[brd, { name: 'API internals', spec: s }]]));
+    expect(nested).toContain('   Inside, on “API internals”:');
+    expect(nested.split('\n').filter((l) => /^ {3}2\.\d\. /.test(l))).toHaveLength(5);
+    // the five top-level steps are still there, and an unknown board adds nothing
+    expect(nested.split('\n').filter((l) => /^\d\. /.test(l))).toHaveLength(5);
+    expect(explainScenario(top, 's1')).toBe(text);
+
     const v = variantOf(s);
     expect(v.idea).toMatch(/read cache in front of|async jobs|read replica/);
     expect(v.spec.components.length).toBe(s.components.length + 1);

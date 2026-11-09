@@ -3,6 +3,8 @@ import { cpSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { scenarioGaps } from '@atlas/export';
+import type { DesignBoard } from '@atlas/schema';
 import { migrate, openDb } from '@atlas/store';
 import type { BusMessage } from '../src/events.ts';
 import { buildServer } from '../src/server.ts';
@@ -187,5 +189,55 @@ describe('design board exports and from-code import (D03 wave 1b)', () => {
       snapshotId,
     });
     expect(bad.status).toBe(400);
+  });
+});
+
+describe('flows on from-code boards over the API (D04)', () => {
+  it('imports a nested repo as a tree whose flows have no gaps and export nested', async () => {
+    const { req, events, scan, projectId } = await setup('monorepo-nested');
+    await scan();
+    const r = await req('POST', `/api/v1/projects/${projectId}/boards/from-code`, {});
+    expect(r.status).toBe(201);
+    // one event, for the root, although eight boards were created
+    expect(events.filter((e) => e.type === 'design.board.changed')).toHaveLength(1);
+    const list = (await req('GET', `/api/v1/projects/${projectId}/boards`)).body.boards as any[];
+    expect(list).toHaveLength(8);
+    let scenarios = 0;
+    for (const row of list) {
+      const b = (await req('GET', `/api/v1/boards/${row.id}`)).body as DesignBoard;
+      for (const s of b.document.scenarios) {
+        scenarios++;
+        // a derived flow never starts somewhere it has not reached
+        expect([...scenarioGaps(b.document, s)]).toEqual([]);
+      }
+    }
+    expect(scenarios).toBeGreaterThanOrEqual(12);
+
+    const md = await req('GET', `/api/v1/boards/${r.body.id}/export/markdown`);
+    expect(md.status).toBe(200);
+    expect(md.text).toContain('### POST /orders');
+    expect(md.text).toContain('(continues in “apps — internals”)');
+    // the root diagram holds the apps flow, and inside the packages block the commerce flow
+    const diagram = md.text.slice(md.text.indexOf('### POST /orders'));
+    const block = diagram.slice(
+      diagram.indexOf('```mermaid'),
+      diagram.indexOf('```', diagram.indexOf('```mermaid') + 10),
+    );
+    expect(block).toContain('Note over p1: Inside apps (apps — internals)');
+    expect(block).toContain('Inside packages (packages — internals)');
+    expect(block).toContain('Inside commerce (commerce — internals)');
+    expect(block.match(/^\s*rect rgb/gm)).toHaveLength(3);
+    expect(block.match(/^\s*end$/gm)).toHaveLength(3);
+    // boxes of the lower boards join as participants; an "outside: apps" stub is the root's apps
+    expect(block).toContain(' as @shop/storefront');
+    expect(block).toContain(' as @shop/orders');
+    expect(block).not.toContain('outside:');
+    // every box is one participant, however many boards it is drawn on
+    for (const name of ['apps', 'packages', 'db', 'order-jobs'])
+      expect(block.match(new RegExp(`participant \\w+ as ${name}$`, 'gm'))).toHaveLength(1);
+    expect(block.match(/participant /g)).toHaveLength(9);
+    // a block holds only the hops of its own level: the write to db is told once per level
+    expect(block.match(/reads\/writes \(SQL\)/g)).toHaveLength(3);
+    expect(block.match(/->>|-\)/g)).toHaveLength(14);
   });
 });

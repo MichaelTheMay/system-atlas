@@ -126,6 +126,8 @@ function specOf(
   );
   const connections: BoardSpec['connections'] = [];
   const conUsed = new Set<string>();
+  /** `source>target` node ids -> connection id, for binding flow steps to their hop. */
+  const connOf = new Map<string, string>();
   for (const { e, i } of edges) {
     if (!kept.has(i)) continue;
     const from = idOf.get(e.source)!;
@@ -136,8 +138,10 @@ function specOf(
       e.flow && e.flow.toLowerCase() !== fields.protocol?.toLowerCase()
         ? e.flow.slice(0, 120)
         : undefined;
+    const id = localKey(`k-${from}-${to}`, conUsed);
+    if (!connOf.has(`${e.source}>${e.target}`)) connOf.set(`${e.source}>${e.target}`, id);
     connections.push({
-      id: localKey(`k-${from}-${to}`, conUsed),
+      id,
       from,
       to,
       mode: 'sync',
@@ -175,6 +179,28 @@ function specOf(
       label: 'Outside this board',
       componentIds: stubs,
     });
+  // request flows derived from code (D04): scenarios over this board's boxes and hops
+  const scenarios: BoardSpec['scenarios'] = [];
+  for (const f of p.flows ?? []) {
+    const steps: BoardSpec['scenarios'][number]['steps'] = [];
+    for (const st of f.steps) {
+      const text = st.text.slice(0, 500);
+      const id = `st-${steps.length + 1}`;
+      if (st.target) {
+        const connectionId = connOf.get(`${st.source}>${st.target}`);
+        if (connectionId) steps.push({ id, connectionId, text });
+      } else if (idOf.has(st.source)) steps.push({ id, componentId: idOf.get(st.source)!, text });
+    }
+    if (steps.length >= 2)
+      scenarios.push({
+        id: f.id,
+        name: f.name.slice(0, 120),
+        description: f.description.slice(0, 1000),
+        steps,
+        origin: code,
+        status: 'active',
+      });
+  }
   const dropped = edges.length - connections.length;
   const summary =
     (opts.summary ??
@@ -183,15 +209,18 @@ function specOf(
       ? ` ${dropped} lighter flow(s) of ${edges.length} were left out to keep the board within its limits.`
       : '');
   return {
-    spec: BoardSpec.parse({ title: p.title, summary, components, connections, frames }),
+    spec: BoardSpec.parse({ title: p.title, summary, components, connections, scenarios, frames }),
     idOf,
   };
 }
 
 /** A design projection as a layout-free BoardSpec (one board, no sub-boards). */
 export function boardSpecFromProjection(p: Projection, date = new Date()): BoardSpec {
+  // flows come with the projection when it was made with `{ flows: true }`
   return specOf(p, date).spec;
 }
+
+const FLOWS = { flows: true } as const;
 
 /** A board and the sub-boards that detail its subsystem boxes. */
 export interface BoardTree {
@@ -219,7 +248,7 @@ export function boardTreeFromDesign(graph: PlannerGraph, date = new Date()): Boa
       .filter((n) => n.kind !== 'port' && n.openCanvasId && isSubsystem.has(n.openCanvasId))
       .sort((a, b) => a.label.localeCompare(b.label) || (a.id < b.id ? -1 : 1));
   const build = (canvasId: string, level: number, seen: Set<string>): BoardTree => {
-    let p = projectDesign(graph, catalog, canvasId);
+    let p = projectDesign(graph, catalog, canvasId, FLOWS);
     const summary =
       level === 0
         ? undefined
@@ -256,6 +285,7 @@ export function boardTreeFromDesign(graph: PlannerGraph, date = new Date()): Boa
         },
         catalog,
         canvasId,
+        FLOWS,
       );
     return { spec: specOf(p, date, { summary, inline }).spec, children: [] };
   };
@@ -308,6 +338,8 @@ export function persistBoardTree(
         boards++;
         if (!t.children.length) return made.board;
         const document = structuredClone(made.board.document);
+        /** component id -> the board of its internals and the flows told on it */
+        const below = new Map<string, { boardId: string; flows: Set<string> }>();
         for (const c of t.children) {
           const component = document.components[c.componentId];
           if (!component)
@@ -318,6 +350,24 @@ export function persistBoardTree(
             made.board.id,
           );
           component.internalsBoardId = child.id;
+          below.set(c.componentId, {
+            boardId: child.id,
+            flows: new Set(c.tree.spec.scenarios.map((s) => s.id)),
+          });
+        }
+        // a flow step through a subsystem box opens the same flow one level down: the box it
+        // happens in, else the box its hop enters, else the one it leaves; once per box and flow
+        for (const sc of document.scenarios) {
+          const opened = new Set<string>();
+          for (const st of sc.steps) {
+            const k = st.connectionId ? document.connections[st.connectionId] : undefined;
+            const via = (k ? [k.to, k.from] : [st.componentId]).find(
+              (id) => id && !opened.has(id) && below.get(id)?.flows.has(sc.id),
+            );
+            if (!via) continue;
+            opened.add(via);
+            st.drillInto = { boardId: below.get(via)!.boardId, scenarioId: sc.id };
+          }
         }
         const linked = patchBoard(db, made.board.id, { document, revision: made.board.revision });
         if (!linked.ok) throw new Abort(linked);
@@ -364,7 +414,7 @@ export function codeSpecOf(
   const catalog = planDesign(r.graph);
   const root = catalog.canvases.find((c) => c.lens === 'design-system');
   if (!root) return { ok: false, status: 409, error: 'nothing to import: no design boxes' };
-  const spec = boardSpecFromProjection(projectDesign(r.graph, catalog, root.id));
+  const spec = boardSpecFromProjection(projectDesign(r.graph, catalog, root.id, FLOWS));
   if (!spec.components.length)
     return { ok: false, status: 409, error: 'nothing to import: no design boxes' };
   return { ok: true, spec, snapshotId: r.snapshotId };
