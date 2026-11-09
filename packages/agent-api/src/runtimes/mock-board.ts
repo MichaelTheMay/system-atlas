@@ -375,13 +375,45 @@ async function fillDoc(req: DesignJobRequest, ctx: DesignRuntimeContext) {
 
 // ------------------------------------------------------------------------------- explain
 
-export function explainScenario(spec: Spec, scenarioId?: string): string {
+/** One step as prose: "A → B, over HTTP, synchronously, carrying X. text". */
+function stepLine(spec: Spec, st: Spec['scenarios'][number]['steps'][number]): string {
+  const comps = new Map(spec.components.map((c) => [c.id, c]));
+  const k = st.connectionId ? spec.connections.find((x) => x.id === st.connectionId) : undefined;
+  const name = (id: string) => comps.get(id)?.label ?? id;
+  if (k) {
+    const how = [
+      k.protocol ? `over ${k.protocol}` : undefined,
+      k.mode === 'async' ? 'asynchronously' : 'synchronously',
+      k.payload ? `carrying ${k.payload}` : undefined,
+    ].filter(Boolean);
+    return `${name(k.from)} → ${name(k.to)}, ${how.join(', ')}. ${st.text}`;
+  }
+  return st.componentId ? `At ${name(st.componentId)}: ${st.text}` : st.text;
+}
+
+/**
+ * `below` holds the internals boards the scenario's steps drill into (D04), by board id: the
+ * flow named there is told as the detail of that step, one level down.
+ */
+export function explainScenario(
+  spec: Spec,
+  scenarioId?: string,
+  below: Map<string, { name: string; spec: Spec }> = new Map(),
+): string {
   const s = spec.scenarios.find((x) => x.id === scenarioId) ?? spec.scenarios[0];
   if (!s) return 'The board has no scenario to explain.';
   const comps = new Map(spec.components.map((c) => [c.id, c]));
   const cons = new Map(spec.connections.map((k) => [k.id, k]));
   const name = (id: string) => comps.get(id)?.label ?? id;
   const lines = [`**${s.name}**${s.description ? ` — ${s.description}` : ''}`, ''];
+  /** The flow one level down as indented sub-steps ("2.1", "2.2"). */
+  const detail = (st: (typeof s.steps)[number], i: number) => {
+    const sub = st.drillInto ? below.get(st.drillInto.boardId) : undefined;
+    const flow = sub?.spec.scenarios.find((x) => x.id === st.drillInto!.scenarioId);
+    if (!sub || !flow?.steps.length) return;
+    lines.push(`   Inside, on “${sub.name}”:`);
+    flow.steps.forEach((x, j) => lines.push(`   ${i + 1}.${j + 1}. ${stepLine(sub.spec, x)}`));
+  };
   s.steps.forEach((st, i) => {
     const k = st.connectionId ? cons.get(st.connectionId) : undefined;
     if (k) {
@@ -399,6 +431,7 @@ export function explainScenario(spec: Spec, scenarioId?: string): string {
       lines.push(`${i + 1}. ${name(k.from)} → ${name(k.to)}, ${how.join(', ')}. ${st.text}`);
     } else if (st.componentId) lines.push(`${i + 1}. At ${name(st.componentId)}: ${st.text}`);
     else lines.push(`${i + 1}. ${st.text}`);
+    detail(st, i);
   });
   const asyncHops = s.steps.filter(
     (st) => cons.get(st.connectionId ?? '')?.mode === 'async',
@@ -647,7 +680,16 @@ export async function runMockBoardJob(
       return fillDoc(req, ctx);
     case 'explain-scenario': {
       const { spec } = await readBoard(ctx, req.boardId!);
-      return { text: explainScenario(spec, req.scenarioId) };
+      // follow each step that drills into an internals board, one level down
+      const scenario = spec.scenarios.find((x) => x.id === req.scenarioId) ?? spec.scenarios[0];
+      const below = new Map<string, { name: string; spec: Spec }>();
+      for (const st of scenario?.steps ?? []) {
+        const id = st.drillInto?.boardId;
+        if (!id || below.has(id)) continue;
+        const sub = await readBoard(ctx, id).catch(() => undefined);
+        if (sub) below.set(id, { name: sub.name, spec: sub.spec });
+      }
+      return { text: explainScenario(spec, req.scenarioId, below) };
     }
     case 'variant-board':
       return variant(req, ctx);

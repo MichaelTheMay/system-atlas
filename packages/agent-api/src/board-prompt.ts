@@ -7,7 +7,12 @@ import { COMPONENT_CATALOG, DocSection, Protocol, type DesignJobRequest } from '
  * lands as `proposed` until a person accepts it. Changing the wording means bumping the version so
  * recorded runs say which instructions produced their proposals.
  */
-export const BOARD_PROMPT_TEMPLATE_VERSION = 'board-v1';
+/**
+ * board-v2 (D04): a scenario step can drill into the same flow on an internals board
+ * (`drillInto`); explaining a scenario follows it one level down. Agents read the link but cannot
+ * write one: a `drillInto` in a proposal is ignored.
+ */
+export const BOARD_PROMPT_TEMPLATE_VERSION = 'board-v2';
 
 export interface BoardPromptInput {
   request: Pick<DesignJobRequest, 'kind' | 'boardId' | 'prompt' | 'scenarioId'>;
@@ -26,6 +31,8 @@ const SPEC_SHAPE = [
   `Protocol: ${Protocol.options.join(', ')}. DocSection: ${DocSection.options.join(', ')}.`,
   'Ids inside one spec are yours to choose; Atlas stores them under new "agent-…" ids. A connection, step or pin may',
   'also reference an id that already exists on the board. References to unknown ids are rejected with reasons.',
+  'A step you read may carry "drillInto": { "boardId", "scenarioId" }: the same flow told one level down, on the internals',
+  'board of the component the step passes through. It is read-only: a "drillInto" you submit is ignored.',
 ].join('\n');
 
 const RULES = [
@@ -113,6 +120,8 @@ export function buildBoardPrompt({ request }: BoardPromptInput): string {
         `2. Walk the steps of scenario ${request.scenarioId ?? '(the first one)'} in order, in prose: for each hop name the`,
         '   source and target components, protocol, sync/async, payload and volume, and what happens there and why.',
         '   Mention where it can fail or be slow. Do not submit proposals.',
+        '3. Where a step has "drillInto", read that board too (atlas_get_board with its boardId) and explain the scenario it',
+        '   names as the detail of that step, indented under it. Go one level down only.',
         'Answer with the explanation only (Markdown, at most 400 words).',
         RULES,
       ].join('\n');

@@ -95,7 +95,7 @@ describe('design-board agent jobs (D03c)', () => {
     const run = (await t.req('GET', `/api/v1/runs/${job.runId}`)).body;
     expect(run.run).toMatchObject({ adapter: 'design-agent', status: 'succeeded' });
     expect(run.run.snapshotId).toBeUndefined();
-    expect(run.run.environmentSummary.promptTemplateVersion).toBe('board-v1');
+    expect(run.run.environmentSummary.promptTemplateVersion).toBe('board-v2');
     const tools = run.events
       .filter((e: any) => e.type === 'tool.call.completed')
       .map((e: any) => [e.payload.tool, e.payload.accepted]);
@@ -150,6 +150,37 @@ describe('design-board agent jobs (D03c)', () => {
     const again = await t.req('POST', `/api/v1/boards/${b.id}/review`, { reject: [keep] });
     expect(again.body.ignored).toEqual([{ id: keep, reason: 'item is active, not proposed' }]);
     expect((await t.req('POST', `/api/v1/boards/${b.id}/review`, {})).status).toBe(400);
+  });
+
+  it('explains a step that drills into an internals board one level down (D04)', async () => {
+    const t = await setup();
+    const top = await t.template();
+    const sub = (
+      await t.req('POST', `/api/v1/projects/${t.projectId}/boards`, {
+        name: 'API internals',
+        source: 'template',
+        templateId: 'url-shortener',
+        parentBoardId: top.id,
+      })
+    ).body;
+    const document = structuredClone(top.document);
+    document.scenarios[0].steps[1].drillInto = { boardId: sub.id, scenarioId: 's1' };
+    const saved = await t.req('PATCH', `/api/v1/boards/${top.id}`, {
+      document,
+      revision: top.revision,
+    });
+    expect(saved.status).toBe(200);
+    // the agent reads the link through atlas_get_board, then reads the board it points at
+    const spec = (await t.req('GET', `/api/v1/boards/${top.id}/spec`)).body.spec;
+    expect(spec.scenarios[0].steps[1].drillInto).toEqual({ boardId: sub.id, scenarioId: 's1' });
+    const ex = await t.run({ kind: 'explain-scenario', boardId: top.id, scenarioId: 's1' });
+    expect(ex.state).toBe('succeeded');
+    const lines = (ex.result as string).split('\n');
+    expect(lines.filter((l) => /^\d\. /.test(l))).toHaveLength(5);
+    expect(ex.result).toContain('   Inside, on “API internals”:');
+    expect(lines.filter((l) => /^ {3}2\.\d\. /.test(l))).toHaveLength(5);
+    const run = (await t.req('GET', `/api/v1/runs/${ex.runId}`)).body;
+    expect(run.run.environmentSummary.promptTemplateVersion).toBe('board-v2');
   });
 
   it('explains a scenario, fills the doc, proposes a variant board and writes an implementation plan', async () => {

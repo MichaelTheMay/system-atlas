@@ -198,6 +198,7 @@ drafted by an agent. They are view data, never facts about the code, and need no
   `connections [{ id, from, to, protocol?, mode, direction, payload?, volume? }]`,
   `scenarios [{ id, name, steps [{ connectionId? | componentId?, text }] }]`,
   `doc { summary?, items [{ id, section, text, pins }] }` and `frames`. Rejected items are left out.
+  - A scenario step may carry `drillInto: { boardId, scenarioId }` (D04): the same flow one level down, on the internals board of the component the step passes through. It is read-only for agents: a `drillInto` in a proposal is ignored. `explain-scenario` follows it one level down.
 - `atlas_propose_board { boardId, spec, model? }` → `{ boardId, accepted [{ kind, id, specId }], rejected [{ kind, specId, reasons }] }`.
   Every item gets a new `agent-…` id and `status: 'proposed'` with `origin { author: 'agent', name, jobId? }`.
   Connections, scenario steps and doc-item pins may reference ids from the same spec or existing
@@ -213,7 +214,7 @@ canvas). Accepting a connection also accepts its proposed endpoints; rejecting a
 rejects its proposed connections. Every review is audited in the proposals table (`board-review`).
 
 The design agent (above) runs six board job kinds with the board tools added to its tool set
-(prompt template `board-v1`): `draft-board` (`prompt`, optional `boardId` to redraft),
+(prompt template `board-v2`): `draft-board` (`prompt`, optional `boardId` to redraft),
 `critique-board`, `fill-doc`, `explain-scenario` (`scenarioId`), `variant-board` and
 `implementation-plan`. Board jobs need no snapshot; they are recorded as `design-agent` runs bound to
 the project's worktree, under the same consent gate and API-key budget. `GET /projects/{id}/design/jobs/{jobId}`
