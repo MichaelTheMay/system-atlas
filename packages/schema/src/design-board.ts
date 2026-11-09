@@ -433,6 +433,11 @@ export const ScenarioStep = z.object({
   connectionId: localId.optional(),
   componentId: localId.optional(),
   text: z.string().max(500),
+  /**
+   * The same flow told one level down (D04): a scenario on the internals board of the component
+   * this step passes through. The player and the sequence view descend into it.
+   */
+  drillInto: z.object({ boardId: idSchema('board'), scenarioId: localId }).optional(),
   /** Scene element id of the circled step number. */
   elementId: z.string().max(64).optional(),
 });

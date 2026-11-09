@@ -76,6 +76,36 @@ describe('board proposals (D03c)', () => {
     expect(again.ok && again.accepted[0]!.id).toBe('agent-q-2');
   });
 
+  it('ignores a drill-down link in a proposed scenario: agents cannot link boards (D04)', async () => {
+    const { db, board } = await setup();
+    const r = applyBoardProposal(
+      db,
+      board.id,
+      {
+        scenarios: [
+          {
+            id: 'flow',
+            name: 'Proposed flow',
+            steps: [
+              {
+                componentId: 'api',
+                text: 'work',
+                drillInto: { boardId: `brd_${'9'.repeat(32)}`, scenarioId: 'x' },
+              },
+            ],
+          },
+        ],
+      },
+      agent,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const flow = r.board.document.scenarios.find((s) => s.name === 'Proposed flow')!;
+    expect(flow.status).toBe('proposed');
+    expect(flow.steps[0]).toMatchObject({ componentId: 'api', text: 'work' });
+    expect(flow.steps[0]!.drillInto).toBeUndefined();
+  });
+
   it('rejects dangling connections, steps and pins with reasons', async () => {
     const { db, board } = await setup();
     const r = applyBoardProposal(
