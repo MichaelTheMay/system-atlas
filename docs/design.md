@@ -1,10 +1,52 @@
-# System design: whiteboard, copilot and generation (D02)
+# System design: boards, whiteboard, copilot and generation (D02, D03)
 
-The **System design** root is a whiteboard over the semantic graph: boxes (client, API service,
-worker, queue, datastore, cache, external API, library), flows and subsystems. D01 derives it from
-detected code (see [views.md](views.md#system-design-lens-d01)). D02 lets you draw on it, adds a
-copilot that suggests while you work, and adds an on-demand **Generate design** action run by an
-agent of your choice.
+The **System design** root has two tabs:
+
+- **Boards** (the default, D03): design-first whiteboards where you draw how a system _should_
+  work, before coding it or briefing agents. See [Design boards](#design-boards-d03).
+- **From code** (D01, D02): a whiteboard over the semantic graph. It has boxes (client, API
+  service, worker, queue, datastore, cache, external API, library), flows and subsystems, derived
+  from detected code (see [views.md](views.md#system-design-lens-d01)). D02 lets you draw on it,
+  adds a copilot that suggests while you work, and adds an on-demand **Generate design** action
+  run by an agent of your choice. Opening a design canvas from the catalog, a realized-by link
+  or a review switches to this tab.
+
+## Design boards (D03)
+
+A board is view data stored per project (`design_boards`, migration `0010`). It is independent of
+snapshots and is never read as a fact about the code. One JSON document holds:
+
+- the Excalidraw scene;
+- a registry of **components** (44 types in families: clients and edge, compute, data,
+  messaging, cross-cutting, external, boundaries, people and process, generic box);
+- typed **connections** (protocol, sync or async, direction, payload, volume);
+- **scenarios**;
+- a **design doc** with seven sections;
+- **frames** and agent **proposals**.
+
+Saves use optimistic revisions, like overlays.
+
+- **New board:** blank, one of six templates (URL shortener, chat, social feed, payments, file
+  upload pipeline, RAG app), **From code** (the derived lens of the latest snapshot, drawn faded as
+  "as built"; offered only once a snapshot exists), or **Start from a prompt…** (an agent drafts
+  it as proposals).
+- **Components:** add them from the palette on the left (click or drag). The inspector edits label,
+  type, responsibility and the type's properties; properties show as a badge line on the box.
+  Arrows you draw between two components become connections. **Internals…** creates or opens a
+  linked sub-board for a component (nesting ≤ 3 levels).
+- **Scenarios** (Inspector → Scenarios): named flows whose numbered steps bind to a connection or a
+  component. **Show** draws the step numbers and dims everything off the path. **Sequence view**
+  renders it as a Mermaid sequence diagram, and **Player** steps through the hops with the camera.
+- **Design doc** (Inspector → Design doc): requirements, NFRs, estimates, API, data model,
+  decisions and risks. An item can be pinned to components on the board.
+- **Agent ▾:** draft from a prompt, critique, fill the doc, explain a scenario, propose a variant
+  board, and turn the board into an implementation plan (Inspector → Plan, "Copy as agent brief").
+  Agent output is drawn dashed and labeled `agent: <model>` until you accept it (Inspector →
+  Proposals). The runtimes, consent and budget are the same as for **Generate design** below.
+- **Export ▾:** PNG, SVG, `.excalidraw`, or a Markdown design doc (alone, or zipped with a PNG).
+  **Present** shows frames as slides, with a laser pointer and scenario reveals.
+- **CLI:** `atlas board list|show|export [--markdown]|draft|critique|plan`. Anything but the mock
+  runtime needs `--yes`.
 
 Three rules hold throughout:
 

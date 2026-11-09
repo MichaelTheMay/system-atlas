@@ -42,6 +42,7 @@ async function openDesignEditing(page: Page, wt: string) {
   await page.goto(`/#token=${E2E_TOKEN}`);
   await page.getByRole('combobox', { name: 'Project' }).selectOption(wt);
   await page.getByRole('button', { name: /^System design/ }).click();
+  await page.getByRole('button', { name: 'From code', exact: true }).click();
   await expect(page.getByRole('main')).toHaveAccessibleName('System design canvas: System design');
   await expect(node(page, 'api')).toBeVisible();
   await page.getByRole('button', { name: 'Edit', exact: true }).click();

@@ -31,10 +31,10 @@ async function openBoards(page: Page, wt: string) {
   await page.goto(`/#token=${E2E_TOKEN}`);
   await page.getByRole('combobox', { name: 'Project' }).selectOption(wt);
   await page.getByRole('button', { name: /^System design/ }).click();
-  await page
-    .getByRole('navigation', { name: 'Design views' })
-    .getByRole('button', { name: 'Boards' })
-    .click();
+  // D03 wave 2: boards are the default view of System design
+  await expect(
+    page.getByRole('navigation', { name: 'Design views' }).getByRole('button', { name: 'Boards' }),
+  ).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('region', { name: 'Design boards' })).toBeVisible();
 }
 

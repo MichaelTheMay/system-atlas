@@ -38,6 +38,12 @@ export function BoardsHome({
     prompting,
   );
   const [fromCode, setFromCode] = useState(false);
+  // "From code" is offered only when the project has a snapshot to import; re-checked when the
+  // picker is focused, so a scan finished after this page opened is offered without a reload
+  const checkFromCode = () =>
+    void fromCodeStatus(token, projectId)
+      .then((s) => setFromCode(s.available))
+      .catch(() => setFromCode(false));
   const reload = () =>
     listBoards(token, projectId)
       .then(setBoards)
@@ -45,10 +51,7 @@ export function BoardsHome({
   useEffect(() => {
     void reload();
     void listBoardTemplates(token).then(setTemplates);
-    // "From code" is offered only when the project has a snapshot to import
-    void fromCodeStatus(token, projectId)
-      .then((s) => setFromCode(s.available))
-      .catch(() => setFromCode(false));
+    checkFromCode();
   }, [token, projectId]);
 
   const create = async () => {
@@ -88,7 +91,7 @@ export function BoardsHome({
         </label>
         <label>
           Start from
-          <select value={start} onChange={(e) => setStart(e.target.value)}>
+          <select value={start} onFocus={checkFromCode} onChange={(e) => setStart(e.target.value)}>
             <option value="blank">Blank board</option>
             {fromCode && <option value="code">From code (as built, latest snapshot)</option>}
             {templates.map((t) => (

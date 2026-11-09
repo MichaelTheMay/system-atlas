@@ -85,6 +85,7 @@ async function openDesign(page: Page, wt: string) {
   await page.goto(`/#token=${E2E_TOKEN}`);
   await page.getByRole('combobox', { name: 'Project' }).selectOption(wt);
   await page.getByRole('button', { name: /^System design/ }).click();
+  await page.getByRole('button', { name: 'From code', exact: true }).click();
   await expect(page.getByRole('main')).toHaveAccessibleName('System design canvas: System design');
 }
 
@@ -132,6 +133,7 @@ test('the System design root draws archetype boxes and flows, and a box opens th
 
   // each root keeps its own place: going back to System design shows the whiteboard again
   await page.getByRole('button', { name: /^System design/ }).click();
+  await page.getByRole('button', { name: 'From code', exact: true }).click();
   await expect(page.getByRole('main')).toHaveAccessibleName('System design canvas: System design');
   // double-clicking a box is the shortcut for Realized by
   await node(page, 'api').dblclick();

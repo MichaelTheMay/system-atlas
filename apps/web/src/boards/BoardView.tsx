@@ -294,16 +294,16 @@ export function BoardView({
                   excalidrawAPI={(a) => {
                     apiRef.current = a;
                     setApi(a);
-                    // open on the whole drawing, not at 100% around its first corner (after mount)
-                    setTimeout(
-                      () =>
-                        a.scrollToContent(undefined, {
-                          fitToViewport: true,
-                          viewportZoomFactor: 0.85,
-                          animate: false,
-                        }),
-                      120,
-                    );
+                    // open on the whole drawing, not at 100% around its first corner (after
+                    // mount); an empty board stays at 100% (fitting nothing zoomed to 3000%)
+                    setTimeout(() => {
+                      if (!a.getSceneElements().length) return;
+                      a.scrollToContent(undefined, {
+                        fitToViewport: true,
+                        viewportZoomFactor: 0.85,
+                        animate: false,
+                      });
+                    }, 120);
                   }}
                   initialData={{
                     elements: board.document.scene.elements as never,
