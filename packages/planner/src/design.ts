@@ -625,7 +625,19 @@ export function normalizeSubsystemName(s: string): string {
   return s.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+/**
+ * The model of one graph object, built once: a catalog and every projection of it share the same
+ * units and paths (a from-code import projects every canvas). Inputs are never mutated, here or by
+ * callers, so identity of the graph object is a safe key.
+ */
+const models = new WeakMap<PlannerGraph, DesignModel>();
 function designModel(g: PlannerGraph): DesignModel {
+  let m = models.get(g);
+  if (!m) models.set(g, (m = buildDesignModel(g)));
+  return m;
+}
+
+function buildDesignModel(g: PlannerGraph): DesignModel {
   const nav = buildNav(g);
   const units = buildUnits(g, nav);
   const unitOf = new Map<string, Unit>();
