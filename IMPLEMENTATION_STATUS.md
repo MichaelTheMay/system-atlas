@@ -1,39 +1,40 @@
 # Implementation status
 
-Last updated: 2026-10-26. Spec: `docs/plan/System_Atlas_Claude_Code_Plan.md`.
+Last updated: 2026-11-09. Spec: `docs/plan/System_Atlas_Claude_Code_Plan.md`.
 
 Status values: `not started` · `in progress` · `done` (with PR and evidence) · `blocked` (with reason).
 
 ## Next ticket
 
-**D02: interactive whiteboard, design copilot and on-demand generation**, planned in `~/.claude/plans/execute-step-19-in-dapper-possum.md` (section "D02"). Merged into `develop`: wave 0 contracts (#26), D02a design elements (#30), D02c runtimes and job runner (#31). In review: the whiteboard UI (wave 2a) and D02b (copilot, Generate dialog, review, settings, docs). Then the final verification: `pnpm check`, e2e three times, screenshots, and one real-runtime smoke test only with the user's go-ahead.
+**D04: recursive design boards and user-flow mapping** (not yet planned in detail). D03 is complete in `develop`. Known starting points, seen on Atlas's own repo on 2026-11-09: a from-code board is one flat frame (31 boxes, 82 connections, hard to read), internals sub-boards start empty and are created one at a time by hand, and scenarios (user flows) are written by hand only and stay on one board.
 
 ## Tickets (plan §17)
 
-| ID  | Ticket                                               | Depends on  | Status      | PR / evidence                                                                             |
-| --- | ---------------------------------------------------- | ----------- | ----------- | ----------------------------------------------------------------------------------------- |
-| A00 | Repository bootstrap, GitHub remote, branch rules    | —           | done        | bootstrap commit on `main`                                                                |
-| A01 | Bootstrap workspace, contracts and ADRs              | —           | not started |                                                                                           |
-| A02 | Project/worktree identity and SQLite migrations      | A01         | not started |                                                                                           |
-| A03 | Inventory and coverage report                        | A02         | not started |                                                                                           |
-| A04 | TS/JS and Python analyzers                           | A03         | not started |                                                                                           |
-| A05 | Semantic identity and snapshot reconciler            | A04         | not started |                                                                                           |
-| A06 | View planner and canvas navigation                   | A05         | done        | PR #6; see A06 evidence                                                                   |
-| A07 | React Flow, layout worker, overlays and inspector    | A06         | done        | PR #7; see A07 evidence                                                                   |
-| E01 | Run/event/artifact store and ingestion               | A02         | done        | PR #8; see E01 evidence                                                                   |
-| E02 | Process wrapper and output registration              | E01         | done        | PR #9; see E02 evidence                                                                   |
-| E03 | Playwright capture helper                            | E01         | done        | PR #10; see E03 evidence                                                                  |
-| E04 | Output canvases and isolated preview renderer        | E02,E03,A07 | done        | PR #11; see E04 evidence                                                                  |
-| M01 | Watcher and incremental invalidation                 | A05,A07     | done        | PRs #13, #14, #15                                                                         |
-| M02 | Model proposal validation, cache and budget          | M01         | done        | PRs #17, #18 (view proposals deferred)                                                    |
-| I01 | MCP and generic event SDK                            | E01,A06     | done        | PR #16                                                                                    |
-| I02 | VS Code integration                                  | I01         | dropped     | user decision 2026-10-26                                                                  |
-| I03 | OTLP subset and bundle importer                      | E04         | done        | PR #20                                                                                    |
-| I04 | Skena/JSON Canvas bridge                             | I01,A07     | done        | PR #21 (JSON Canvas export; no Skena bridge)                                              |
-| H01 | Retention, recovery, export and performance          | E04,M01     | not started |                                                                                           |
-| L01 | Go and Java/JVM analyzers (Phase 4; not in plan §17) | A04         | done        | PR #22                                                                                    |
-| D01 | System-design lens (not in plan §17)                 | A06,M02     | in progress | wave 0 PR #24, D01a PR #27, D01b PR #25; D01c, D01d in review; see D01 evidence           |
-| D02 | Whiteboard, design copilot, on-demand generation     | D01         | in progress | wave 0 #26, D02a #30, D02c #31 merged; whiteboard UI and D02b in review; see D02 evidence |
+| ID  | Ticket                                               | Depends on  | Status      | PR / evidence                                       |
+| --- | ---------------------------------------------------- | ----------- | ----------- | --------------------------------------------------- |
+| A00 | Repository bootstrap, GitHub remote, branch rules    | —           | done        | bootstrap commit on `main`                          |
+| A01 | Bootstrap workspace, contracts and ADRs              | —           | not started |                                                     |
+| A02 | Project/worktree identity and SQLite migrations      | A01         | not started |                                                     |
+| A03 | Inventory and coverage report                        | A02         | not started |                                                     |
+| A04 | TS/JS and Python analyzers                           | A03         | not started |                                                     |
+| A05 | Semantic identity and snapshot reconciler            | A04         | not started |                                                     |
+| A06 | View planner and canvas navigation                   | A05         | done        | PR #6; see A06 evidence                             |
+| A07 | React Flow, layout worker, overlays and inspector    | A06         | done        | PR #7; see A07 evidence                             |
+| E01 | Run/event/artifact store and ingestion               | A02         | done        | PR #8; see E01 evidence                             |
+| E02 | Process wrapper and output registration              | E01         | done        | PR #9; see E02 evidence                             |
+| E03 | Playwright capture helper                            | E01         | done        | PR #10; see E03 evidence                            |
+| E04 | Output canvases and isolated preview renderer        | E02,E03,A07 | done        | PR #11; see E04 evidence                            |
+| M01 | Watcher and incremental invalidation                 | A05,A07     | done        | PRs #13, #14, #15                                   |
+| M02 | Model proposal validation, cache and budget          | M01         | done        | PRs #17, #18 (view proposals deferred)              |
+| I01 | MCP and generic event SDK                            | E01,A06     | done        | PR #16                                              |
+| I02 | VS Code integration                                  | I01         | dropped     | user decision 2026-10-26                            |
+| I03 | OTLP subset and bundle importer                      | E04         | done        | PR #20                                              |
+| I04 | Skena/JSON Canvas bridge                             | I01,A07     | done        | PR #21 (JSON Canvas export; no Skena bridge)        |
+| H01 | Retention, recovery, export and performance          | E04,M01     | not started |                                                     |
+| L01 | Go and Java/JVM analyzers (Phase 4; not in plan §17) | A04         | done        | PR #22                                              |
+| D01 | System-design lens (not in plan §17)                 | A06,M02     | done        | PRs #24, #27, #25, #29, #28; see D01 evidence       |
+| D02 | Whiteboard, design copilot, on-demand generation     | D01         | done        | PRs #26, #30, #31, #33, #34; see D02 evidence       |
+| D03 | Design boards (design-first whiteboard)              | D02         | done        | PRs #36, #40, #38, #39 and wave 2; see D03 evidence |
 
 ## Phase acceptance checklists (plan §15)
 
@@ -443,6 +444,30 @@ Changes:
 - **Java:** each file is a module named by its primary type, and public methods are extracted. Imports (single, wildcard, static) resolve within the project; JDK imports are skipped, and others map to pom or Gradle group IDs (exact) or heuristically. Also Spring MVC and JAX-RS routes with class prefixes, public static `main`, and JDBC or `@Query` SQL.
 - **Fixtures** `go-service` and `java-service` come with hand-authored expected graphs: 0 missing, 0 extra, 0 false positives or negatives, 0 gaps.
 - **Tests:** 163 Vitest tests in 31 files, 18 Playwright tests.
+
+### D03 (2026-11-09): design boards
+
+User guide: `docs/design.md` ("Design boards (D03)"). Plan: `~/.claude/plans/execute-step-19-in-dapper-possum.md`, section "D03".
+
+| Part   | What                                                                                              | PR          |
+| ------ | ------------------------------------------------------------------------------------------------- | ----------- |
+| wave 0 | Contract, migration `0010`, boards CRUD and routes, Excalidraw canvas                             | #36, merged |
+| D03a   | Component palette, properties, typed connections, ELK layout, six templates, internals boards     | #40, merged |
+| D03b   | Scenarios, sequence view, player, design doc, exports, Present mode, from-code import             | #38, merged |
+| D03c   | Agent draft, critique, proposals, variants, implementation plan, `atlas board` CLI                | #39, merged |
+| wave 2 | Boards is the default tab of System design; docs; this status update (`feat/D03d-default-boards`) | this PR     |
+
+Wave 2 evidence (commands run in the wave 2 worktree):
+
+- **Default tab.** System design opens on Boards. Navigating to a derived design canvas (catalog, realized-by, review) switches to From code. `design.spec.ts`, `whiteboard.spec.ts` and `design-agent.spec.ts` now click From code; `boards.spec.ts` asserts Boards is pressed without clicking it.
+- **Bugs found by opening Atlas on its own repo** and fixed:
+  - An empty board opened at 3000% zoom, because fit-to-content ran on an empty scene.
+  - "From code" stayed hidden after a first scan until the page was reloaded. It is now re-checked when the picker is focused.
+- `pnpm -s format && pnpm check`: exit 0. Vitest 270 tests in 49 files.
+- `ATLAS_E2E_PORT=4461 pnpm e2e` (36 tests), five full runs: 35/36, 34/36, then 36/36 three times in a row. The failures were `whiteboard.spec.ts` "draw a planned box…" (twice) and `architecture.spec.ts` "an edge explains itself" (once). `whiteboard.spec.ts --repeat-each 5` alone: 15/15.
+- **Baseline for the flakes:** unmodified `origin/develop` (483d142), three full runs: 36/36, 35/36 (`whiteboard.spec.ts` "sticky notes and drawn subsystems…"), 36/36. So the suite is flaky on `develop` too; the cause was not investigated.
+- Manual: scratch daemon on this repo, agent-browser screenshot of System design opening on the Boards list; the catalog's System design entry switches to From code.
+- **Gaps:** the e2e flakes above are open. A from-code board of a large repo is one flat frame and hard to read (D04).
 
 ### D02 (2026-10-26): whiteboard, design copilot and on-demand generation
 
