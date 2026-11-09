@@ -13,11 +13,12 @@ const SNAPSHOT_RE = /^snap_[0-9a-f]{16,64}$/;
  * - `GET /boards/:boardId/export/markdown`: the board as a Markdown design doc (same text as the
  *   web export, without the PNG), for the CLI and agents.
  * - `GET /projects/:id/boards/from-code`: whether a snapshot exists to import from.
- * - `GET /projects/:id/boards/from-code/spec?snapshotId=`: the "as built" BoardSpec alone, which
- *   the web adds to an already-drawn board.
- * - `POST /projects/:id/boards/from-code { snapshotId?, name? }`: a new board (`source: 'code'`)
- *   holding the derived design lens of the snapshot, drawn faded in one "as built" frame. The board
- *   is a copy: it never becomes a fact and does not follow later scans.
+ * - `GET /projects/:id/boards/from-code/spec?snapshotId=`: the "as built" BoardSpec of the top
+ *   level alone, which the web adds to an already-drawn board.
+ * - `POST /projects/:id/boards/from-code { snapshotId?, name? }`: new boards (`source: 'code'`)
+ *   holding the derived design lens of the snapshot, drawn faded: the root, which is returned, and
+ *   one linked internals board per design subsystem (D04), created together or not at all. The
+ *   boards are copies: they never become facts and do not follow later scans.
  */
 export function registerBoardExportRoutes(
   app: FastifyInstance,
