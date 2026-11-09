@@ -6,36 +6,36 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**D04: recursive system design and user-flow mapping**, planned in `docs/plan/D04-recursive-design-and-flows.md`. M0 and M1 are merged into the D04 branch (#43). M2 (recursive from-code boards) is in review. Next: **M3, the user-flow mapper**, then M4 (verification). Integration branch `feat/D04-recursive-design`; milestone PRs go into it, and nothing reaches `develop` without the owner's go-ahead. Revert point: tag `checkpoint-2026-11-09-d03` (= `main` `bb47ae0`).
+**D04: recursive system design and user-flow mapping**, planned in `docs/plan/D04-recursive-design-and-flows.md`. M0, M1 (#43) and M2 (#44) are merged into the D04 branch. M3 (the user-flow mapper) is in review. Next: **M4, verification and wrap-up**, then the release decision, which is the owner's. Integration branch `feat/D04-recursive-design`; nothing reaches `develop` without the owner's go-ahead. Revert point: tag `checkpoint-2026-11-09-d03` (= `main` `bb47ae0`).
 
 ## Tickets (plan §17)
 
-| ID  | Ticket                                               | Depends on  | Status      | PR / evidence                                                                                                              |
-| --- | ---------------------------------------------------- | ----------- | ----------- | -------------------------------------------------------------------------------------------------------------------------- |
-| A00 | Repository bootstrap, GitHub remote, branch rules    | —           | done        | bootstrap commit on `main`                                                                                                 |
-| A01 | Bootstrap workspace, contracts and ADRs              | —           | not started |                                                                                                                            |
-| A02 | Project/worktree identity and SQLite migrations      | A01         | not started |                                                                                                                            |
-| A03 | Inventory and coverage report                        | A02         | not started |                                                                                                                            |
-| A04 | TS/JS and Python analyzers                           | A03         | not started |                                                                                                                            |
-| A05 | Semantic identity and snapshot reconciler            | A04         | not started |                                                                                                                            |
-| A06 | View planner and canvas navigation                   | A05         | done        | PR #6; see A06 evidence                                                                                                    |
-| A07 | React Flow, layout worker, overlays and inspector    | A06         | done        | PR #7; see A07 evidence                                                                                                    |
-| E01 | Run/event/artifact store and ingestion               | A02         | done        | PR #8; see E01 evidence                                                                                                    |
-| E02 | Process wrapper and output registration              | E01         | done        | PR #9; see E02 evidence                                                                                                    |
-| E03 | Playwright capture helper                            | E01         | done        | PR #10; see E03 evidence                                                                                                   |
-| E04 | Output canvases and isolated preview renderer        | E02,E03,A07 | done        | PR #11; see E04 evidence                                                                                                   |
-| M01 | Watcher and incremental invalidation                 | A05,A07     | done        | PRs #13, #14, #15                                                                                                          |
-| M02 | Model proposal validation, cache and budget          | M01         | done        | PRs #17, #18 (view proposals deferred)                                                                                     |
-| I01 | MCP and generic event SDK                            | E01,A06     | done        | PR #16                                                                                                                     |
-| I02 | VS Code integration                                  | I01         | dropped     | user decision 2026-10-26                                                                                                   |
-| I03 | OTLP subset and bundle importer                      | E04         | done        | PR #20                                                                                                                     |
-| I04 | Skena/JSON Canvas bridge                             | I01,A07     | done        | PR #21 (JSON Canvas export; no Skena bridge)                                                                               |
-| H01 | Retention, recovery, export and performance          | E04,M01     | not started |                                                                                                                            |
-| L01 | Go and Java/JVM analyzers (Phase 4; not in plan §17) | A04         | done        | PR #22                                                                                                                     |
-| D01 | System-design lens (not in plan §17)                 | A06,M02     | done        | PRs #24, #27, #25, #29, #28; see D01 evidence                                                                              |
-| D02 | Whiteboard, design copilot, on-demand generation     | D01         | done        | PRs #26, #30, #31, #33, #34; see D02 evidence                                                                              |
-| D03 | Design boards (design-first whiteboard)              | D02         | done        | PRs #36, #40, #38, #39 and wave 2; see D03 evidence                                                                        |
-| D04 | Recursive system design and user-flow mapping        | D03         | in progress | plan: `docs/plan/D04-recursive-design-and-flows.md`; M0, M1 #43 merged into the D04 branch; M2 in review; see D04 evidence |
+| ID  | Ticket                                               | Depends on  | Status      | PR / evidence                                                                                                                             |
+| --- | ---------------------------------------------------- | ----------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| A00 | Repository bootstrap, GitHub remote, branch rules    | —           | done        | bootstrap commit on `main`                                                                                                                |
+| A01 | Bootstrap workspace, contracts and ADRs              | —           | not started |                                                                                                                                           |
+| A02 | Project/worktree identity and SQLite migrations      | A01         | not started |                                                                                                                                           |
+| A03 | Inventory and coverage report                        | A02         | not started |                                                                                                                                           |
+| A04 | TS/JS and Python analyzers                           | A03         | not started |                                                                                                                                           |
+| A05 | Semantic identity and snapshot reconciler            | A04         | not started |                                                                                                                                           |
+| A06 | View planner and canvas navigation                   | A05         | done        | PR #6; see A06 evidence                                                                                                                   |
+| A07 | React Flow, layout worker, overlays and inspector    | A06         | done        | PR #7; see A07 evidence                                                                                                                   |
+| E01 | Run/event/artifact store and ingestion               | A02         | done        | PR #8; see E01 evidence                                                                                                                   |
+| E02 | Process wrapper and output registration              | E01         | done        | PR #9; see E02 evidence                                                                                                                   |
+| E03 | Playwright capture helper                            | E01         | done        | PR #10; see E03 evidence                                                                                                                  |
+| E04 | Output canvases and isolated preview renderer        | E02,E03,A07 | done        | PR #11; see E04 evidence                                                                                                                  |
+| M01 | Watcher and incremental invalidation                 | A05,A07     | done        | PRs #13, #14, #15                                                                                                                         |
+| M02 | Model proposal validation, cache and budget          | M01         | done        | PRs #17, #18 (view proposals deferred)                                                                                                    |
+| I01 | MCP and generic event SDK                            | E01,A06     | done        | PR #16                                                                                                                                    |
+| I02 | VS Code integration                                  | I01         | dropped     | user decision 2026-10-26                                                                                                                  |
+| I03 | OTLP subset and bundle importer                      | E04         | done        | PR #20                                                                                                                                    |
+| I04 | Skena/JSON Canvas bridge                             | I01,A07     | done        | PR #21 (JSON Canvas export; no Skena bridge)                                                                                              |
+| H01 | Retention, recovery, export and performance          | E04,M01     | not started |                                                                                                                                           |
+| L01 | Go and Java/JVM analyzers (Phase 4; not in plan §17) | A04         | done        | PR #22                                                                                                                                    |
+| D01 | System-design lens (not in plan §17)                 | A06,M02     | done        | PRs #24, #27, #25, #29, #28; see D01 evidence                                                                                             |
+| D02 | Whiteboard, design copilot, on-demand generation     | D01         | done        | PRs #26, #30, #31, #33, #34; see D02 evidence                                                                                             |
+| D03 | Design boards (design-first whiteboard)              | D02         | done        | PRs #36, #40, #38, #39 and wave 2; see D03 evidence                                                                                       |
+| D04 | Recursive system design and user-flow mapping        | D03         | in progress | plan: `docs/plan/D04-recursive-design-and-flows.md`; M0, M1 (#43) and M2 (#44) merged into the D04 branch; M3 in review; see D04 evidence |
 
 ## Phase acceptance checklists (plan §15)
 
@@ -497,6 +497,7 @@ The design lens was measured before any change (M0) and after M1, by scanning ea
   - Web: the board list shows root boards with their internals count; a sub-board shows the path to its root; linked boxes carry an "opens internals" badge; the Inspector lists **Internals** when nothing is selected.
   - New fixture `fixtures/monorepo-nested` (52 files), which nests: `apps`, `packages > commerce | platform | content`, examples and tooling.
 - **Bug found by looking at the screenshot and fixed:** long labels were clipped ("Build & test tooling"). A board is drawn before the canvas mounts, so its text was measured before the hand-drawn font loaded. A freshly drawn board now has its text measured again once the fonts are in. This also affected template and prompt boards from D03.
+  - **Correction (M3):** this fix did not work as merged in #44. Excalidraw 0.18.1 applies `refreshDimensions` only together with `repairBindings`, so the re-measure never ran. The M2 check was made on boards opened after the fonts had already loaded, which proved nothing. M3 fixes it and adds an e2e test that fails without the fix (labels 31 to 36 px short).
 - **Tests:**
   - `packages/graph/test/boards-from-code.test.ts`, 7 tests: tree shape and links on `monorepo-nested`, outside stubs and their frame, an unnested repo unchanged, deeper subsystems as frames, stored tree with parent links and cascade delete, nothing stored when one board is refused (a fourth level), and the heaviest 600 of 1,560 flows kept.
   - `apps/web/e2e/board-scenarios.spec.ts`, 1 new test: create from code, 8 boards, 4 "opens internals" badges drawn, root → packages → commerce by the Internals list, path back, and the list shows one root with "7 internals board(s)".
@@ -512,6 +513,43 @@ The design lens was measured before any change (M0) and after M1, by scanning ea
   - The from-code routes are still missing from `openapi.yaml` (a D03b omission, not fixed here).
   - The text re-measure waits at most four seconds for the fonts; on a slower load, labels stay as first measured.
   - Adding the fixture changes Atlas's own design: "Fixtures & examples" now has one more group.
+
+#### M3: user-flow mapper
+
+Scenarios (user flows) now check themselves, can be derived from code, and follow the system down its levels.
+
+- **What changed:**
+  - **Continuity** (`packages/export/src/design-board.ts`): `scenarioGaps` and `missingHops`. A step must touch a component the flow has reached. The web marks a gap on the step, the scenario and the sequence view, and offers **Insert missing hops**.
+  - **Flows from code** (`packages/planner/src/design-flows.ts`, `projectDesign(…, { flows: true })`): one flow per endpoint or group of endpoints, told over each canvas's boxes. From-code boards carry them as scenarios marked "as built".
+  - **Drill-down** (`ScenarioStep.drillInto`): a from-code import links a step through a subsystem box to the same flow on its internals board. The player goes down and comes back (`apps/web/src/boards/flowSession.ts` holds the position across boards). The sequence view and the Markdown export draw the internals flow in a shaded block.
+  - **Agents:** prompt template `board-v2`. `atlas_get_board` shows the link; `explain-scenario` follows it one level down; a `drillInto` in a proposal is ignored.
+  - Step pickers have the full panel width and a tooltip with the full text.
+- **Deviations from the plan:**
+  - Flows start at endpoints, not UI routes. The graph records which page module calls an endpoint, but not which route renders that page.
+  - The continuity rule is "touches a reached component", not "starts where the previous step ended". The stricter rule flags every fan-out, such as a service that writes to a store and then publishes.
+  - Flows are module-level and can over-reach. Writes and enqueues are left out for GET, HEAD and OPTIONS routes, and every flow says a step may be reachable without being taken.
+- **Found while building it:**
+  - The gap check caught a hole in my own derived flows: on a sub-board, a hop between two outside boxes was dropped, so the flow jumped. Such edges are now kept where a flow runs along them.
+  - On this repo, per-module step text repeated and ten routes of one file gave ten identical flows. Steps now merge reads and writes per box, and identical flows are grouped.
+  - The nested sequence diagram first showed `packages`, `db` and `order-jobs` twice and repeated every hop per level (18 messages for a 5-step flow). It now has 9 participants and 14 messages.
+- **Tests:**
+  - `packages/export/test/design-board.test.ts`, 6 tests: the continuity rule, fan-out allowed, the real gap in the chat template and the hop that closes it, a five-hop chain, and no chain.
+  - `packages/graph/test/design-flows.test.ts`, 6 tests. The expected flows were written from the fixtures' source. One step I had not predicted is correct: the worker also uses `@shop/orders` (`fulfil.ts`).
+  - `apps/daemon/test/board-exports.test.ts`: all eight boards of `monorepo-nested` have flows with no gaps, and the Markdown export nests three levels with 9 participants.
+  - `apps/daemon/test/board-agent.test.ts`: the mock explains a drill-down step end to end; the run records `board-v2`.
+  - `packages/schema/test`, `packages/graph/test/board-proposals.test.ts`, `packages/agent-api/test`: a D03 document still parses; an agent's `drillInto` is ignored; nested explain.
+  - `apps/web/e2e/board-scenarios.spec.ts`, 3 new tests: gap flagged and repaired in one click on the chat template; a derived flow followed from the root into `apps` and back to the next step; and labels measured with the canvas fonts.
+- **Commands** (worktree `d04-recursive-design`):
+  - `pnpm -s format && pnpm check`: exit 0. Vitest 305 tests in 53 files.
+  - `ATLAS_E2E_PORT=4465 pnpm e2e` (40 tests), three runs: 38/40, 40/40, 40/40. The first run took 42 s instead of 18 s and lost `whiteboard.spec.ts` "draw a planned box…" and "sticky notes and drawn subsystems…", both recorded as flaky before D04. An earlier M3 run lost `architecture.spec.ts` "an edge explains itself" once, also seen on the D03 branch.
+  - From-code import with flows: this repo 24 ms, dsh 1.05 s (0.94 s in M2).
+- **Manual.** A daemon from this branch on a copy of `monorepo-nested`, driven with agent-browser. Screenshots inspected: the POST /orders flow on the root with step numbers and "Open internals flow"; the `apps` board after going down (step 1 of 6, "Back to the flow above"); the gap chip and note on the chat template; the gap warning in the sequence view; the nested sequence diagram; and a from-code board in a fresh browser session with its labels in full.
+- **Gaps:**
+  - On this repo the root-level flows are coarse ("@atlas/graph reads 20 tables"), because that is all module-level facts support. dsh has no derived flows on its root.
+  - Play across boards (going down and coming back by itself) was exercised by hand once, not in e2e. The e2e test uses the buttons.
+  - Only a from-code import writes drill-down links. There is no UI to link a hand-made scenario to one on an internals board.
+  - A flow's steps on a sub-board include outside hops, so the same hop is told at each level in that level's boxes. The sequence view removes the repeats; the step list does not.
+  - The browser can keep serving a cached older UI bundle after an update until it is restarted. Seen while testing; not investigated.
 
 ### D03 (2026-11-09): design boards
 

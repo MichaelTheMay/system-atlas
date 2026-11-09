@@ -52,6 +52,31 @@ Saves use optimistic revisions, like overlays.
 - **Scenarios** (Inspector → Scenarios): named flows whose numbered steps bind to a connection or a
   component. **Show** draws the step numbers and dims everything off the path. **Sequence view**
   renders it as a Mermaid sequence diagram, and **Player** steps through the hops with the camera.
+- **Flow gaps (D04).** A step must touch a component the flow has already reached. A flow may fan
+  out and return, so a step need not start where the previous one ended; it only may not start
+  somewhere the flow has never been.
+  - A step that breaks this is marked **gap**, the scenario shows the count, and the sequence view
+    and the Markdown export say so. It is a warning and never blocks anything.
+  - **Insert missing hops** adds the shortest chain of connections from where the previous step
+    ended to the gap step. If the board has no such chain, the step says so.
+- **Flows from code (D04).** A from-code board gets up to eight scenarios marked **as built**,
+  one per route or group of routes that reach the same things.
+  - A flow follows who calls the route, then the module that exposes it through its imports to
+    the tables and queues those modules touch, then on to each queue's consumers.
+  - The facts are per module, and there is no call graph. A step may therefore be reachable
+    without being taken on that request, and each flow says so in its description. A GET, HEAD or
+    OPTIONS route is assumed safe: its writes and enqueues are left out.
+  - On an internals board the flow is told in that board's boxes. Hops it takes between two
+    outside boxes are kept as context, so it has no hole.
+  - They are view data like the rest of the board: edit or delete them freely.
+- **Following a flow down (D04).** A step through a subsystem box carries a link to the same flow
+  on that box's internals board.
+  - **Open internals flow** on the step, or **↓ Into this step** in the player, opens that board
+    with the flow in the player. **↑ Back to the flow above** returns to the step after the one
+    that led down. **Play** goes down and comes back by itself.
+  - **Sequence view** draws the internals flow inside a shaded block under the step, two levels
+    deep. A box is one participant however many boards it is drawn on.
+  - Only a from-code import writes these links. An agent's proposal cannot.
 - **Design doc** (Inspector → Design doc): requirements, NFRs, estimates, API, data model,
   decisions and risks. An item can be pinned to components on the board.
 - **Agent ▾:** draft from a prompt, critique, fill the doc, explain a scenario, propose a variant
