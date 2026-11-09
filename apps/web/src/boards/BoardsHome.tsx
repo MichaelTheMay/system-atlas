@@ -75,6 +75,11 @@ export function BoardsHome({
     onOpen(b.id);
   };
 
+  // internals boards are reached from their parent (Open internals), not from this list
+  const topLevel = boards.filter((b) => !b.parentBoardId);
+  const subBoards = (id: string): number =>
+    boards.filter((b) => b.parentBoardId === id).reduce((n, b) => n + 1 + subBoards(b.id), 0);
+
   return (
     <section className="boards-home" aria-label="Design boards">
       <form
@@ -119,12 +124,13 @@ export function BoardsHome({
       {error && <p className="board-error">{error}</p>}
       {prompting && <PromptDialog jobs={jobs} onClose={() => setPrompting(false)} />}
       <ul className="boards-list" aria-label="Boards">
-        {boards.map((b) => (
+        {topLevel.map((b) => (
           <li key={b.id} className="board-card">
             <button type="button" className="board-open" onClick={() => onOpen(b.id)}>
               <span className="board-card-name">{b.name}</span>
               <span className="board-card-meta">
-                {b.componentCount} component(s) · {b.source}
+                {b.componentCount} component(s)
+                {subBoards(b.id) ? ` · ${subBoards(b.id)} internals board(s)` : ''} · {b.source}
                 {b.templateId ? ` (${b.templateId})` : ''} · updated{' '}
                 {new Date(b.updatedAt).toLocaleString()}
               </span>
@@ -154,7 +160,7 @@ export function BoardsHome({
             )}
           </li>
         ))}
-        {boards.length === 0 && <li className="boards-empty">No boards yet.</li>}
+        {topLevel.length === 0 && <li className="boards-empty">No boards yet.</li>}
       </ul>
     </section>
   );

@@ -20,7 +20,7 @@ export function ImportAsBuilt() {
       <button
         type="button"
         disabled={!ctx.api || busy}
-        title="Add the code's derived design next to this drawing, faded, in an “As built” frame"
+        title="Add the top level of the code's derived design next to this drawing, faded, in an “As built” frame. For the whole design with its internals boards, start a new board From code."
         onClick={() => {
           setBusy(true);
           setError(undefined);

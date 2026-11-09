@@ -322,3 +322,98 @@ test('from code: a scanned project imports its derived design as a faded "as bui
   await openBoards(page, empty.wt);
   await expect(page.getByLabel('Start from').locator('option[value="code"]')).toHaveCount(0);
 });
+
+async function scanNested(request: APIRequestContext) {
+  const root = join(mkdtempSync(join(tmpdir(), 'atlas-e2e-board-nested-')), 'shop');
+  cpSync(new URL('../../../fixtures/monorepo-nested', import.meta.url).pathname, root, {
+    recursive: true,
+  });
+  const reg = await (
+    await request.post('/api/v1/projects', { headers: auth, data: { rootPath: root } })
+  ).json();
+  const wt = reg.worktree.id as string;
+  let job = await (await request.post(`/api/v1/worktrees/${wt}/scans`, { headers: auth })).json();
+  while (job.state === 'queued' || job.state === 'running') {
+    await new Promise((r) => setTimeout(r, 50));
+    job = await (await request.get(`/api/v1/jobs/${job.id}`, { headers: auth })).json();
+  }
+  return { wt, projectId: reg.project.id as string };
+}
+
+test('from code, recursively (D04): subsystems open as internals boards two levels down', async ({
+  page,
+  request,
+}) => {
+  const { wt, projectId } = await scanNested(request);
+  await openBoards(page, wt);
+  await page.getByLabel('Name').fill('Shop as built');
+  await page.getByLabel('Start from').selectOption('code');
+  await page.getByRole('button', { name: 'Create board' }).click();
+  const root = page.getByRole('region', { name: 'Design board: Shop as built' });
+  await expect(root.locator('.excalidraw')).toBeVisible();
+
+  // one board per design subsystem, all linked under the root
+  const { boards } = (await (
+    await request.get(`/api/v1/projects/${projectId}/boards`, { headers: auth })
+  ).json()) as { boards: { id: string; name: string; parentBoardId?: string }[] };
+  expect(boards).toHaveLength(8);
+  const rootId = boards.find((b) => !b.parentBoardId)!.id;
+  expect(
+    boards
+      .filter((b) => b.parentBoardId === rootId)
+      .map((b) => b.name)
+      .sort(),
+  ).toEqual([
+    'Build & test tooling — internals',
+    'Fixtures & examples — internals',
+    'apps — internals',
+    'packages — internals',
+  ]);
+
+  // the summary lists what opens; the canvas marks those boxes
+  const summary = page.getByRole('region', { name: 'Board summary' });
+  await expect(summary.getByRole('button', { name: 'packages', exact: true })).toBeVisible();
+  await expect
+    .poll(async () => {
+      const b = await (await request.get(`/api/v1/boards/${rootId}`, { headers: auth })).json();
+      return (b.document.scene.elements as { text?: string }[]).filter((e) =>
+        e.text?.includes('opens internals'),
+      ).length;
+    })
+    .toBe(4);
+
+  // root -> packages -> commerce
+  await summary.getByRole('button', { name: 'packages', exact: true }).click();
+  const packages = page.getByRole('region', { name: 'Design board: packages — internals' });
+  await expect(packages.locator('.excalidraw')).toBeVisible();
+  const path = page.getByRole('navigation', { name: 'Board path' });
+  await expect(path.getByRole('button')).toHaveText(['Shop as built']);
+  await page
+    .getByRole('region', { name: 'Board summary' })
+    .getByRole('button', { name: 'commerce', exact: true })
+    .click();
+  const commerce = page.getByRole('region', { name: 'Design board: commerce — internals' });
+  await expect(commerce.locator('.excalidraw')).toBeVisible();
+  await expect(path.getByRole('button')).toHaveText(['Shop as built', 'packages — internals']);
+
+  // the lowest board is drawn on first open: five boxes of its own and seven outside stubs, faded
+  const commerceId = boards.find((b) => b.name === 'commerce — internals')!.id;
+  await expect
+    .poll(async () => {
+      const b = await (await request.get(`/api/v1/boards/${commerceId}`, { headers: auth })).json();
+      return (b.document.scene.elements as SceneEl[]).filter(isBox).length;
+    })
+    .toBe(12);
+  await expect(
+    page.getByRole('region', { name: 'Board summary' }).getByRole('heading', { name: 'Internals' }),
+  ).toHaveCount(0);
+
+  // back up by the path, then to the list: only the root is listed
+  await path.getByRole('button', { name: 'Shop as built' }).click();
+  await expect(root.locator('.excalidraw')).toBeVisible();
+  await expect(path).toHaveCount(0);
+  await page.getByRole('button', { name: '← Boards' }).click();
+  const list = page.getByRole('region', { name: 'Design boards' });
+  await expect(list.locator('.board-card')).toHaveCount(1);
+  await expect(list.locator('.board-card')).toContainText('7 internals board(s)');
+});

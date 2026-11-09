@@ -414,8 +414,11 @@ export function ConnectionPanel({ connection: k }: { connection: Connection }) {
 }
 
 export function BoardSummary() {
-  const { board } = useBoard();
+  const { board, openBoard, select } = useBoard();
   const comps = Object.values(board.document.components);
+  const detailed = comps
+    .filter((c) => c.internalsBoardId && c.status !== 'rejected')
+    .sort((a, b) => a.label.localeCompare(b.label));
   const byFamily = new Map<ComponentFamily, number>();
   for (const c of comps) {
     const f = componentTypeInfo(c.type).family;
@@ -441,6 +444,37 @@ export function BoardSummary() {
         <dt>Frames</dt>
         <dd>{board.document.frames.length}</dd>
       </dl>
+      {detailed.length > 0 && (
+        <>
+          <h3>Internals</h3>
+          <p className="empty-note">
+            Components that open a board of their own. Each one is marked “opens internals” on the
+            canvas.
+          </p>
+          <ul className="plain-list board-internals">
+            {detailed.map((c) => (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  className="link-btn"
+                  onClick={() => openBoard(c.internalsBoardId!)}
+                  title={`Open the internals board of ${c.label}`}
+                >
+                  {c.label}
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label={`Show ${c.label} on the board`}
+                  onClick={() => select({ componentId: c.id })}
+                >
+                  Show
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {board.document.doc.summary && (
         <p className="board-doc-summary">{board.document.doc.summary}</p>
       )}
