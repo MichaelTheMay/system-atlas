@@ -1831,6 +1831,29 @@ button.badge.issues {
   margin: 0;
   font-size: 15px;
 }
+.board-internals li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+}
+.board-path {
+  font-size: 13px;
+  color: #64748b;
+  white-space: nowrap;
+}
+.board-path button.link {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent, #2563eb);
+  font: inherit;
+  cursor: pointer;
+}
+.board-path button.link:hover {
+  text-decoration: underline;
+}
 .board-status,
 .board-meta {
   font-size: 12px;

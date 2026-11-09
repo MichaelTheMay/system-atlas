@@ -1,0 +1,12 @@
+{
+  "name": "@shop/worker",
+  "version": "1.0.0",
+  "main": "src/main.ts",
+  "dependencies": {
+    "@shop/config": "workspace:*",
+    "@shop/email": "workspace:*",
+    "@shop/orders": "workspace:*",
+    "@shop/payments": "workspace:*",
+    "bullmq": "^5.0.0"
+  }
+}

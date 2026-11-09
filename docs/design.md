@@ -30,10 +30,25 @@ Saves use optimistic revisions, like overlays.
   upload pipeline, RAG app), **From code** (the derived lens of the latest snapshot, drawn faded as
   "as built"; offered only once a snapshot exists), or **Start from a prompt…** (an agent drafts
   it as proposals).
+- **From code is recursive (D04).** It creates one board per design subsystem, in one step:
+  - Each subsystem box on a board is linked to the board of its internals and is marked
+    "opens internals". The root's Inspector lists them under **Internals**.
+  - Boards nest two levels below the root. Subsystems below that are drawn in place on the lowest
+    board, each in a frame of its own.
+  - On a sub-board, a box from outside that exchanges flows with it is drawn as an "outside: …"
+    stub in an "Outside this board" frame.
+  - A canvas with more than 600 flows keeps the heaviest 600; the board's summary says how many
+    were left out.
+  - All boards of the tree are created together or not at all. Deleting the root deletes them.
+  - The board list shows root boards only, with the number of internals boards each one has. A
+    sub-board shows the path back to its root in its header.
+  - **Import as built** into an open board still adds the top level only.
 - **Components:** add them from the palette on the left (click or drag). The inspector edits label,
   type, responsibility and the type's properties; properties show as a badge line on the box.
   Arrows you draw between two components become connections. **Internals…** creates or opens a
   linked sub-board for a component (nesting ≤ 3 levels).
+- **Text on a new board.** A board drawn on its first open (template, prompt, from code) has its
+  text measured again once the canvas has loaded its fonts, so long labels wrap inside their box.
 - **Scenarios** (Inspector → Scenarios): named flows whose numbered steps bind to a connection or a
   component. **Show** draws the step numbers and dims everything off the path. **Sequence view**
   renders it as a Mermaid sequence diagram, and **Player** steps through the hops with the camera.

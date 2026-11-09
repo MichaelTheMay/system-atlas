@@ -1,0 +1,12 @@
+{
+  "name": "@shop/api",
+  "version": "1.0.0",
+  "main": "src/server.ts",
+  "dependencies": {
+    "@shop/auth": "workspace:*",
+    "@shop/catalog": "workspace:*",
+    "@shop/orders": "workspace:*",
+    "@shop/search": "workspace:*",
+    "fastify": "^5.0.0"
+  }
+}

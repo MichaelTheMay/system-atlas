@@ -1,0 +1,9 @@
+{
+  "name": "@shop/payments",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@shop/http": "workspace:*",
+    "@shop/logger": "workspace:*"
+  }
+}

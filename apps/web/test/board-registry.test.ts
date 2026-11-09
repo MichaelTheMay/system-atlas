@@ -252,3 +252,16 @@ describe('badges and labels', () => {
     expect(connectionLabelText({})).toBe('');
   });
 });
+
+describe('internals badge (D04)', () => {
+  it('marks a component that a sub-board details, before its properties', () => {
+    const brd = `brd_${'0'.repeat(32)}`;
+    expect(componentBadges({ type: 'box', props: {}, internalsBoardId: brd })).toEqual([
+      'opens internals',
+    ]);
+    expect(
+      componentBadges({ type: 'service', props: { instances: 4 }, internalsBoardId: brd })[0],
+    ).toBe('opens internals');
+    expect(componentBadges({ type: 'box', props: {} })).toEqual([]);
+  });
+});

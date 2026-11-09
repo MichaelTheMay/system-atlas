@@ -355,10 +355,18 @@ export function selectionFor(
   };
 }
 
-/** Badge texts for a component's set properties ("postgres", "4 instances", "stateful"). */
-export function componentBadges(c: Pick<Component, 'type' | 'props'>): string[] {
+/** Badge on a component that a sub-board details (select it, then Open internals). */
+export const INTERNALS_BADGE = 'opens internals';
+
+/**
+ * Badge texts for a component: "opens internals" when a sub-board details it, then its set
+ * properties ("postgres", "4 instances", "stateful").
+ */
+export function componentBadges(
+  c: Pick<Component, 'type' | 'props'> & Pick<Partial<Component>, 'internalsBoardId'>,
+): string[] {
   const info = componentTypeInfo(c.type);
-  const out: string[] = [];
+  const out: string[] = c.internalsBoardId ? [INTERNALS_BADGE] : [];
   const known = new Set(info.properties.map((p) => p.key));
   for (const p of info.properties) {
     const v = c.props[p.key];

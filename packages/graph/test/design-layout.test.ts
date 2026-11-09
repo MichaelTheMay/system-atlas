@@ -5,93 +5,16 @@ import {
   projectDesign,
   type Catalog,
   type GraphClaim,
-  type GraphEntity,
-  type GraphRelation,
   type PlannerGraph,
   type Projection,
 } from '@atlas/planner';
+import { Repo } from './design-repo.ts';
 
 /**
  * Detected subsystems from the repository layout (D04), on hand-built graphs so each rule is
  * checked on its own. Scanned fixtures are all below the threshold and are covered by
  * `design.test.ts`, which must keep passing unchanged.
  */
-let seq = 0;
-const hex = () => (++seq).toString(16).padStart(32, '0');
-const SYSTEM = `ent_${hex()}`;
-
-class Repo {
-  entities: GraphEntity[] = [
-    {
-      id: SYSTEM,
-      kind: 'system',
-      canonicalName: 'system',
-      displayName: 'repo',
-      lifecycle: 'active',
-      attributes: {},
-    },
-  ];
-  relations: GraphRelation[] = [];
-  private add(
-    kind: string,
-    name: string,
-    attributes: Record<string, unknown>,
-    owner = SYSTEM,
-  ): string {
-    const id = `ent_${hex()}`;
-    this.entities.push({
-      id,
-      kind,
-      canonicalName: `${kind}:${name}:${id}`,
-      displayName: name,
-      ownerEntityId: owner,
-      lifecycle: 'active',
-      attributes,
-    });
-    return id;
-  }
-  /** A package with one module in it; returns the module id (for relations). */
-  pkg(name: string, directory: string): string {
-    const p = this.add('package', name, { directory });
-    return this.add('module', 'index.ts', { path: `${directory}/src/index.ts` }, p);
-  }
-  file(path: string): string {
-    return this.add('module', path.split('/').pop()!, { path });
-  }
-  queue(name: string): string {
-    return this.add('queue', name, { name });
-  }
-  database(name: string, composeFile: string): string {
-    return this.add('database', name, { image: 'postgres', composeFile });
-  }
-  table(name: string, declaredIn: string): string {
-    return this.add('table', name, { declaredIn });
-  }
-  rel(kind: string, fromId: string, toId: string): void {
-    this.relations.push({
-      id: `rel_${hex()}`,
-      kind,
-      fromId,
-      toId,
-      status: 'supported',
-      confidence: 'high',
-      evidenceIds: [],
-    });
-  }
-  graph(claims: GraphClaim[] = []): PlannerGraph {
-    return {
-      projectId: `proj_${'0'.repeat(32)}`,
-      snapshotId: `snap_${'0'.repeat(32)}`,
-      hasPrevious: false,
-      entities: this.entities,
-      relations: this.relations,
-      gaps: [],
-      changes: [],
-      claims,
-    };
-  }
-}
-
 const rootOf = (c: Catalog) => c.canvases.find((x) => x.lens === 'design-system')!;
 const canvas = (c: Catalog, ...titles: string[]) => {
   let cur = rootOf(c);

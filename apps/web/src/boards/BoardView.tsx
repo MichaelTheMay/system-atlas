@@ -1,7 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { BoardDocument, ComponentType, DesignBoard } from '@atlas/schema';
-import { viewportCoordsToSceneCoords } from '@excalidraw/excalidraw';
+import {
+  CaptureUpdateAction,
+  restoreElements,
+  viewportCoordsToSceneCoords,
+} from '@excalidraw/excalidraw';
 import type { AppState, ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import { layoutInWorker } from '../layout.ts';
 import { BoardAgentProvider } from './agentContext.tsx';
@@ -46,6 +50,25 @@ const fingerprint = (els: readonly SceneElement[], files: object) =>
 export const BOARD_INSPECTOR_SLOT = 'board-inspector-slot';
 
 /**
+ * Resolves once the canvas has loaded the two fonts boards are drawn in (it starts loading them
+ * when it mounts a scene that uses them), or after four seconds.
+ */
+function sceneFontsLoaded(): Promise<void> {
+  const loaded = (family: string) =>
+    [...document.fonts].some(
+      (f) => f.family.replace(/["']/g, '') === family && f.status === 'loaded',
+    );
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const tick = () =>
+      (loaded('Excalifont') && loaded('Nunito')) || Date.now() - started > 4000
+        ? resolve()
+        : setTimeout(tick, 60);
+    tick();
+  });
+}
+
+/**
  * One design board (D03): the Excalidraw canvas with the component palette on the left and the
  * board inspector in the App's right column. Provides `BoardContext`. Saves are debounced, one in
  * flight at a time with optimistic revisions; the scene is read from Excalidraw at save time and
@@ -77,10 +100,32 @@ export function BoardView({
   const saving = useRef(false);
   const dirty = useRef(false);
   const pending = useRef(false);
+  /** The board was materialized on this open (its text still needs the canvas fonts). */
+  const freshlyDrawn = useRef(false);
 
   useEffect(() => {
     setSlot(document.getElementById(BOARD_INSPECTOR_SLOT));
   }, []);
+
+  // the boards this one details, outermost first (boards nest at most three levels)
+  const [ancestors, setAncestors] = useState<{ id: string; name: string }[]>([]);
+  const parentId = board?.parentBoardId;
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const chain: { id: string; name: string }[] = [];
+      for (let id = parentId; id && chain.length < 3;) {
+        const b = await getBoard(token, id).catch(() => undefined);
+        if (!b) break;
+        chain.unshift({ id: b.id, name: b.name });
+        id = b.parentBoardId;
+      }
+      if (live) setAncestors(chain);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [token, parentId]);
 
   /** Saves the latest document; while one save is in flight, later edits queue one more. */
   const flush = useCallback(async () => {
@@ -172,6 +217,7 @@ export function BoardView({
         if (cancelled) return;
         const loaded = { ...b, document };
         boardRef.current = loaded;
+        freshlyDrawn.current = needsMaterialize(b.document);
         setBoard(loaded);
         if (document !== b.document) {
           // save the drawn layout once the canvas is up (the save reads the scene from it)
@@ -245,15 +291,22 @@ export function BoardView({
             <button type="button" className="icon-btn" onClick={onBack}>
               ← Boards
             </button>
-            {board.parentBoardId && (
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={() => onOpen(board.parentBoardId!)}
-                title="Back to the board this one details"
-              >
-                ↑ Parent board
-              </button>
+            {ancestors.length > 0 && (
+              <nav className="board-path" aria-label="Board path">
+                {ancestors.map((a) => (
+                  <span key={a.id}>
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => onOpen(a.id)}
+                      title="Open the board this one details"
+                    >
+                      {a.name}
+                    </button>
+                    <span aria-hidden="true"> / </span>
+                  </span>
+                ))}
+              </nav>
             )}
             <h2 className="board-title">{board.name}</h2>
             <span className={`board-status board-status-${status}`} aria-live="polite">
@@ -304,6 +357,20 @@ export function BoardView({
                         animate: false,
                       });
                     }, 120);
+                    // a board drawn on this open was measured before the canvas loaded its
+                    // fonts: once they are in, wrap and size its text again with them
+                    if (freshlyDrawn.current) {
+                      freshlyDrawn.current = false;
+                      void sceneFontsLoaded().then(() => {
+                        if (apiRef.current !== a) return;
+                        a.updateScene({
+                          elements: restoreElements(a.getSceneElementsIncludingDeleted(), null, {
+                            refreshDimensions: true,
+                          }),
+                          captureUpdate: CaptureUpdateAction.NEVER,
+                        });
+                      });
+                    }
                   }}
                   initialData={{
                     elements: board.document.scene.elements as never,

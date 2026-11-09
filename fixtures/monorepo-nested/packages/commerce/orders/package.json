@@ -1,0 +1,11 @@
+{
+  "name": "@shop/orders",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@shop/cart": "workspace:*",
+    "@shop/config": "workspace:*",
+    "@shop/db": "workspace:*",
+    "bullmq": "^5.0.0"
+  }
+}

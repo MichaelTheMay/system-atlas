@@ -1,0 +1,9 @@
+{
+  "name": "@shop/db",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@shop/config": "workspace:*",
+    "pg": "^8.0.0"
+  }
+}
