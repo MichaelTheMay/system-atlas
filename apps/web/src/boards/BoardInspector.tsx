@@ -9,10 +9,12 @@ import {
   type Connection,
   type PropertyField,
 } from '@atlas/schema';
+import { useBoardAgent } from './agentContext.tsx';
 import { AgentTabs } from './AgentTabs.tsx';
 import { createBoard } from './api.ts';
 import { useBoard } from './context.ts';
 import { DocPanel } from './DocPanel.tsx';
+import { flowSession, useFlowSession } from './flowSession.ts';
 import { ComponentIcon, FAMILY_LABEL } from './Palette.tsx';
 import { ScenariosPanel } from './ScenariosPanel.tsx';
 
@@ -23,6 +25,12 @@ import { ScenariosPanel } from './ScenariosPanel.tsx';
  */
 export function BoardInspector() {
   const { board, selection } = useBoard();
+  // arriving by following a flow from another board (D04): its player is on the Scenarios tab
+  const { setTab } = useBoardAgent();
+  const session = useFlowSession();
+  useEffect(() => {
+    if (flowSession.pendingFor(board.id)) setTab('scenarios');
+  }, [board.id, session, setTab]);
   const component = selection.componentId
     ? board.document.components[selection.componentId]
     : undefined;

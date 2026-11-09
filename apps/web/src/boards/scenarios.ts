@@ -3,7 +3,7 @@ import { convertToExcalidrawElements, newElementWith } from '@excalidraw/excalid
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import { atlasTag } from './tags.ts';
 
-export { connectionTitle, scenarioToMermaid } from '@atlas/export';
+export { connectionTitle, missingHops, scenarioGaps, scenarioToMermaid } from '@atlas/export';
 
 /**
  * Scenario overlays on the canvas (D03 wave 1b). The scenario itself lives in

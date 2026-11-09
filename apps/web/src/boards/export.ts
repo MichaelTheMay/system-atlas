@@ -1,4 +1,4 @@
-import { boardToMarkdown } from '@atlas/export';
+import { boardToMarkdown, type DrillResolver } from '@atlas/export';
 import type { DesignBoard } from '@atlas/schema';
 import { exportToBlob, exportToSvg, serializeAsJSON } from '@excalidraw/excalidraw';
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
@@ -65,6 +65,8 @@ export async function exportBoard(
   kind: 'png' | 'svg' | 'excalidraw' | 'markdown' | 'markdown-zip',
   api: ExcalidrawImperativeAPI,
   board: DesignBoard,
+  /** Looks up the internals boards its flows drill into (Markdown only). */
+  resolveDrill?: DrillResolver,
 ): Promise<void> {
   const base = fileBase(board.name);
   switch (kind) {
@@ -78,9 +80,12 @@ export async function exportBoard(
         `${base}.excalidraw`,
       );
     case 'markdown':
-      return download(new Blob([boardToMarkdown(board)], { type: 'text/markdown' }), `${base}.md`);
+      return download(
+        new Blob([boardToMarkdown(board, { resolveDrill })], { type: 'text/markdown' }),
+        `${base}.md`,
+      );
     case 'markdown-zip': {
-      const md = boardToMarkdown(board, { imagePath: `${base}.png` });
+      const md = boardToMarkdown(board, { imagePath: `${base}.png`, resolveDrill });
       const png = new Uint8Array(await (await pngOf(api, true)).arrayBuffer());
       const zip = makeZip([
         { name: `${base}.md`, data: new TextEncoder().encode(md) },

@@ -417,3 +417,173 @@ test('from code, recursively (D04): subsystems open as internals boards two leve
   await expect(list.locator('.board-card')).toHaveCount(1);
   await expect(list.locator('.board-card')).toContainText('7 internals board(s)');
 });
+
+test('flow gaps (D04): a step the flow has not reached is flagged and repaired in one click', async ({
+  page,
+  request,
+}) => {
+  const { wt, projectId } = await registerEmpty(request, 'chat');
+  await openBoards(page, wt);
+  await page.getByLabel('Name').fill('Chat');
+  await page.getByLabel('Start from').selectOption('chat');
+  await page.getByRole('button', { name: 'Create board' }).click();
+  const board = page.getByRole('region', { name: 'Design board: Chat' });
+  await expect(board.locator('.excalidraw')).toBeVisible();
+  const { boards } = (await (
+    await request.get(`/api/v1/projects/${projectId}/boards`, { headers: auth })
+  ).json()) as { boards: { id: string }[] };
+  const steps = async () => {
+    const b = await (
+      await request.get(`/api/v1/boards/${boards[0]!.id}`, { headers: auth })
+    ).json();
+    return (b.document.scenarios[0].steps as { connectionId?: string }[]).map(
+      (s) => s.connectionId ?? '-',
+    );
+  };
+
+  await page.getByRole('tab', { name: 'Scenarios' }).click();
+  const panel = page.getByRole('tabpanel', { name: 'Scenarios' });
+  // "Send a message to an online friend" goes mobile -> load balancer, then gateway -> chat
+  // service: nothing takes it from the load balancer to the gateway
+  const first = panel.locator('.scenario').first();
+  await expect(first.locator('.scenario-head .chip-gap')).toHaveText('1 gap(s)');
+  await expect(first.locator('.step-gap')).toHaveCount(1);
+  await expect(first.locator('.step').nth(1).locator('.step-gap')).toContainText(
+    'The flow has not reached this step.',
+  );
+  expect(await steps()).toEqual(['k3', 'k8', 'k9', 'k10', '-']);
+
+  await first.getByRole('button', { name: 'Insert missing hops before step 2' }).click();
+  await expect(first.locator('.step')).toHaveCount(6);
+  await expect(first.locator('.chip-gap')).toHaveCount(0);
+  // the inserted step is the load balancer -> gateway hop, and it is saved
+  await expect(first.getByLabel('Step 2 target')).toHaveValue('k:k5');
+  await expect.poll(steps).toEqual(['k3', 'k5', 'k8', 'k9', 'k10', '-']);
+
+  // the sequence view warns about a gap too: the second scenario is whole, so no warning there
+  await first.getByRole('button', { name: 'Sequence view' }).click();
+  await expect(first.getByRole('figure').locator('svg')).toBeVisible();
+  await expect(first.locator('.scenario-gap-note')).toHaveCount(0);
+});
+
+test('flows from code (D04): follow a derived flow into an internals board and back', async ({
+  page,
+  request,
+}) => {
+  const { wt } = await scanNested(request);
+  await openBoards(page, wt);
+  await page.getByLabel('Name').fill('Shop flows');
+  await page.getByLabel('Start from').selectOption('code');
+  await page.getByRole('button', { name: 'Create board' }).click();
+  const root = page.getByRole('region', { name: 'Design board: Shop flows' });
+  await expect(root.locator('.excalidraw')).toBeVisible();
+
+  await page.getByRole('tab', { name: 'Scenarios' }).click();
+  const panel = page.getByRole('tabpanel', { name: 'Scenarios' });
+  // three flows derived from the routes of apps/api, each marked as built, none with a gap
+  await expect(panel.locator('.scenario-name')).toHaveText([
+    /^POST \/orders\s*5 step\(s\)$/,
+    /^GET \/orders\/:id\s*3 step\(s\)$/,
+    /^GET \/products\s*3 step\(s\)$/,
+  ]);
+  await expect(panel.locator('.scenario-head .chip', { hasText: 'as built' })).toHaveCount(3);
+  await expect(panel.locator('.chip-gap')).toHaveCount(0);
+  const flow = panel.locator('.scenario').first();
+  await expect(flow.locator('.scenario-desc')).toContainText(
+    'a step may be reachable without being taken',
+  );
+  await expect(flow.getByLabel('Step 3 text')).toHaveValue(
+    '@shop/orders writes order_items and orders and reads orders in db.',
+  );
+  // steps 1 (inside apps) and 2 (into packages) open the same flow one level down
+  await expect(flow.locator('.step-drill')).toHaveCount(2);
+
+  // the sequence view draws the internals flows inside shaded blocks
+  await flow.getByRole('button', { name: 'Sequence view' }).click();
+  const figure = flow.getByRole('figure');
+  await expect(figure.locator('svg')).toContainText('Inside apps (apps — internals)');
+  await expect(figure.locator('svg')).toContainText('@shop/storefront');
+  await expect(figure.locator('svg')).toContainText('Inside commerce (commerce — internals)');
+
+  // player: step 1 happens inside apps; go down, play there, come back to step 2
+  await flow.getByRole('button', { name: 'Player' }).click();
+  await flow.getByRole('button', { name: 'Next ›' }).click();
+  await expect(flow.locator('.player-text')).toContainText('Step 1 / 5');
+  await flow.getByRole('button', { name: '↓ Into this step' }).click();
+
+  const apps = page.getByRole('region', { name: 'Design board: apps — internals' });
+  await expect(apps.locator('.excalidraw')).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Board path' }).getByRole('button')).toHaveText(
+    ['Shop flows'],
+  );
+  // the Scenarios tab opens by itself, on the same flow, in the player, at its first step
+  await expect(page.getByRole('tab', { name: 'Scenarios' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  const below = page.getByRole('tabpanel', { name: 'Scenarios' }).locator('.scenario').first();
+  await expect(below.locator('.player-text')).toContainText(
+    'Step 1 / 6: @shop/storefront calls POST /orders on @shop/api.',
+  );
+  await below.getByRole('button', { name: 'Next ›' }).click();
+  await expect(below.locator('.player-text')).toContainText('Step 2 / 6');
+
+  await below.getByRole('button', { name: '↑ Back to the flow above' }).click();
+  await expect(root.locator('.excalidraw')).toBeVisible();
+  const again = page.getByRole('tabpanel', { name: 'Scenarios' }).locator('.scenario').first();
+  // back on the root at the step after the one that led down
+  await expect(again.locator('.player-text')).toContainText(
+    'Step 2 / 5: @shop/api uses @shop/orders.',
+  );
+  // nothing to go back up to from the root
+  await expect(again.getByRole('button', { name: '↑ Back to the flow above' })).toHaveCount(0);
+});
+
+test('a board drawn on its first open has its text measured with the canvas fonts', async ({
+  page,
+  request,
+}) => {
+  // A new page has no canvas fonts loaded, so the board is drawn with fallback metrics first.
+  const { wt, projectId } = await scanNested(request);
+  await openBoards(page, wt);
+  await page.getByLabel('Name').fill('Fonts');
+  await page.getByLabel('Start from').selectOption('code');
+  await page.getByRole('button', { name: 'Create board' }).click();
+  await expect(
+    page.getByRole('region', { name: 'Design board: Fonts' }).locator('.excalidraw'),
+  ).toBeVisible();
+  const { boards } = (await (
+    await request.get(`/api/v1/projects/${projectId}/boards`, { headers: auth })
+  ).json()) as { boards: { id: string; parentBoardId?: string }[] };
+  const rootId = boards.find((b) => !b.parentBoardId)!.id;
+  /** Stored width of each long label against its width in the loaded hand-drawn font. */
+  const widths = async () => {
+    const b = await (await request.get(`/api/v1/boards/${rootId}`, { headers: auth })).json();
+    const labels = (
+      b.document.scene.elements as {
+        type: string;
+        text?: string;
+        width: number;
+        fontSize: number;
+        fontFamily: number;
+      }[]
+    ).filter((e) => e.type === 'text' && e.fontFamily === 5 && (e.text?.length ?? 0) >= 18);
+    return page.evaluate(async (els) => {
+      await document.fonts.load('20px Excalifont', 'Build');
+      const ctx = document.createElement('canvas').getContext('2d')!;
+      return els.map((e) => {
+        ctx.font = `${e.fontSize}px Excalifont`;
+        const real = Math.max(...e.text!.split('\n').map((l) => ctx.measureText(l).width));
+        return { text: e.text, off: Math.round(Math.abs(real - e.width)) };
+      });
+    }, labels);
+  };
+  // "Build & test tooling", "Fixtures & examples", "Third-party libraries": saved within 2px of
+  // their real width (they were up to 20px short, and clipped, when measured too early)
+  await expect
+    .poll(async () => {
+      const w = await widths();
+      return w.length >= 3 && w.every((x) => x.off <= 2) ? 'ok' : JSON.stringify(w);
+    })
+    .toBe('ok');
+});

@@ -2,11 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import type { BoardDocument, Scenario } from '@atlas/schema';
 import { CaptureUpdateAction } from '@excalidraw/excalidraw';
 import { useBoard } from './context.ts';
+import { flowSession, useFlowSession } from './flowSession.ts';
 import { Player } from './Player.tsx';
 import {
   clearDecorations,
   connectionTitle,
+  missingHops,
   newLocalId,
+  scenarioGaps,
   shownScenarioId,
   showScenario,
 } from './scenarios.ts';
@@ -20,14 +23,24 @@ type Step = Scenario['steps'][number];
  * the step numbers on the canvas (one scenario at a time), with a sequence view and a player.
  */
 export function ScenariosPanel() {
-  const { board, api, patchDocument, selection } = useBoard();
+  const { board, api, patchDocument, selection, openBoard } = useBoard();
+  useFlowSession();
   const doc = board.document;
   const scenarios = doc.scenarios.filter((s) => s.status !== 'rejected');
-  const [openId, setOpenId] = useState<string | undefined>(scenarios[0]?.id);
+  // arriving by following a flow from another board (D04): open that flow in the player
+  const arriving = flowSession.pendingFor(board.id);
+  const [openId, setOpenId] = useState<string | undefined>(
+    arriving?.scenarioId ?? scenarios[0]?.id,
+  );
   const [shown, setShown] = useState<string | undefined>();
   const [renaming, setRenaming] = useState<string>();
   const [confirmDelete, setConfirmDelete] = useState<string>();
-  const [view, setView] = useState<'steps' | 'sequence' | 'player'>('steps');
+  const [view, setView] = useState<'steps' | 'sequence' | 'player'>(arriving ? 'player' : 'steps');
+  useEffect(() => {
+    if (!arriving) return;
+    setOpenId(arriving.scenarioId);
+    setView('player');
+  }, [arriving]);
 
   // the shown scenario is whatever step numbers are on the canvas (survives panel switches)
   useEffect(() => {
@@ -99,6 +112,15 @@ export function ScenariosPanel() {
     if (v.startsWith('c:')) return { ...rest, componentId: v.slice(2) };
     return rest;
   };
+  /** Full text of a step's target, for the tooltip of its (narrow) picker. */
+  const stepTitle = (st: Step) => {
+    const k = st.connectionId ? doc.connections[st.connectionId] : undefined;
+    return k
+      ? connectionTitle(doc, k)
+      : st.componentId
+        ? doc.components[st.componentId]?.label
+        : '';
+  };
   const selectionTarget = selection.connectionId
     ? `k:${selection.connectionId}`
     : selection.componentId
@@ -153,6 +175,19 @@ export function ScenariosPanel() {
                   </button>
                 )}
                 {s.status === 'proposed' && <span className="chip chip-agent">agent</span>}
+                {s.origin.author === 'code' && (
+                  <span className="chip" title="Derived from code when the board was imported">
+                    as built
+                  </span>
+                )}
+                {scenarioGaps(doc, s).size > 0 && (
+                  <span
+                    className="chip chip-gap"
+                    title="A step starts at a component the flow has not reached"
+                  >
+                    {scenarioGaps(doc, s).size} gap(s)
+                  </span>
+                )}
                 <button
                   type="button"
                   aria-pressed={shown === s.id}
@@ -209,11 +244,15 @@ export function ScenariosPanel() {
                       )}
                     </span>
                   </div>
+                  {s.description && view === 'steps' && (
+                    <p className="scenario-desc">{s.description}</p>
+                  )}
                   {view === 'sequence' ? (
                     <SequenceView scenario={s} />
                   ) : view === 'player' ? (
                     <Player
                       scenario={s}
+                      resume={arriving?.scenarioId === s.id ? arriving : undefined}
                       onStart={() => {
                         if (shown !== s.id) apply(doc, s);
                       }}
@@ -229,6 +268,7 @@ export function ScenariosPanel() {
                             <div className="step-fields">
                               <select
                                 aria-label={`Step ${i + 1} target`}
+                                title={stepTitle(st)}
                                 value={targetOf(st)}
                                 onChange={(e) =>
                                   update(s.id, (x) => ({
@@ -272,6 +312,61 @@ export function ScenariosPanel() {
                                     }));
                                 }}
                               />
+                              {scenarioGaps(doc, s).has(st.id) && (
+                                <p className="step-gap" role="note">
+                                  <span className="chip chip-gap">gap</span> The flow has not
+                                  reached this step.{' '}
+                                  {missingHops(doc, s, st.id).length ? (
+                                    <button
+                                      type="button"
+                                      className="link-btn"
+                                      aria-label={`Insert missing hops before step ${i + 1}`}
+                                      onClick={() =>
+                                        update(s.id, (x) => {
+                                          const at = x.steps.findIndex((y) => y.id === st.id);
+                                          const hops = missingHops(doc, x, st.id).map(
+                                            (connectionId) => ({
+                                              id: newLocalId('st'),
+                                              connectionId,
+                                              text: '',
+                                            }),
+                                          );
+                                          return {
+                                            ...x,
+                                            steps: [
+                                              ...x.steps.slice(0, at),
+                                              ...hops,
+                                              ...x.steps.slice(at),
+                                            ],
+                                          };
+                                        })
+                                      }
+                                    >
+                                      Insert {missingHops(doc, s, st.id).length} missing hop(s)
+                                    </button>
+                                  ) : (
+                                    'No connection on the board joins it to the flow.'
+                                  )}
+                                </p>
+                              )}
+                              {st.drillInto && (
+                                <button
+                                  type="button"
+                                  className="link-btn step-drill"
+                                  aria-label={`Open the internals flow of step ${i + 1}`}
+                                  title="Play this step on the board of the component it passes through"
+                                  onClick={() => {
+                                    flowSession.descend(
+                                      { boardId: board.id, scenarioId: s.id, index: i },
+                                      st.drillInto!,
+                                      false,
+                                    );
+                                    openBoard(st.drillInto!.boardId);
+                                  }}
+                                >
+                                  ↓ Open internals flow
+                                </button>
+                              )}
                             </div>
                             <div className="step-actions">
                               <button

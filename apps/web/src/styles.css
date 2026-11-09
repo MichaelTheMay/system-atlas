@@ -2093,7 +2093,8 @@ button.badge.issues {
 }
 .step {
   display: grid;
-  grid-template-columns: 24px 1fr auto;
+  /* the action buttons sit under the fields, so the hop picker gets the full panel width */
+  grid-template-columns: 24px 1fr;
   gap: 6px;
   align-items: start;
 }
@@ -2127,8 +2128,33 @@ button.badge.issues {
   resize: vertical;
 }
 .step-actions {
-  display: grid;
-  gap: 2px;
+  grid-column: 2;
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.chip-gap {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fcd34d;
+}
+.step-gap,
+.scenario-gap-note {
+  margin: 0;
+  font-size: 12px;
+  color: #92400e;
+}
+.scenario-desc {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #64748b;
+}
+.step-drill {
+  justify-self: start;
+  font-size: 12px;
+}
+.player-levels {
+  margin-top: 6px;
 }
 .board-side .step-actions button {
   padding: 0 6px;
@@ -2299,13 +2325,17 @@ button.badge.issues {
   border-radius: 12px;
   box-shadow: 0 24px 64px rgb(15 23 42 / 25%);
   padding: 12px 16px;
-  grid-template-rows: auto 1fr;
+  /* a column: actions, the gap note when there is one, and the diagram takes what is left */
+  display: flex;
+  flex-direction: column;
 }
 .seq-large .seq-svg {
   max-height: none;
   border: none;
   display: grid;
   place-items: center;
+  flex: 1;
+  min-height: 0;
 }
 .doc-summary textarea {
   font-weight: 400;

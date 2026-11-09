@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useBoard } from './context.ts';
+import { drillResolver, loadDrillBoards } from './drill.ts';
 import { exportBoard } from './export.ts';
 
 const ITEMS = [
@@ -12,7 +13,7 @@ const ITEMS = [
 
 /** Toolbar "Export ▾" of a board (D03 wave 1b); see export.ts for the formats. */
 export function ExportMenu() {
-  const { board, api } = useBoard();
+  const { board, api, token } = useBoard();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -50,7 +51,12 @@ export function ExportMenu() {
                 setOpen(false);
                 setBusy(true);
                 setError(undefined);
-                exportBoard(kind, api, board)
+                // a Markdown export draws the flows of the internals boards inside its diagrams
+                (kind === 'markdown' || kind === 'markdown-zip'
+                  ? loadDrillBoards(token, board.document).then(drillResolver)
+                  : Promise.resolve(undefined)
+                )
+                  .then((resolve) => exportBoard(kind, api, board, resolve))
                   .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
                   .finally(() => setBusy(false));
               }}
