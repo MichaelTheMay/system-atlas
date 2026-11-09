@@ -364,8 +364,10 @@ export function BoardView({
                       void sceneFontsLoaded().then(() => {
                         if (apiRef.current !== a) return;
                         a.updateScene({
+                          // `refreshDimensions` is only applied together with `repairBindings`
                           elements: restoreElements(a.getSceneElementsIncludingDeleted(), null, {
                             refreshDimensions: true,
+                            repairBindings: true,
                           }),
                           captureUpdate: CaptureUpdateAction.NEVER,
                         });
