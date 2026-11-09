@@ -133,8 +133,9 @@ export function App() {
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // D03: the design root has two tabs; boards are design-first, the derived lens comes from code
-  const [designTab, setDesignTab] = useState<'code' | 'boards'>('code');
+  // D03: the design root has two tabs; boards (design-first) are the default, the derived lens is
+  // "From code". Navigating to a derived design canvas (catalog, realized-by, review) shows it.
+  const [designTab, setDesignTab] = useState<'code' | 'boards'>('boards');
   const designSettings = useDesignSettings(token, copilotOpen || generateOpen || settingsOpen);
 
   const navigate = useCallback((loc: Location) => {
@@ -142,6 +143,7 @@ export function App() {
     setSelection((s) => (s?.type === 'node' && s.node.entityId ? s : null));
     const ws = workspaceOf(catalogRef.current?.canvases.find((c) => c.id === loc.canvasId));
     setRoot((r) => (r === ws ? r : ws));
+    if (ws === 'design') setDesignTab('code');
     setHistories((all) => {
       const h = all[ws];
       const cur = h.stack[h.index];
