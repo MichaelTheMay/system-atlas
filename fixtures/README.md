@@ -8,6 +8,7 @@ execute them; tests that execute `research-demo` do so on a temporary copy; test
 | `ts-web-service` | TS monorepo: React UI, Fastify API, BullMQ worker, Redis queue, Postgres tables, Docker Compose | A03-A07, Phase 1 acceptance |
 | `py-cli-api` | Python package: FastAPI API, argparse CLI, export job, SQLite store | A03-A07, Phase 1 acceptance |
 | `elixir-unsupported` | Elixir service with no Atlas analyzer | A03 coverage gaps |
+| `monorepo-nested` | Shop monorepo that nests: 4 apps (two React clients, Fastify API, BullMQ worker), 14 packages in three areas, 2 examples, root tool configuration, Postgres tables | D04 (design hierarchy, recursive from-code boards) |
 | `research-demo` | §18 demo: web page, API + queue, worker with two tools writing JSON/PNG/HTML | Phase 2 (`atlas run`, browser capture, Outputs & Audit) |
 
 Hand-authored expected graphs (`expected.json`) are added with the analyzers in A04 and are

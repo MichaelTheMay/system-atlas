@@ -1,0 +1,9 @@
+{
+  "name": "@shop/auth",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@shop/config": "workspace:*",
+    "@shop/logger": "workspace:*"
+  }
+}

@@ -1,0 +1,5 @@
+services:
+  db:
+    image: postgres:17
+  queue:
+    image: redis:7
