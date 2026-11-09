@@ -154,7 +154,16 @@ A third workspace, `design`, draws whiteboard views of the same semantic graph: 
   - Each is linked to its parent by a `child` link, so the navigation tree stays acyclic.
 - **Where subsystems come from:**
   - **Claims.** Each non-rejected `subsystem` claim places the box that contains its subject on a path. A claim on a module lifts to the box that module belongs to; a box is never split.
-  - **Baseline.** Used only when no usable `subsystem` claim exists. A deployable that runs two or more packages becomes a `detected` subsystem named after the deployable. As soon as any claim applies, the baseline is not computed.
+  - **Detected: a deployable.** A deployable that runs two or more packages becomes a `detected` subsystem named after the deployable.
+  - **Detected: repository layout (D04).** Applied only when the root would show more than 12 boxes, so a small repo keeps a flat whiteboard. The rules run in this order:
+    1. Boxes under `fixtures/`, `examples/`, `testdata/`, `__fixtures__/` or `samples/` form "Fixtures & examples". Its reason says they are not part of the running system.
+    2. Root-level tool configuration files (`*.config.*`, `.*rc`) and the `scripts/` folder form "Build & test tooling".
+    3. Two or more boxes that share a top-level folder (`apps/`, `packages/`, …) form a subsystem named after the folder. A folder with one box stays on the root.
+    4. A group that still has more than 12 boxes is split the same way by its next folder level, down to the depth limit. A folder level that every box shares is skipped.
+    5. Where a level is one flat folder of many siblings, boxes that share the next name token form a family. `client-ui-plan` and `client-ui-input` become `client-ui`.
+  - **Location of a box.** A package's directory, a module's folder, or the folder of a compose file, Dockerfile or migration. A box with no location of its own (a queue, an external system) counts as sitting in the deepest folder shared by every box it exchanges flows with. Third-party libraries always stay on the root.
+  - **Claims and detection mix.** A claim moves only its own box. Boxes without a claim keep their detected subsystem, so accepting one grouping does not dissolve the others. An agent's proposal also moves its boxes while it is `proposed`; rejecting it puts them back.
+  - Detected path segments have the form `name#…`, which a claim path cannot produce, so the two never collide.
 - **Paths.**
   - The value is split on `/`. Each segment is trimmed and its whitespace collapsed.
   - The lowercased segments are the identity, so `Backend/Auth` and `backend / auth` are the same subsystem.
@@ -162,6 +171,7 @@ A third workspace, `design`, draws whiteboard views of the same semantic graph: 
 - **One path per box.** When claims put a box on several paths, the lexicographically first normalized path wins.
 - **Titles.** A subsystem canvas is titled with its own, last segment, so `Backend/Auth` is titled "Auth". The casing comes from the first human claim, otherwise from the first claim by id.
 - **Context ports.** On a subsystem canvas, boxes outside it that exchange flows with it are drawn as ports.
+  - Outside boxes that sit in another subsystem are folded into one port for that subsystem, which opens its canvas. The port is the subsystem at the level where the two paths part.
   - Flows between two ports are dropped.
   - Ports with no flows are removed.
 - **Subsystem boxes.** On the parent canvas, a subsystem is one box that opens its canvas.
@@ -170,22 +180,25 @@ A third workspace, `design`, draws whiteboard views of the same semantic graph: 
 - **Caps.**
   - At most 200 nodes per design canvas, the plan §16 hard cap.
   - A single-package repo is grouped by directory, with up to 10 groups. The smallest fold into one "N more modules" box.
+  - Layout subsystems are not capped per canvas. A folder with many sub-folders, or a name family at the depth limit, can still be crowded (see D04 evidence in `IMPLEMENTATION_STATUS.md`).
 
 ### Boxes and archetypes
 
 Every non-test entity belongs to at most one box, so relations aggregate into flows between boxes. Each box has an archetype and a one-sentence reason, shown in the UI and in exports.
 
-| Box                                                                             | Archetype                                                                                                              |
-| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| All third-party packages, as one box                                            | `library`                                                                                                              |
-| External system                                                                 | `external-api`                                                                                                         |
-| Queue or topic                                                                  | `queue`, with publisher and subscriber counts                                                                          |
-| Database whose name or image matches redis, memcached, valkey or dragonfly      | `cache` (labeled heuristic)                                                                                            |
-| Other database                                                                  | `datastore`. The first one also holds the declared tables. With no database, the tables form one "Database tables" box |
-| Infrastructure resource                                                         | See the infrastructure rules below. All are labeled heuristic                                                          |
-| Code: a deployable fused with the one package it runs                           | Code rules below                                                                                                       |
-| Code: a package run by a deployable that runs several packages                  | Code rules below. These packages form the baseline subsystem                                                           |
-| Code: any other internal package, or a directory group of a single-package repo | Code rules below                                                                                                       |
+**Tables (D04).** A table joins the database whose compose folder contains the table's file; the deepest such folder wins. Otherwise it joins a database in the same package (the nearest enclosing non-root package, or the root project). Tables that match no database form their own `datastore` box: "Database tables" for the root project, "`<package>` tables" for a package. A repo that contains several projects therefore no longer puts every table into the first database found.
+
+| Box                                                                             | Archetype                                                            |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| All third-party packages, as one box                                            | `library`                                                            |
+| External system                                                                 | `external-api`                                                       |
+| Queue or topic                                                                  | `queue`, with publisher and subscriber counts                        |
+| Database whose name or image matches redis, memcached, valkey or dragonfly      | `cache` (labeled heuristic)                                          |
+| Other database                                                                  | `datastore`. It also holds the tables of its own project (see below) |
+| Infrastructure resource                                                         | See the infrastructure rules below. All are labeled heuristic        |
+| Code: a deployable fused with the one package it runs                           | Code rules below                                                     |
+| Code: a package run by a deployable that runs several packages                  | Code rules below. These packages form the baseline subsystem         |
+| Code: any other internal package, or a directory group of a single-package repo | Code rules below                                                     |
 
 A deployable "runs" a package when its entrypoints call into the package, or when its Dockerfile sits in the package directory.
 
