@@ -36,7 +36,18 @@ export function registerBoardExportRoutes(
       return reply
         .header('content-type', 'text/markdown; charset=utf-8')
         .header('x-content-type-options', 'nosniff')
-        .send(boardToMarkdown(b));
+        .send(
+          boardToMarkdown(b, {
+            // a step that drills into an internals board of the same project draws its flow
+            resolveDrill: (drill) => {
+              const sub = getBoard(db, drill.boardId);
+              const scenario = sub?.document.scenarios.find((s) => s.id === drill.scenarioId);
+              return sub && sub.projectId === b.projectId && scenario
+                ? { doc: sub.document, scenario, boardName: sub.name }
+                : undefined;
+            },
+          }),
+        );
     },
   );
 
