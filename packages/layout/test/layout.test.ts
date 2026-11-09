@@ -89,4 +89,49 @@ describe('elk layout', () => {
     });
     expect(again.positions).toEqual(after.positions);
   });
+
+  it('returns edge routes in absolute coordinates that start and end on the node borders', async () => {
+    const engine = createElkLayoutEngine();
+    const r = await engine.layout({
+      nodes: [
+        { id: 'a', width: 100, height: 60 },
+        { id: 'zone', width: 10, height: 10 },
+        { id: 'b', width: 100, height: 60, parentId: 'zone' },
+        { id: 'c', width: 100, height: 60, parentId: 'zone' },
+      ],
+      edges: [
+        { id: 'e1', source: 'a', target: 'b', label: { width: 120, height: 20 } },
+        // both ends share a compound parent: ELK nests the edge there
+        { id: 'e2', source: 'b', target: 'c' },
+      ],
+      spacing: { betweenLayers: 140 },
+      routes: true,
+    });
+    const onBorder = (p: { x: number; y: number }, id: string) => {
+      const n = r.positions[id]!;
+      const within = (v: number, lo: number, hi: number) => v >= lo - 1 && v <= hi + 1;
+      return (
+        within(p.x, n.x, n.x + n.width) &&
+        within(p.y, n.y, n.y + n.height) &&
+        (Math.abs(p.x - n.x) < 1.5 ||
+          Math.abs(p.x - n.x - n.width) < 1.5 ||
+          Math.abs(p.y - n.y) < 1.5 ||
+          Math.abs(p.y - n.y - n.height) < 1.5)
+      );
+    };
+    for (const [id, s, t] of [
+      ['e1', 'a', 'b'],
+      ['e2', 'b', 'c'],
+    ] as const) {
+      const pts = r.edges?.[id];
+      expect(pts && pts.length >= 2, id).toBe(true);
+      expect(onBorder(pts![0]!, s), `${id} start`).toBe(true);
+      expect(onBorder(pts!.at(-1)!, t), `${id} end`).toBe(true);
+    }
+    // layer spacing is honoured; the default stays for callers that do not ask
+    expect(r.positions.zone!.x - (r.positions.a!.x + 100)).toBeGreaterThanOrEqual(139);
+    expect(
+      (await engine.layout({ nodes: [{ id: 'x', width: 1, height: 1 }], edges: [] })).edges,
+    ).toBe(undefined);
+  });
 });

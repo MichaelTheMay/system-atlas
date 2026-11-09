@@ -33,6 +33,14 @@ All paths inside canvases are relative to the export directory, the way JSON Can
 | Image artifact                    | `file` node pointing at the copied image                                                                                           |
 | Other artifact                    | `text` node with a link to the copied file, or _missing_ or _not exported_ with the reason                                         |
 
+**System-design canvases** (D01) are in the catalog, so they export like any view: `views/system-design.canvas` for the root, plus one file per subsystem canvas. Their boxes carry more:
+
+- an italic line with the box's archetype and, for subsystems that are not `detected`, its provenance, for example `_api-service · proposed_`;
+- a `[Realized by: <title> →](views/…canvas)` link to the architecture canvas that realizes the box. Like drill-down links, it is root-relative. When that canvas is not part of the export (with `--view`), the link is left out and the count is disclosed;
+- edges labeled with the whiteboard flow (`HTTP`, `enqueue`, `uses` and so on) instead of relation kinds, with any non-supported status appended. The sidecar still lists each edge's relation kinds and ids.
+
+Design boxes are drawn taller to fit the extra lines. The archetype reason is not exported.
+
 **Statuses** are written as text. Preset colors repeat them:
 
 | Color      | Meaning                          |
@@ -65,10 +73,10 @@ All paths inside canvases are relative to the export directory, the way JSON Can
 
 ## Verified with a renderer
 
-`apps/cli/test/export.test.ts` opens the exported view and run canvases in [json-canvas-viewer](https://www.npmjs.com/package/json-canvas-viewer) 4.3.2 (MIT, dev-only), served as static files. It checks that:
+`apps/cli/test/export.test.ts` opens the exported view, system-design and run canvases in [json-canvas-viewer](https://www.npmjs.com/package/json-canvas-viewer) 4.3.2 (MIT, dev-only), served as static files. It checks that:
 
 - there are no page errors and no failed requests;
-- labels and links are visible;
+- labels and links are visible, including "Realized by" links that resolve to exported architecture canvases;
 - the copied chart image loads.
 
 The Skena bridge is not built. Skena is a VS Code extension, and VS Code integration was dropped by user decision; JSON Canvas files are the interoperability point.

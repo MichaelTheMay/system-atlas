@@ -1,37 +1,40 @@
 # Implementation status
 
-Last updated: 2026-10-26. Spec: `docs/plan/System_Atlas_Claude_Code_Plan.md`.
+Last updated: 2026-11-09. Spec: `docs/plan/System_Atlas_Claude_Code_Plan.md`.
 
 Status values: `not started` · `in progress` · `done` (with PR and evidence) · `blocked` (with reason).
 
 ## Next ticket
 
-**Waiting for the user's go-ahead** before planning the system-design lens (whiteboard root). It is proposed as the next ticket. L01 is in PR #22.
+**D04: recursive design boards and user-flow mapping** (not yet planned in detail). D03 is complete in `develop`. Known starting points, seen on Atlas's own repo on 2026-11-09: a from-code board is one flat frame (31 boxes, 82 connections, hard to read), internals sub-boards start empty and are created one at a time by hand, and scenarios (user flows) are written by hand only and stay on one board.
 
 ## Tickets (plan §17)
 
-| ID  | Ticket                                               | Depends on  | Status      | PR / evidence                                |
-| --- | ---------------------------------------------------- | ----------- | ----------- | -------------------------------------------- |
-| A00 | Repository bootstrap, GitHub remote, branch rules    | —           | done        | bootstrap commit on `main`                   |
-| A01 | Bootstrap workspace, contracts and ADRs              | —           | not started |                                              |
-| A02 | Project/worktree identity and SQLite migrations      | A01         | not started |                                              |
-| A03 | Inventory and coverage report                        | A02         | not started |                                              |
-| A04 | TS/JS and Python analyzers                           | A03         | not started |                                              |
-| A05 | Semantic identity and snapshot reconciler            | A04         | not started |                                              |
-| A06 | View planner and canvas navigation                   | A05         | done        | PR #6; see A06 evidence                      |
-| A07 | React Flow, layout worker, overlays and inspector    | A06         | done        | PR #7; see A07 evidence                      |
-| E01 | Run/event/artifact store and ingestion               | A02         | done        | PR #8; see E01 evidence                      |
-| E02 | Process wrapper and output registration              | E01         | done        | PR #9; see E02 evidence                      |
-| E03 | Playwright capture helper                            | E01         | done        | PR #10; see E03 evidence                     |
-| E04 | Output canvases and isolated preview renderer        | E02,E03,A07 | done        | PR #11; see E04 evidence                     |
-| M01 | Watcher and incremental invalidation                 | A05,A07     | done        | PRs #13, #14, #15                            |
-| M02 | Model proposal validation, cache and budget          | M01         | done        | PRs #17, #18 (view proposals deferred)       |
-| I01 | MCP and generic event SDK                            | E01,A06     | done        | PR #16                                       |
-| I02 | VS Code integration                                  | I01         | dropped     | user decision 2026-10-26                     |
-| I03 | OTLP subset and bundle importer                      | E04         | done        | PR #20                                       |
-| I04 | Skena/JSON Canvas bridge                             | I01,A07     | done        | PR #21 (JSON Canvas export; no Skena bridge) |
-| H01 | Retention, recovery, export and performance          | E04,M01     | not started |                                              |
-| L01 | Go and Java/JVM analyzers (Phase 4; not in plan §17) | A04         | done        | PR #22                                       |
+| ID  | Ticket                                               | Depends on  | Status      | PR / evidence                                       |
+| --- | ---------------------------------------------------- | ----------- | ----------- | --------------------------------------------------- |
+| A00 | Repository bootstrap, GitHub remote, branch rules    | —           | done        | bootstrap commit on `main`                          |
+| A01 | Bootstrap workspace, contracts and ADRs              | —           | not started |                                                     |
+| A02 | Project/worktree identity and SQLite migrations      | A01         | not started |                                                     |
+| A03 | Inventory and coverage report                        | A02         | not started |                                                     |
+| A04 | TS/JS and Python analyzers                           | A03         | not started |                                                     |
+| A05 | Semantic identity and snapshot reconciler            | A04         | not started |                                                     |
+| A06 | View planner and canvas navigation                   | A05         | done        | PR #6; see A06 evidence                             |
+| A07 | React Flow, layout worker, overlays and inspector    | A06         | done        | PR #7; see A07 evidence                             |
+| E01 | Run/event/artifact store and ingestion               | A02         | done        | PR #8; see E01 evidence                             |
+| E02 | Process wrapper and output registration              | E01         | done        | PR #9; see E02 evidence                             |
+| E03 | Playwright capture helper                            | E01         | done        | PR #10; see E03 evidence                            |
+| E04 | Output canvases and isolated preview renderer        | E02,E03,A07 | done        | PR #11; see E04 evidence                            |
+| M01 | Watcher and incremental invalidation                 | A05,A07     | done        | PRs #13, #14, #15                                   |
+| M02 | Model proposal validation, cache and budget          | M01         | done        | PRs #17, #18 (view proposals deferred)              |
+| I01 | MCP and generic event SDK                            | E01,A06     | done        | PR #16                                              |
+| I02 | VS Code integration                                  | I01         | dropped     | user decision 2026-10-26                            |
+| I03 | OTLP subset and bundle importer                      | E04         | done        | PR #20                                              |
+| I04 | Skena/JSON Canvas bridge                             | I01,A07     | done        | PR #21 (JSON Canvas export; no Skena bridge)        |
+| H01 | Retention, recovery, export and performance          | E04,M01     | not started |                                                     |
+| L01 | Go and Java/JVM analyzers (Phase 4; not in plan §17) | A04         | done        | PR #22                                              |
+| D01 | System-design lens (not in plan §17)                 | A06,M02     | done        | PRs #24, #27, #25, #29, #28; see D01 evidence       |
+| D02 | Whiteboard, design copilot, on-demand generation     | D01         | done        | PRs #26, #30, #31, #33, #34; see D02 evidence       |
+| D03 | Design boards (design-first whiteboard)              | D02         | done        | PRs #36, #40, #38, #39 and wave 2; see D03 evidence |
 
 ## Phase acceptance checklists (plan §15)
 
@@ -441,6 +444,92 @@ Changes:
 - **Java:** each file is a module named by its primary type, and public methods are extracted. Imports (single, wildcard, static) resolve within the project; JDK imports are skipped, and others map to pom or Gradle group IDs (exact) or heuristically. Also Spring MVC and JAX-RS routes with class prefixes, public static `main`, and JDBC or `@Query` SQL.
 - **Fixtures** `go-service` and `java-service` come with hand-authored expected graphs: 0 missing, 0 extra, 0 false positives or negatives, 0 gaps.
 - **Tests:** 163 Vitest tests in 31 files, 18 Playwright tests.
+
+### D03 (2026-11-09): design boards
+
+User guide: `docs/design.md` ("Design boards (D03)"). Plan: `~/.claude/plans/execute-step-19-in-dapper-possum.md`, section "D03".
+
+| Part   | What                                                                                              | PR          |
+| ------ | ------------------------------------------------------------------------------------------------- | ----------- |
+| wave 0 | Contract, migration `0010`, boards CRUD and routes, Excalidraw canvas                             | #36, merged |
+| D03a   | Component palette, properties, typed connections, ELK layout, six templates, internals boards     | #40, merged |
+| D03b   | Scenarios, sequence view, player, design doc, exports, Present mode, from-code import             | #38, merged |
+| D03c   | Agent draft, critique, proposals, variants, implementation plan, `atlas board` CLI                | #39, merged |
+| wave 2 | Boards is the default tab of System design; docs; this status update (`feat/D03d-default-boards`) | this PR     |
+
+Wave 2 evidence (commands run in the wave 2 worktree):
+
+- **Default tab.** System design opens on Boards. Navigating to a derived design canvas (catalog, realized-by, review) switches to From code. `design.spec.ts`, `whiteboard.spec.ts` and `design-agent.spec.ts` now click From code; `boards.spec.ts` asserts Boards is pressed without clicking it.
+- **Bugs found by opening Atlas on its own repo** and fixed:
+  - An empty board opened at 3000% zoom, because fit-to-content ran on an empty scene.
+  - "From code" stayed hidden after a first scan until the page was reloaded. It is now re-checked when the picker is focused.
+- `pnpm -s format && pnpm check`: exit 0. Vitest 270 tests in 49 files.
+- `ATLAS_E2E_PORT=4461 pnpm e2e` (36 tests), five full runs: 35/36, 34/36, then 36/36 three times in a row. The failures were `whiteboard.spec.ts` "draw a planned box…" (twice) and `architecture.spec.ts` "an edge explains itself" (once). `whiteboard.spec.ts --repeat-each 5` alone: 15/15.
+- **Baseline for the flakes:** unmodified `origin/develop` (483d142), three full runs: 36/36, 35/36 (`whiteboard.spec.ts` "sticky notes and drawn subsystems…"), 36/36. So the suite is flaky on `develop` too; the cause was not investigated.
+- Manual: scratch daemon on this repo, agent-browser screenshot of System design opening on the Boards list; the catalog's System design entry switches to From code.
+- **Gaps:** the e2e flakes above are open. A from-code board of a large repo is one flat frame and hard to read (D04).
+
+### D02 (2026-10-26): whiteboard, design copilot and on-demand generation
+
+User guide: `docs/design.md`. Waves (PRs into `develop`):
+
+| Part          | What                                                                                                         | PR / status                                         |
+| ------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| D02 wave 0    | Contracts: `DesignElement`, drift, runtime interface, job request/event shapes, migration `0009`             | #26, merged                                         |
+| D02a          | `design_elements` store and API (optimistic revisions), grouping as human claims, hide, planner merge, drift | #30, merged                                         |
+| D02c          | Runtimes (Claude Code CLI, Anthropic SDK, mock), job runner, estimate, settings, `atlas design generate`     | #31, merged                                         |
+| Whiteboard UI | Palette, connect, grouping, undo/redo, ghost rendering, drift markers (wave 2a)                              | parallel PR, in review                              |
+| D02b          | Copilot panel, Generate design dialog, review sheet, Settings → Design agent, docs, e2e on the mock runtime  | this PR (`feat/D02-copilot-generate-ui`), in review |
+
+### D02b (2026-10-26): copilot panel, Generate design dialog, review sheet and settings
+
+- **Copilot** (`apps/web/src/components/design/CopilotPanel.tsx`), toggled from the design toolbar and docked right of the canvas. Deterministic suggestions computed in the browser from the projection, its `drift` and the snapshot's design claims: coupling groupings (clients/services/workers sharing ≥3 neighbors), unplaced root boxes by layer, adopt a code flow, remove a drawn flow not in code, unbind missing entities, boxes without a responsibility. Apply and Dismiss (dismissals in localStorage per project). Ask actions (propose grouping, name subsystem, explain flow, suggest responsibilities) run the configured runtime only on click; results show `agent: <model>`, citations resolved to `file:line`, Accept and Reject (promote / human group / sticky note / human responsibility claims; reject = claim reject).
+- **Generate design…** (`GenerateDialog.tsx`): runtime, model, what leaves the machine, estimated tokens vs the daily budget (estimate endpoint), depth 1–3, max subsystems per level, keep or replace earlier proposals. Non-consented runtimes show the consent screen and Generate stays disabled. Progress from `design.job` SSE (forwarded by `App.tsx`) with Cancel; then the **review sheet** (`ReviewSheet.tsx`): proposals by level, Accept all, Accept (promote, nested included), Reject (rejects the agent's `subsystem` claims at and below the path), link to the run in Outputs & Audit.
+- **Settings → Design agent** (`DesignAgentSettings.tsx`, a Settings button in the navigation): runtimes with availability (Claude Code listed first, "default when available"), model, write-only API key ("key stored"), one-time consent screen listing what is sent and what is never sent, withdraw consent. Recording consent never starts a job.
+- **Backend:** `GET /api/v1/snapshots/{id}/design/claims` (non-rejected `subsystem`/`responsibility` claims with ids, origin, status, model), in `openapi.yaml`, with a daemon test. Copilot answers were already returned by `GET …/design/jobs/{jobId}` (`output`, kept in the run's `model.enrichment` event); the test now covers it.
+- **Commands and results** (worktree of this PR):
+  - `pnpm -s format && pnpm check`: exit 0. Vitest 225 tests in 40 files.
+  - `ATLAS_E2E_PORT=4422 pnpm e2e`: 24 passed. Runs after the last code fixes: 3 of 3 green (default 10 workers; the third after the copilot scroll fix). Before the last two fixes: default workers 2 of 3 green, `--workers=4` 1 of 1 green. The red runs timed out in `selection.spec.ts` and `design.spec.ts` (a 34 s run instead of 8 s, while another worktree's e2e suite was also running); whether those specs also flake on `develop` was not checked. `design-agent.spec.ts` passed in every run. Settings are now loaded only when a design-agent surface opens, because reading them runs `claude --version` for availability. The suite includes `design-agent.spec.ts` (3 tests): Generate dialog with estimate → mock run → review lists proposals → accept Services (accepted in the catalog) → reject Clients (gone) → run is a `design-agent` run and opens in Outputs & Audit; copilot dismiss persists, coupling suggestion "Group worker and api" applies (accepted subsystem), Explain this flow and Name this subsystem on mock show `agent: mock-design` with `package.json` citations, Accept groups; Settings lists the three runtimes, choosing the API-key runtime shows the consent screen (cancelled), the Generate dialog disables Generate for it, and the daemon answers `403 consent_required` for `anthropic-api` and `claude-code` with the run list unchanged.
+  - Manual: own daemon (`node apps/cli/src/main.ts open <copy of fixtures/ts-web-service>`, scratch `ATLAS_DATA_DIR`/`ATLAS_RUNTIME_DIR`), driven with agent-browser; screenshots of the copilot, an Explain this flow result with citations, the Generate dialog, the review sheet, and settings with the consent screen inspected. Rendering found a long copilot growing the page instead of scrolling in its panel (fixed), a wrapped button row in the review sheet (fixed) and a misleading box count (fixed). Only the mock runtime ran; `claude` was run only as `--version` by the availability check.
+- **No real model call** was made, and consent was never recorded for a non-mock runtime.
+- **Gaps:** the stored runtime default stays `mock` until a person picks one (Claude Code is only labeled "default when available"); the mock never nests on ts-web-service (every layer has ≤6 boxes), so level ≥1 review and nested accept are not exercised in e2e; Reject in the review sheet rejects `subsystem` claims only, not the agent's `responsibility` claims of the same members; the review sheet lists all proposed subsystems of the snapshot, not only the last job's (claims carry no job id); "Propose a grouping" works on chip-picked boxes because the canvas selection is single; the copilot's coupling heuristic is a simple shared-neighbor count.
+
+### D02c (2026-10-26): design-agent runtimes, job runner and `atlas design generate`
+
+- **Runtimes** (`@atlas/agent-api`, contract `DesignRuntime`, prompt `design-v1`), all working only through the design subset of the Atlas MCP tools (reads + `atlas_propose_view` / `atlas_propose_claims`; no refresh, notes or run tools):
+  - `mock`: deterministic and free. Level 0 groups the System design boxes by archetype layer, subsystems with more than 6 boxes split by folder down to `depth`, capped per level; submitted with `atlas_propose_view` citing the evidence ids it read. Copilot kinds answer deterministically.
+  - `claude-code`: `claude -p <prompt> --output-format stream-json --verbose [--model] --no-session-persistence --permission-prompts none --strict-mcp-config --tools "" --disallowedTools Bash,Edit,Write,WebFetch,WebSearch --allowedTools mcp__atlas__atlas_<8 tools> --mcp-config <temp json>` (flags from `claude --help` 2.1.311), argv array in an empty temp cwd; the config starts `node apps/cli/src/main.ts mcp <root>` (no token in it). Parses tool calls, usage and the result; cancel kills the child.
+  - `anthropic-api`: `@anthropic-ai/sdk` 1.3.0 tool-use loop in process, default `claude-sonnet-5-5`; key only from `ATLAS_ANTHROPIC_API_KEY`, `secret-tool`, or `<dataDir>/secrets/anthropic-api-key` (0600), always passed explicitly (never ambient credentials), scrubbed from errors.
+- **Job runner** (`apps/daemon/src/design-jobs.ts`): `POST/GET /projects/:id/design/jobs`, `GET …/:jobId`, `DELETE …/:jobId` (cancel), `GET …/estimate`, `GET/PUT /settings/design-agent`. Manual only; one job per project (409); non-mock runtimes need recorded consent (403); `anthropic-api` held to the M02 daily budget (429) and ledgered. Each job is a run with adapter `design-agent` bound to the snapshot it reads (tool calls, progress, usage, output as events); progress streams as `design.job` SSE events. `replaceProposals` rejects earlier model `subsystem`/`responsibility` claims of that snapshot (audited). Interrupted jobs are marked failed on restart.
+- **CLI:** `atlas design generate [--depth] [--runtime] [--model] [--replace-proposals] [--yes]` prints the estimate and what leaves the machine (non-mock needs `--yes` or a TTY confirmation); `atlas design status`; `atlas doctor` reports `claude --version`.
+- **Tests:** runtime unit tests (mock determinism/depth/cap/copilot; claude-code against a fake `claude` on a private PATH incl. malformed lines, error result, crash, failed MCP server, cancel kills the child; anthropic with an injected fake client, key scrubbing, no-key refusal), daemon job tests (mock end to end → proposed `design-subsystem` canvases and a `design-agent` run; consent 403; key file 0600 never echoed; cancel; 409; budget 429 + ledger), CLI `design generate --runtime mock`. No real model call and no real `claude` run in tests. `pnpm check` exit 0 (210 tests). Generation never collects boxes inside accepted subsystems (tested with a human grouping).
+- **Gaps:** generation proposes claims only (`proposedElements` is 0; ghost design elements belong to wave 1a/2b); the token estimate is a rough formula; `claude-code` usage is not held to the API budget (it counts against the Claude plan); copilot output is kept in the run, not a dedicated column; the planner places a unit on the lexicographically first subsystem path regardless of claim origin (D01 owners), so the runtimes avoid proposing for accepted boxes; the CLI consent step also makes that runtime the configured default.
+
+### D01 (2026-10-26): system-design lens
+
+A third workspace, `design`: whiteboard canvases derived on demand from the semantic graph, `subsystem` claims and view overrides. They are views, never facts, and never persisted. See `docs/views.md` ("System design lens (D01)").
+
+| Part   | What                                                                                                                                                           | PR / status |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| wave 0 | Contracts: `Workspace`, `DesignLens`, `CanvasSpec.provenance`, `Archetype`, `Provenance` (the `view_overrides` table already existed in migration 0001)        | #24, merged |
+| D01a   | `planDesign` / `projectDesign`: archetypes with reasons, flow labels, subsystem canvases from normalized `/` paths (depth 3), context ports, realized-by links | #27, merged |
+| D01b   | Daemon plans design canvases on read and replans on claim, issue and override events; override routes; promote through the validator; `atlas_propose_view`     | #25, merged |
+| D01c   | Web UI: design root, whiteboard theme, provenance badges, realized-by navigation, pin/suppress/promote                                                         | in progress |
+| D01d   | Docs, demo proposal, export "Realized by" links                                                                                                                | this PR     |
+
+D01d evidence (commands run in the D01d worktree):
+
+- **Docs:** `docs/views.md` documents what `design.ts` actually does: archetype and infrastructure rules in order, flow labels, paths, titles, ports, caps, provenance, overrides, and the on-demand invariant. Also `docs/capabilities.md` (design-lens row; the "view proposals not implemented" note is removed), `docs/export.md` and the README.
+- **Export:** design boxes get an archetype/provenance line and a root-relative `[Realized by: <title> →](views/….canvas)` link. Design edges carry the flow label. Links to views outside the export are disclosed.
+  - `pnpm exec vitest run apps/cli/test/export.test.ts`: 3 passed.
+  - The test asserts that `views/system-design.canvas` exists, that every realized-by link resolves to an exported non-design canvas, and that json-canvas-viewer renders it with no page errors or failed requests.
+  - Screenshot inspected. The first render clipped the link line, so design boxes are now taller.
+- **Demo:** `ATLAS_DATA_DIR=<dir> ATLAS_RUNTIME_DIR=<dir> pnpm demo`, with two fresh `mktemp -d` directories. After the runs, it rescans and proposes "Research backend" (`@research/api` and `@research/worker`) through `POST /api/v1/proposals/claims`. The claims are `origin: model`, labeled with model `demo-mock` (no model is called), and cite the packages' scan evidence ids. Output:
+  `system design: "Research backend" (proposed): Proposed by demo-mock: groups 2 box(es) (@research/api, @research/worker).`
+  - The root projection then showed web (client), research-jobs (queue), Third-party libraries (library) and a "Research backend" subsystem box (api-service, proposed) with `enqueue` and `uses` flows.
+  - The subsystem canvas showed @research/api (api-service) and @research/worker (worker), with two context ports.
+  - The daemon was stopped with `atlas daemon stop`, using the same environment.
+- **Full check:** `pnpm -s format && pnpm check`: exit 0, 186 Vitest tests in 35 files. `pnpm e2e` was not run in this ticket because another agent was using the fixed port.
 
 ## Environment record (2026-10-26)
 

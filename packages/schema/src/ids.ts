@@ -25,6 +25,9 @@ export const ID_PREFIXES = {
   issue: 'iss',
   proposal: 'prp',
   usage: 'use',
+  designElement: 'dsg',
+  designJob: 'djb',
+  board: 'brd',
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

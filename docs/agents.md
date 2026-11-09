@@ -29,19 +29,22 @@ The generic configuration for MCP clients that take a JSON server list:
 
 ## Tools
 
-| Tool                                                                                      | What it returns or does                                                                                                                                |
-| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `atlas_project_status`                                                                    | Project, latest snapshot, counts by kind, coverage and top gaps, open rename issues, watch state                                                       |
-| `atlas_list_views`                                                                        | Canvas catalog of the latest snapshot (id, title, lens, parent, size, why). Filter by lens or title. Paginated, 50 per page by default, at most 200    |
-| `atlas_get_view`                                                                          | One canvas: nodes, aggregated edges with relation kinds and status, breadcrumbs, child views. At most 80 nodes and 160 edges, flagged `truncated`      |
-| `atlas_search`                                                                            | Entities by name prefix, optionally by kind. At most 50                                                                                                |
-| `atlas_get_entity`                                                                        | Attributes, owners, children, relations (50 per page), claims, 5 evidence items, runs, last change                                                     |
-| `atlas_get_evidence`                                                                      | Evidence for an entity (at most 20) or for up to 20 relations: file, lines, content hash, freshness, excerpt of at most 400 characters                 |
-| `atlas_refresh`                                                                           | Rescans and returns the change summary; an unchanged tree is a no-op. `dryRun` only reports whether files changed since the snapshot                   |
-| `atlas_list_runs`, `atlas_get_run`, `atlas_list_artifacts`, `atlas_get_artifact_metadata` | Runs with process and task outcome, linked components, events (50 per page, payloads trimmed) and artifact metadata. Artifact bytes are never returned |
-| `atlas_start_run`, `atlas_record_event`, `atlas_record_artifact`, `atlas_finish_run`      | Record a run. See below                                                                                                                                |
-| `atlas_propose_claims`                                                                    | Propose cited, labeled claims about entities against a snapshot precondition. See below                                                                |
-| `atlas_annotate`                                                                          | A short note on an entity, shown on its canvas and labeled as written by an agent                                                                      |
+| Tool                                                                                      | What it returns or does                                                                                                                                                               |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `atlas_project_status`                                                                    | Project, latest snapshot, counts by kind, coverage and top gaps, open rename issues, watch state                                                                                      |
+| `atlas_list_views`                                                                        | Canvas catalog of the latest snapshot (id, title, workspace, lens, provenance, parent, size, why). Filter by workspace, lens or title. Paginated, 50 per page by default, at most 200 |
+| `atlas_get_view`                                                                          | One canvas: nodes, aggregated edges with relation kinds and status, breadcrumbs, child views. At most 80 nodes and 160 edges, flagged `truncated`                                     |
+| `atlas_search`                                                                            | Entities by name prefix, optionally by kind. At most 50                                                                                                                               |
+| `atlas_get_entity`                                                                        | Attributes, owners, children, relations (50 per page), claims, 5 evidence items, runs, last change                                                                                    |
+| `atlas_get_evidence`                                                                      | Evidence for an entity (at most 20) or for up to 20 relations: file, lines, content hash, freshness, excerpt of at most 400 characters                                                |
+| `atlas_refresh`                                                                           | Rescans and returns the change summary; an unchanged tree is a no-op. `dryRun` only reports whether files changed since the snapshot                                                  |
+| `atlas_list_runs`, `atlas_get_run`, `atlas_list_artifacts`, `atlas_get_artifact_metadata` | Runs with process and task outcome, linked components, events (50 per page, payloads trimmed) and artifact metadata. Artifact bytes are never returned                                |
+| `atlas_start_run`, `atlas_record_event`, `atlas_record_artifact`, `atlas_finish_run`      | Record a run. See below                                                                                                                                                               |
+| `atlas_propose_claims`                                                                    | Propose cited, labeled claims about entities against a snapshot precondition. See below                                                                                               |
+| `atlas_propose_view`                                                                      | Propose system-design subsystems (named groups of entities, nested with `/`). Stored as cited `subsystem` claims. See below                                                           |
+| `atlas_annotate`                                                                          | A short note on an entity, shown on its canvas and labeled as written by an agent                                                                                                     |
+| `atlas_list_boards`, `atlas_get_board`                                                    | Design boards of the project, and one board as a layout-free BoardSpec (components, connections, scenarios, doc items, frames; no drawing data, rejected items left out). See below   |
+| `atlas_propose_board`, `atlas_create_board`                                               | Propose additions to a design board, or draft a new board, as BoardSpec JSON. Everything lands as `proposed` for a person to accept or reject. See below                              |
 
 Not exposed, by design (plan §12):
 
@@ -150,3 +153,73 @@ await client.finish('succeeded');
 - Other languages can use the HTTP ingestion protocol directly. See [evidence.md](evidence.md) and `apps/daemon/openapi.yaml`.
 
 Duplicate events, identified by producer and producer event ID, are deduplicated. Late events and events with missing parents are kept and flagged.
+
+## Proposing subsystems (D01)
+
+`atlas_propose_view { snapshotId, subsystems: [{ name, members: [{ entityId, citations }], responsibility? }], model? }`.
+
+- **Names** are up to 80 characters. Nest with `/`, for example `Backend/Auth`, up to 3 levels.
+- **Limits:** 1 to 10 subsystems per call, each with 1 to 25 members.
+- **Claims:** each member becomes a `subsystem` claim whose value is the name. When `responsibility` is given (up to 300 characters), the member also gets a `responsibility` claim with the same citations.
+- **Batching:** the claims are validated exactly like `atlas_propose_claims`. A call with more than 25 claims is split into several proposals.
+- **Result:** for each subsystem, the accepted member ids, the rejected members with their reasons, and the proposal ids.
+- **Model metadata** is recorded the same way as for `atlas_propose_claims`: as reported by the client.
+
+The claims are labeled `inferred`. The design workspace shows them as `proposed` boxes, without a rescan.
+
+**Promotion.** Only a person can turn a proposal into an accepted subsystem, with `PUT /api/v1/views/{viewId}/override { action: 'promote', … }`. This re-proposes the matching model claims as human claims citing the same evidence, and the validator checks them again. If the cited files changed since the claims were made, the promotion is refused with reasons.
+
+## Design agent (D02)
+
+Atlas can also drive an agent itself, for the copilot's Ask actions and for **Generate design**. It
+runs on Claude Code (your Claude account, through the documented headless `claude -p` CLI), the
+Anthropic API with your key, or a deterministic mock. The agent gets only the design subset of
+these tools: the read tools plus `atlas_propose_view` and `atlas_propose_claims`. It has no file,
+shell, web, refresh, note or run tools.
+
+- Jobs start only from an explicit click or `atlas design generate`; one job per project.
+- Non-mock runtimes need recorded consent first (`403 consent_required` otherwise).
+- Each job is a run with adapter `design-agent`, so every tool call, the usage and the outcome
+  appear in Outputs & Audit. Copilot answers come back on `GET /projects/{id}/design/jobs/{jobId}`
+  (`output`) and are kept in the run.
+- Everything it proposes is `inferred` and shown as `proposed` with `agent: <model>`, until a
+  person accepts it.
+
+See [design.md](design.md) for runtimes, consent, privacy and costs.
+
+## Design boards (D03c)
+
+Design boards are design-first whiteboards: how a system _should_ work, drawn by a person or
+drafted by an agent. They are view data, never facts about the code, and need no snapshot.
+
+- `atlas_list_boards {}` → `{ boards: [{ boardId, name, source, componentCount, parentBoardId, updatedAt }] }`.
+- `atlas_get_board { boardId }` → `{ boardId, name, source, revision, spec, plan? }`. `spec` is a
+  BoardSpec: `components [{ id, type, label, props, responsibility?, status, origin }]`,
+  `connections [{ id, from, to, protocol?, mode, direction, payload?, volume? }]`,
+  `scenarios [{ id, name, steps [{ connectionId? | componentId?, text }] }]`,
+  `doc { summary?, items [{ id, section, text, pins }] }` and `frames`. Rejected items are left out.
+- `atlas_propose_board { boardId, spec, model? }` → `{ boardId, accepted [{ kind, id, specId }], rejected [{ kind, specId, reasons }] }`.
+  Every item gets a new `agent-…` id and `status: 'proposed'` with `origin { author: 'agent', name, jobId? }`.
+  Connections, scenario steps and doc-item pins may reference ids from the same spec or existing
+  board ids; a reference to an unknown id is rejected with a reason. Existing items are never
+  changed or removed.
+- `atlas_create_board { name, spec, model? }` → `{ boardId, name, accepted, rejected }`: a new board
+  with `source: 'prompt'` where the whole spec (frames and summary included) lands as proposed.
+
+A person reviews with `POST /api/v1/boards/{boardId}/review { accept: ids, reject: ids }` (the
+board's Agent proposals panel). Only `proposed` items change: accept → `active` (origin kept, so the
+board still says `agent: <model>`), reject → `rejected` (kept for the record and dropped from the
+canvas). Accepting a connection also accepts its proposed endpoints; rejecting a component also
+rejects its proposed connections. Every review is audited in the proposals table (`board-review`).
+
+The design agent (above) runs six board job kinds with the board tools added to its tool set
+(prompt template `board-v1`): `draft-board` (`prompt`, optional `boardId` to redraft),
+`critique-board`, `fill-doc`, `explain-scenario` (`scenarioId`), `variant-board` and
+`implementation-plan`. Board jobs need no snapshot; they are recorded as `design-agent` runs bound to
+the project's worktree, under the same consent gate and API-key budget. `GET /projects/{id}/design/jobs/{jobId}`
+returns `boardId`, `proposedBoardItems` and, for explanations and plans, `result` (the plan is also
+stored on the board as `document.doc.plan`). The daemon keeps an item's `jobId` only while that job
+is the project's running job. The mock runtime drafts from the template catalog by prompt keywords
+and critiques with fixed rules (single-instance service with no load balancer, busy database with no
+cache, worker with no queue, stream with no retention, writers sharing a store, client traffic with no
+auth, unowned services). From the CLI: `atlas board list | show | export [--markdown] | draft | critique | plan`.

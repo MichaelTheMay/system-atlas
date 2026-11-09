@@ -2,3 +2,4 @@
 export * from './jsoncanvas.ts';
 export * from './mermaid.ts';
 export const SIDECAR_FORMAT = { format: 'atlas-export-sidecar', version: 1 } as const;
+export * from './design-board.ts';

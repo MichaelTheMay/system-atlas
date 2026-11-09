@@ -49,6 +49,8 @@ const slug = (s: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 50) || 'view';
+/** Markdown-escape text placed in a canvas text node (same rule as @atlas/export). */
+const md = (s: string) => s.replace(/([\\`*_[\]<>#|])/g, '\\$1');
 const SAFE_MEDIA =
   /^(image\/(png|jpeg|gif|webp)|application\/(json|pdf)|text\/(plain|csv|markdown))$/;
 
@@ -97,9 +99,9 @@ export async function exportToDir(o: ExportOptions): Promise<ExportResult> {
       o.snapshotId ??
       (await api<{ snapshot: { id: string } }>(`/worktrees/${reg.worktree.id}/snapshot`)).snapshot
         .id;
-    const catalog = await api<{ canvases: { id: string; title: string; lens: string }[] }>(
-      `/snapshots/${snapshotId}/canvases`,
-    );
+    const catalog = await api<{
+      canvases: { id: string; title: string; lens: string; workspace?: string }[];
+    }>(`/snapshots/${snapshotId}/canvases`);
     const chosen = o.views?.length
       ? catalog.canvases.filter((c) => o.views!.includes(c.id) || o.views!.includes(c.title))
       : catalog.canvases;
@@ -114,12 +116,16 @@ export async function exportToDir(o: ExportOptions): Promise<ExportResult> {
         n = n.replace(/\.(canvas|mmd)$/, `-${c.id.slice(4, 10)}.$1`);
       names.set(c.id, n);
     }
+    const titles = new Map(chosen.map((c) => [c.id, c.title]));
     const engine = createElkLayoutEngine();
     const views: SidecarView[] = [];
     for (const c of chosen) {
-      const p = await api<ProjectionLike & { viewId: string }>(
-        `/snapshots/${snapshotId}/canvases/${c.id}/projection`,
-      );
+      const p = {
+        ...(await api<DesignProjection & { viewId: string }>(
+          `/snapshots/${snapshotId}/canvases/${c.id}/projection`,
+        )),
+        workspace: c.workspace,
+      };
       const file = `views/${names.get(c.id)!}`;
       if (o.format === 'mermaid') {
         const m = projectionToMermaid(p);
@@ -136,6 +142,8 @@ export async function exportToDir(o: ExportOptions): Promise<ExportResult> {
       const key = (n: ProjectionLike['nodes'][number]) =>
         n.kind === 'entity' && n.entityId ? n.entityId : n.id;
       const groups = new Set(p.nodes.filter((n) => n.kind === 'group').map((n) => n.id));
+      // design boxes carry two more lines (archetype, "Realized by"); give them room
+      const boxH = p.workspace === 'design' ? 82 : 56;
       // the user's map: pins, then remembered positions; laid out in UI units, then scaled for text
       const layout = await engine.layout({
         nodes: p.nodes.map((n) => {
@@ -147,7 +155,7 @@ export async function exportToDir(o: ExportOptions): Promise<ExportResult> {
           return {
             id: n.id,
             width: n.kind === 'group' ? 260 : 190,
-            height: n.kind === 'group' ? 80 : 56,
+            height: n.kind === 'group' ? 80 : boxH,
             parentId: n.parentId && groups.has(n.parentId) ? n.parentId : undefined,
             fixed,
           };
@@ -164,7 +172,7 @@ export async function exportToDir(o: ExportOptions): Promise<ExportResult> {
               x: r.x * SX,
               y: r.y * SY,
               width: isGroup ? r.width * SX : W - 10,
-              height: isGroup ? r.height * SY : H - 10,
+              height: isGroup ? r.height * SY : boxH * SY - 10,
             },
           ];
         }),
@@ -175,6 +183,7 @@ export async function exportToDir(o: ExportOptions): Promise<ExportResult> {
         // root-relative, like JSON Canvas file paths
         fileFor: (id) => (names.has(id) ? `views/${names.get(id)}` : undefined),
       });
+      if (p.workspace === 'design') designDetails(p, r, names, titles, out.disclosures);
       const problems = validateJsonCanvas(r.canvas);
       if (problems.length) out.problems.push(...problems.map((x) => `${file}: ${x}`));
       write(file, JSON.stringify(r.canvas, null, 2));
@@ -230,4 +239,63 @@ export async function exportToDir(o: ExportOptions): Promise<ExportResult> {
   sidecar.disclosures = out.disclosures;
   write('atlas-export.json', JSON.stringify(sidecar, null, 2));
   return out;
+}
+
+/** Design-lens fields of a projection (D01) that the generic converter does not know about. */
+type DesignProjection = Omit<ProjectionLike, 'nodes' | 'edges'> & {
+  workspace?: string;
+  nodes: (ProjectionLike['nodes'][number] & {
+    archetype?: string;
+    provenance?: string;
+    realizedByCanvasId?: string;
+  })[];
+  edges: (ProjectionLike['edges'][number] & { flow?: string })[];
+};
+
+/**
+ * System-design canvases (D01): each box states its archetype and provenance and links to the
+ * architecture canvas that realizes it ("Realized by"); flows are labeled as on the whiteboard.
+ * Links use the same root-relative file names as drill-down links; targets outside the export are
+ * counted in a disclosure instead.
+ */
+function designDetails(
+  p: DesignProjection,
+  r: ReturnType<typeof projectionToCanvas>,
+  names: Map<string, string>,
+  titles: Map<string, string>,
+  disclosures: string[],
+): void {
+  const nodeOf = new Map(r.sidecar.nodes.map((n) => [n.atlasNodeId, n.canvasNodeId]));
+  const textNodes = new Map(
+    r.canvas.nodes.flatMap((n) => (n.type === 'text' ? [[n.id, n] as const] : [])),
+  );
+  let unlinked = 0;
+  for (const n of p.nodes) {
+    const t = textNodes.get(nodeOf.get(n.id) ?? '');
+    if (!t) continue;
+    const label = [n.archetype, n.provenance && n.provenance !== 'detected' ? n.provenance : '']
+      .filter(Boolean)
+      .join(' · ');
+    const lines = label ? [`_${label}_`] : [];
+    if (n.realizedByCanvasId) {
+      const f = names.get(n.realizedByCanvasId);
+      if (f)
+        lines.push(
+          `[Realized by: ${md(titles.get(n.realizedByCanvasId) ?? f)} →](${encodeURI(`views/${f}`)})`,
+        );
+      else unlinked++;
+    }
+    if (lines.length) t.text = [t.text, ...lines].join('\n\n');
+  }
+  // projectionToCanvas keeps, in order, the edges whose two ends are nodes; pair them the same way
+  const kept = p.edges.filter((e) => nodeOf.has(e.source) && nodeOf.has(e.target));
+  const edges = new Map(r.canvas.edges.map((e) => [e.id, e]));
+  kept.forEach((e, i) => {
+    const ce = edges.get(r.sidecar.edges[i]?.canvasEdgeId ?? '');
+    if (ce && e.flow) ce.label = `${e.flow}${e.status === 'supported' ? '' : ` (${e.status})`}`;
+  });
+  if (unlinked)
+    disclosures.push(
+      `${p.title}: ${unlinked} box(es) are realized by architecture views that were not part of this export; they have no "Realized by" link.`,
+    );
 }

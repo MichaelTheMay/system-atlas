@@ -168,6 +168,26 @@ describe('atlas export', () => {
     expect(shown.text).toContain('@research/worker');
     expect(shown.text).toContain('open view');
 
+    // the system-design root (D01) exports like any view: boxes say what they are and link down to
+    // the architecture canvas that realizes them
+    const design = sidecar.views.find((v: any) => v.lens === 'design-system');
+    expect(design.file).toBe('views/system-design.canvas');
+    const designDoc = JSON.parse(readFileSync(join(out, design.file), 'utf8'));
+    const realized = designDoc.nodes.flatMap((n: any) => [
+      ...String(n.text ?? '').matchAll(/\[Realized by: [^\]]+ →\]\(([^)]+\.canvas)\)/g),
+    ]);
+    expect(realized.length).toBeGreaterThan(0);
+    for (const [, l] of realized) {
+      expect(existsSync(join(out, decodeURI(l))), l).toBe(true);
+      expect(sidecar.views.find((v: any) => v.file === decodeURI(l)).lens).not.toMatch(/^design/);
+    }
+    expect(designDoc.nodes.some((n: any) => /_api-service/.test(n.text ?? ''))).toBe(true);
+    expect(designDoc.edges.some((e: any) => /HTTP|calls|uses|runs/.test(e.label ?? ''))).toBe(true);
+    const shownDesign = await render(out, design.file, 'export-design.png');
+    expect(shownDesign.errors).toEqual([]);
+    expect(shownDesign.missing).toEqual([]);
+    expect(shownDesign.text).toContain('Realized by');
+
     // a non-empty directory is never written into
     await expect(exportToDir({ daemon: daemon(), rootPath: root, output: out })).rejects.toThrow(
       /not empty/,

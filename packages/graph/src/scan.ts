@@ -10,6 +10,7 @@ import {
   Relation,
   Snapshot,
   type CoverageGap,
+  type DesignElementBody,
   type Diagnostic,
   type SupportLevel,
   type Worktree,
@@ -1142,7 +1143,76 @@ export function loadPlannerGraph(db: Db, snapshotId: string): PlannerGraph {
     relations: prevRelations.map((r) => ({ ...r, confidence: confidence.get(r.id) ?? 'exact' })),
     gaps: cov ? (JSON.parse(cov.body) as CoverageReport).gaps : [],
     changes,
+    ...loadDesignInputs(db, snapshotId, snap.project_id),
   };
+}
+
+/**
+ * Design lens inputs (D01) of a snapshot: its human/model claims (every status; the planner decides
+ * what to show), the project's view overrides and its design elements (D02a). Kept separate
+ * because all three change after publish,
+ * so the daemon refreshes them without reloading the graph.
+ */
+export function loadDesignInputs(
+  db: Db,
+  snapshotId: string,
+  projectId: string,
+): Required<Pick<PlannerGraph, 'claims' | 'overrides' | 'designElements'>> {
+  const claims = db
+    .prepare(
+      'SELECT id, subject_id, predicate, origin, status, body FROM claims WHERE snapshot_id = ? ORDER BY id',
+    )
+    .all<{
+      id: string;
+      subject_id: string;
+      predicate: string;
+      origin: string;
+      status: string;
+      body: string;
+    }>(snapshotId)
+    .map((c) => {
+      const body = JSON.parse(c.body) as { value?: unknown; modelMetadata?: { model?: string } };
+      const model = body.modelMetadata?.model;
+      return {
+        id: c.id,
+        subjectId: c.subject_id,
+        predicate: c.predicate,
+        value: body.value ?? null,
+        origin: c.origin,
+        status: c.status,
+        ...(model ? { model } : {}),
+      };
+    });
+  const overrides = db
+    .prepare(
+      'SELECT target_id, action FROM view_overrides WHERE project_id = ? ORDER BY target_id, action',
+    )
+    .all<{ target_id: string; action: 'pin' | 'suppress' | 'promote' }>(projectId)
+    .map((o) => ({ targetId: o.target_id, action: o.action }));
+  // user-authored design layer (D02a): project-keyed, so every snapshot of the project sees it
+  const designElements = db
+    .prepare(
+      "SELECT id, body, bound_entity_ids, author, author_name, status, citations FROM design_elements WHERE project_id = ? AND status IN ('active','proposed') ORDER BY created_at, id",
+    )
+    .all<{
+      id: string;
+      body: string;
+      bound_entity_ids: string;
+      author: 'user' | 'agent';
+      author_name: string | null;
+      status: 'active' | 'proposed';
+      citations: string;
+    }>(projectId)
+    .map((r) => ({
+      id: r.id,
+      body: JSON.parse(r.body) as DesignElementBody,
+      boundEntityIds: JSON.parse(r.bound_entity_ids) as string[],
+      author: r.author,
+      ...(r.author_name ? { authorName: r.author_name } : {}),
+      status: r.status,
+      citations: JSON.parse(r.citations) as string[],
+    }));
+  return { claims, overrides, designElements };
 }
 
 /**

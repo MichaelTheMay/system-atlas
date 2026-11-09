@@ -5,7 +5,8 @@ import { join } from 'node:path';
 
 // The e2e daemon uses a throwaway data dir and a fixed test token; it never touches real Atlas state.
 const dataDir = mkdtempSync(join(tmpdir(), 'atlas-e2e-'));
-export const E2E_PORT = 4399;
+// ATLAS_E2E_PORT lets parallel worktrees run e2e side by side.
+export const E2E_PORT = Number(process.env.ATLAS_E2E_PORT ?? 4399);
 export const E2E_TOKEN = 'e2e0'.repeat(16);
 
 export default defineConfig({

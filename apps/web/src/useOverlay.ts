@@ -29,8 +29,11 @@ export function useOverlay(token: string | null) {
           const rebased = edits.reduce((o, m) => m(o), r.overlay);
           r = await saveOverlay(token, { ...rebased, revision: r.overlay.revision });
         }
-        overlayRef.current = r.overlay;
-        setOverlay(r.overlay);
+        // edits made while this save was in flight are still queued: keep them on top of the
+        // stored overlay, or the next save would write the overlay without them
+        const latest = queued.current.reduce((o, m) => m(o), r.overlay);
+        overlayRef.current = latest;
+        setOverlay(latest);
         saving.current = false;
       }, 350);
     },

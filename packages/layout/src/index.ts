@@ -26,24 +26,35 @@ export interface LayoutNodeInput {
    * overlap them, which keeps a known map stable when nodes are added (plan §9).
    */
   fixed?: { x: number; y: number };
+  /** Inner padding of a compound node (defaults to a 36px header band and 14px sides). */
+  padding?: { top: number; left: number; bottom: number; right: number };
 }
 
 export interface LayoutEdgeInput {
   id: string;
   source: string;
   target: string;
+  /** Size of the edge's label, so the layered layout reserves room for it between layers. */
+  label?: { width: number; height: number };
 }
 
 export interface LayoutInput {
   nodes: LayoutNodeInput[];
   edges: LayoutEdgeInput[];
   direction?: 'RIGHT' | 'DOWN';
+  /** Spacing overrides (px); the defaults suit the architecture canvases and stay unchanged. */
+  spacing?: { betweenLayers?: number; nodeNode?: number; edgeNode?: number };
+  /** Also return ELK's orthogonal edge routes (absolute points, source end first); only meaningful
+   * without `fixed` nodes, which are moved after routing. */
+  routes?: boolean;
 }
 
 export interface LayoutResult {
   version: string;
   /** Absolute positions, top-left corner. */
   positions: Record<string, { x: number; y: number; width: number; height: number }>;
+  /** Edge routes when `routes` was asked for: absolute bend points from source to target. */
+  edges?: Record<string, { x: number; y: number }[]>;
 }
 
 export interface LayoutEngine {
@@ -76,8 +87,16 @@ export function createElkLayoutEngine(injected?: ElkApi): LayoutEngine {
           'elk.algorithm': edges.length === 0 ? 'rectpacking' : 'layered',
           'elk.direction': input.direction ?? 'RIGHT',
           'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
-          'elk.layered.spacing.nodeNodeBetweenLayers': '56',
-          'elk.spacing.nodeNode': '28',
+          'elk.layered.spacing.nodeNodeBetweenLayers': String(input.spacing?.betweenLayers ?? 56),
+          'elk.spacing.nodeNode': String(input.spacing?.nodeNode ?? 28),
+          ...(input.spacing?.edgeNode
+            ? {
+                'elk.spacing.edgeNode': String(input.spacing.edgeNode),
+                'elk.layered.spacing.edgeNodeBetweenLayers': String(input.spacing.edgeNode),
+              }
+            : {}),
+          // edge sections in root coordinates, whatever compound node the edge ends up in
+          ...(input.routes ? { 'elk.json.edgeCoords': 'ROOT' } : {}),
           'elk.padding': '[top=40,left=20,bottom=20,right=20]',
           'elk.randomSeed': '1',
         },
@@ -86,6 +105,7 @@ export function createElkLayoutEngine(injected?: ElkApi): LayoutEngine {
           id: e.id,
           sources: [e.source],
           targets: [e.target],
+          ...(e.label ? { labels: [{ id: `${e.id}__label`, text: ' ', ...e.label }] } : {}),
         })),
       };
       for (const n of nodes) {
@@ -93,9 +113,30 @@ export function createElkLayoutEngine(injected?: ElkApi): LayoutEngine {
         (parent ? parent.children! : root.children!).push(elkNodes.get(n.id)!);
       }
       // compound nodes reserve a header band for their label
-      for (const n of elkNodes.values()) {
-        if (n.children?.length)
-          n.layoutOptions = { 'elk.padding': '[top=36,left=14,bottom=14,right=14]' };
+      for (const n of nodes) {
+        const e = elkNodes.get(n.id)!;
+        const p = n.padding;
+        if (e.children?.length)
+          e.layoutOptions = {
+            'elk.padding': p
+              ? `[top=${p.top},left=${p.left},bottom=${p.bottom},right=${p.right}]`
+              : '[top=36,left=14,bottom=14,right=14]',
+            // spacing options are per compound node in ELK: repeat the overrides inside groups
+            ...(input.spacing?.betweenLayers
+              ? {
+                  'elk.layered.spacing.nodeNodeBetweenLayers': String(input.spacing.betweenLayers),
+                }
+              : {}),
+            ...(input.spacing?.nodeNode
+              ? { 'elk.spacing.nodeNode': String(input.spacing.nodeNode) }
+              : {}),
+            ...(input.spacing?.edgeNode
+              ? {
+                  'elk.spacing.edgeNode': String(input.spacing.edgeNode),
+                  'elk.layered.spacing.edgeNodeBetweenLayers': String(input.spacing.edgeNode),
+                }
+              : {}),
+          };
       }
 
       const out = await elk.layout(root);
@@ -110,7 +151,17 @@ export function createElkLayoutEngine(injected?: ElkApi): LayoutEngine {
       };
       walk(out, 0, 0);
       anchor(nodes, positions);
-      return { version: LAYOUT_VERSION, positions };
+      if (!input.routes) return { version: LAYOUT_VERSION, positions };
+      const routes: NonNullable<LayoutResult['edges']> = {};
+      const collect = (node: ElkNode) => {
+        for (const e of node.edges ?? []) {
+          const s = e.sections?.[0];
+          if (s) routes[e.id] = [s.startPoint, ...(s.bendPoints ?? []), s.endPoint];
+        }
+        for (const c of node.children ?? []) collect(c);
+      };
+      collect(out);
+      return { version: LAYOUT_VERSION, positions, edges: routes };
     },
   };
 }

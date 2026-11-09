@@ -146,7 +146,7 @@ export interface CatalogDto {
 
 export interface ProjectionNodeDto {
   id: string;
-  kind: 'entity' | 'cluster' | 'port' | 'aggregate' | 'gap' | 'group';
+  kind: 'entity' | 'cluster' | 'port' | 'aggregate' | 'gap' | 'group' | 'design' | 'sticky';
   label: string;
   sublabel?: string;
   entityId?: string;
@@ -163,6 +163,16 @@ export interface ProjectionNodeDto {
   archetypeReason?: string;
   provenance?: 'detected' | 'proposed' | 'accepted';
   realizedByCanvasId?: string;
+  /** Design layer (D02a): drawn element behind (or decorating) this node. */
+  designElementId?: string;
+  /** Drawn box bound to no code: "planned, not in code yet". */
+  unbound?: boolean;
+  /** Agent proposal awaiting review. */
+  ghost?: boolean;
+  author?: 'user' | 'agent';
+  authorName?: string;
+  /** Sticky notes: full text. */
+  text?: string;
 }
 
 export interface ProjectionEdgeDto {
@@ -173,7 +183,24 @@ export interface ProjectionEdgeDto {
   relationIds: string[];
   status: 'supported' | 'inferred' | 'stale' | 'mixed';
   flow?: string;
+  /** Design layer (D02a). */
+  drawn?: boolean;
+  designElementId?: string;
+  ghost?: boolean;
+  author?: 'user' | 'agent';
+  authorName?: string;
 }
+
+/** Drift between the board and the code (D02a; packages/schema DesignDrift). */
+export type DesignDriftDto =
+  | { kind: 'flow-not-in-code'; elementId: string }
+  | {
+      kind: 'code-flow-not-drawn';
+      fromEntityId: string;
+      toEntityId: string;
+      relationIds: string[];
+    }
+  | { kind: 'bound-entity-missing'; elementId: string; entityIds: string[] };
 
 export interface ProjectionDto {
   viewId: string;
@@ -190,6 +217,8 @@ export interface ProjectionDto {
   siblings: { canvasId: string; lens: string; title: string }[];
   children: { canvasId: string; title: string; viaEntityId?: string }[];
   stats: { entities: number; relations: number; hiddenNodes: number };
+  /** Design lens (D02a): absent when the project has no design elements. */
+  drift?: DesignDriftDto[];
 }
 
 export interface EvidenceDto {

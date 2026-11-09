@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { CatalogDto, CanvasSpecDto } from '../api.ts';
+import { ProvenanceBadge } from './design/archetypes.tsx';
 
 const LENS_LABEL: Record<string, string> = {
   'system-context': 'context',
@@ -12,6 +13,8 @@ const LENS_LABEL: Record<string, string> = {
   data: 'data',
   workflow: 'workflow',
   'ui-navigation': 'ui',
+  'design-system': 'design',
+  'design-subsystem': 'subsystem',
 };
 
 interface Props {
@@ -44,6 +47,7 @@ export function CatalogNav({
   }, [all, workspace]);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const [closed, setClosed] = useState<Set<string>>(new Set());
   const { roots, children, byId, ancestors } = useMemo(() => {
     const byId = new Map<string, CanvasSpecDto>((catalog?.canvases ?? []).map((c) => [c.id, c]));
     const children = new Map<string, string[]>();
@@ -74,8 +78,20 @@ export function CatalogNav({
 
   if (!catalog)
     return <p className="empty-note">No views yet. The catalog fills after the first scan.</p>;
+  if (workspace === 'design' && catalog.canvases.length === 0)
+    return (
+      <p className="empty-note">
+        No design boxes yet. The system design is drawn from detected deployables, packages, stores
+        and queues; a scan that finds none leaves it empty.
+      </p>
+    );
   const q = query.trim().toLowerCase();
-  const expanded = new Set([...open, ...(currentCanvasId ? ancestors(currentCanvasId) : [])]);
+  const expanded = new Set([
+    ...open,
+    ...(currentCanvasId ? ancestors(currentCanvasId) : []),
+    // the design tree is small and its subsystems are the point: show the first level unless closed
+    ...(workspace === 'design' ? roots.filter((r) => !closed.has(r.id)).map((r) => r.id) : []),
+  ]);
 
   const Item = ({ c, depth }: { c: CanvasSpecDto; depth: number }) => {
     const kids = children.get(c.id) ?? [];
@@ -92,14 +108,16 @@ export function CatalogNav({
               className="twisty"
               aria-label={isOpen ? `Collapse ${c.title}` : `Expand ${c.title}`}
               aria-expanded={isOpen}
-              onClick={() =>
-                setOpen((s) => {
+              onClick={() => {
+                const toggle = (s: Set<string>) => {
                   const n = new Set(s);
                   if (n.has(c.id)) n.delete(c.id);
                   else n.add(c.id);
                   return n;
-                })
-              }
+                };
+                if (workspace === 'design' && depth === 0) setClosed(toggle);
+                else setOpen(toggle);
+              }}
             >
               {isOpen ? '▾' : '▸'}
             </button>
@@ -114,7 +132,11 @@ export function CatalogNav({
             title={c.relevanceReason}
           >
             <span className="cat-title">{c.title}</span>
-            <span className="cat-lens">{LENS_LABEL[c.lens] ?? c.lens}</span>
+            {c.lens === 'design-subsystem' ? (
+              <ProvenanceBadge provenance={c.provenance} />
+            ) : (
+              <span className="cat-lens">{LENS_LABEL[c.lens] ?? c.lens}</span>
+            )}
           </button>
         </div>
         {isOpen && kids.length > 0 && (
@@ -149,7 +171,11 @@ export function CatalogNav({
                 <div className={`cat-row ${c.id === currentCanvasId ? 'current' : ''}`}>
                   <button type="button" className="cat-link" onClick={() => onOpen(c.id)}>
                     <span className="cat-title">{c.title}</span>
-                    <span className="cat-lens">{LENS_LABEL[c.lens] ?? c.lens}</span>
+                    {c.lens === 'design-subsystem' ? (
+                      <ProvenanceBadge provenance={c.provenance} />
+                    ) : (
+                      <span className="cat-lens">{LENS_LABEL[c.lens] ?? c.lens}</span>
+                    )}
                   </button>
                 </div>
               </li>

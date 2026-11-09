@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import type { Workspace } from '@atlas/schema';
+import { BoardsRoot } from './boards/index.tsx';
+import { BOARD_INSPECTOR_SLOT } from './boards/BoardView.tsx';
 import {
   api,
   apiOptional,
@@ -22,6 +24,17 @@ import { Inspector } from './components/Inspector.tsx';
 import { ListView } from './components/ListView.tsx';
 import { useOverlay } from './useOverlay.ts';
 import { OutputsView } from './components/outputs/OutputsView.tsx';
+import { DesignToolbar } from './components/design/DesignToolbar.tsx';
+import { DesignEditsProvider } from './components/design/useDesignEdits.tsx';
+// D02b: design copilot, Generate design dialog and design-agent settings
+import { CopilotPanel } from './components/design/CopilotPanel.tsx';
+import { GenerateDialog } from './components/design/GenerateDialog.tsx';
+import { SettingsDialog } from './components/design/DesignAgentSettings.tsx';
+import {
+  publishDesignJobEvent,
+  useDesignJobs,
+  useDesignSettings,
+} from './components/design/useDesignJobs.ts';
 
 type Conn =
   | { state: 'no-token' }
@@ -36,11 +49,31 @@ const ROOTS: { id: Workspace; label: string; hint: string }[] = [
     hint: 'System context, boundaries, components and coverage',
   },
   {
+    id: 'design',
+    label: 'System design',
+    hint: 'Boxes and flows: clients, services, workers, queues, stores',
+  },
+  {
     id: 'outputs',
     label: 'Outputs & Audit',
     hint: 'Runs, screenshots, command output and artifacts',
   },
 ];
+
+/** Roots that show canvases; each keeps its own navigation history. */
+type CanvasRoot = 'architecture' | 'design';
+interface History {
+  stack: Location[];
+  index: number;
+}
+const EMPTY_HISTORY: History = { stack: [], index: -1 };
+/** Home canvas of a root: the system context, or the system-design whiteboard. */
+const HOME_LENS: Record<CanvasRoot, string> = {
+  architecture: 'system-context',
+  design: 'design-system',
+};
+const workspaceOf = (c: { workspace?: string } | undefined): CanvasRoot =>
+  c?.workspace === 'design' ? 'design' : 'architecture';
 
 interface BusEvent {
   type: string;
@@ -69,10 +102,16 @@ export function App() {
    */
   const pendingEvents = useRef<BusEvent[]>([]);
   const [eventTick, setEventTick] = useState(0);
-  const [history, setHistory] = useState<{ stack: Location[]; index: number }>({
-    stack: [],
-    index: -1,
+  const [histories, setHistories] = useState<Record<CanvasRoot, History>>({
+    architecture: EMPTY_HISTORY,
+    design: EMPTY_HISTORY,
   });
+  const canvasRoot: CanvasRoot = root === 'design' ? 'design' : 'architecture';
+  const history = histories[canvasRoot];
+  const setHistory = (f: (h: History) => History) =>
+    setHistories((all) => ({ ...all, [canvasRoot]: f(all[canvasRoot]) }));
+  /** Catalog for navigate(): a canvas opens under the root of its workspace. */
+  const catalogRef = useRef<CatalogDto | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
   const [selectedAncestors, setSelectedAncestors] = useState<string[]>([]);
   const [projection, setProjection] = useState<ProjectionDto | null>(null);
@@ -88,15 +127,29 @@ export function App() {
   const worktree = projects
     .flatMap((p) => p.worktrees.map((w) => ({ ...w, project: p.project })))
     .find((w) => w.id === worktreeId);
+  const projectId = worktree?.project.id;
+  // D02b: design agent (one job per project; dialogs and the copilot share it)
+  const designJobs = useDesignJobs(token, projectId);
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // D03: the design root has two tabs; boards (design-first) are the default, the derived lens is
+  // "From code". Navigating to a derived design canvas (catalog, realized-by, review) shows it.
+  const [designTab, setDesignTab] = useState<'code' | 'boards'>('boards');
+  const designSettings = useDesignSettings(token, copilotOpen || generateOpen || settingsOpen);
 
   const navigate = useCallback((loc: Location) => {
     // selection is an entity, not a node of one canvas: it follows the user across views
     setSelection((s) => (s?.type === 'node' && s.node.entityId ? s : null));
-    setHistory((h) => {
+    const ws = workspaceOf(catalogRef.current?.canvases.find((c) => c.id === loc.canvasId));
+    setRoot((r) => (r === ws ? r : ws));
+    if (ws === 'design') setDesignTab('code');
+    setHistories((all) => {
+      const h = all[ws];
       const cur = h.stack[h.index];
-      if (cur && cur.canvasId === loc.canvasId && cur.focus === loc.focus) return h;
+      if (cur && cur.canvasId === loc.canvasId && cur.focus === loc.focus) return all;
       const stack = [...h.stack.slice(0, h.index + 1), loc].slice(-100);
-      return { stack, index: stack.length - 1 };
+      return { ...all, [ws]: { stack, index: stack.length - 1 } };
     });
   }, []);
 
@@ -133,27 +186,40 @@ export function App() {
   }, [token, loadProjects]);
 
   /** Latest snapshot + catalog for the selected worktree; keeps the current canvas if it still exists. */
+  const refreshSeq = useRef(0);
   const refreshSnapshot = useCallback(async () => {
     if (!token || !worktreeId) return;
+    // a refresh that finishes after a newer one (e.g. after switching projects) is dropped, so a
+    // snapshot of one worktree is never paired with a canvas of another
+    const seq = ++refreshSeq.current;
     const s = await latestSnapshot(token, worktreeId);
+    if (seq !== refreshSeq.current) return;
     setSummary(s);
     const shown = viewSnapshotId ?? s?.snapshot.id;
     const cat = shown ? await apiOptional<CatalogDto>(`/snapshots/${shown}/canvases`, token) : null;
+    if (seq !== refreshSeq.current) return;
+    catalogRef.current = cat;
     setCatalog(cat);
-    setHistory((h) => {
+    const keep = (ws: CanvasRoot, h: History): History => {
       const cur = h.stack[h.index];
       if (cat && cur && cat.canvases.some((c) => c.id === cur.canvasId)) return h;
-      const home = cat?.canvases.find((c) => c.lens === 'system-context');
-      return home ? { stack: [{ canvasId: home.id }], index: 0 } : { stack: [], index: -1 };
-    });
+      const home = cat?.canvases.find((c) => c.lens === HOME_LENS[ws]);
+      return home ? { stack: [{ canvasId: home.id }], index: 0 } : EMPTY_HISTORY;
+    };
+    setHistories((all) => ({
+      architecture: keep('architecture', all.architecture),
+      design: keep('design', all.design),
+    }));
     setRefreshKey((k) => k + 1);
   }, [token, worktreeId, viewSnapshotId]);
 
   // a different worktree starts fresh; a different snapshot of the same worktree keeps navigation
   useEffect(() => {
+    refreshSeq.current++;
     setSummary(undefined);
     setCatalog(null);
-    setHistory({ stack: [], index: -1 });
+    catalogRef.current = null;
+    setHistories({ architecture: EMPTY_HISTORY, design: EMPTY_HISTORY });
     setViewSnapshotId(undefined);
     setRunId(undefined);
   }, [worktreeId]);
@@ -168,9 +234,17 @@ export function App() {
     for (const ev of batch) {
       if (ev.type === 'project.registered') void loadProjects();
       if (ev.type.startsWith('run.')) setOutputsRefresh((k) => k + 1);
+      if (ev.type === 'design.job' && ev.data.projectId === projectId)
+        publishDesignJobEvent(ev.data);
       // linking a rename changes counts and where pins resolve
       if (ev.type === 'issue.resolved') refresh = true;
-      if (ev.type.startsWith('claims.')) setClaimsKey((k) => k + 1);
+      if (ev.type.startsWith('claims.') || ev.type === 'views.changed') {
+        setClaimsKey((k) => k + 1);
+        // design canvases are replanned from claims and view overrides without a rescan
+        if (ev.data.projectId && ev.data.projectId === projectId) refresh = true;
+      }
+      // whiteboard edits (D02a) replan the design canvases of the project without a rescan
+      if (ev.type === 'design.changed' && ev.data.projectId === projectId) refresh = true;
       if (ev.data.worktreeId !== worktreeId) continue;
       if (ev.type === 'scan.started') setScan({ state: 'running' });
       if (ev.type === 'snapshot.published') {
@@ -184,7 +258,7 @@ export function App() {
         setScan({ state: 'failed', message: String(ev.data.error ?? '') });
     }
     if (refresh) void refreshSnapshot();
-  }, [eventTick, worktreeId, loadProjects, refreshSnapshot]);
+  }, [eventTick, worktreeId, projectId, loadProjects, refreshSnapshot]);
 
   useEffect(() => {
     if (!token || !worktreeId) return;
@@ -265,6 +339,20 @@ export function App() {
     [token, summary?.snapshot.id, navigate],
   );
 
+  /** Design box -> the architecture canvas that realizes it, with its entity selected. */
+  const openRealizedBy = useCallback(
+    (canvasId: string, entityId?: string) => {
+      setRoot('architecture');
+      navigate({ canvasId });
+      if (entityId)
+        setSelection({
+          type: 'node',
+          node: { id: `n:${entityId}`, kind: 'entity', entityId, label: '' },
+        });
+    },
+    [navigate],
+  );
+
   const openRun = useCallback((id: string | undefined) => {
     setRoot('outputs');
     setRunId(id);
@@ -297,7 +385,7 @@ export function App() {
     };
   }, [token, snapshotId, selectedEntity]);
 
-  return (
+  const shell = (
     <div className="shell">
       <aside className="nav" aria-label="Navigation">
         <div className="brand">
@@ -366,9 +454,10 @@ export function App() {
             </button>
           ))}
         </nav>
-        {root === 'architecture' ? (
+        {root !== 'outputs' ? (
           <CatalogNav
             catalog={catalog}
+            workspace={root}
             currentCanvasId={location?.canvasId}
             onOpen={(id) => navigate({ canvasId: id })}
           />
@@ -379,6 +468,19 @@ export function App() {
             open in the architecture at the run's own snapshot.
           </p>
         )}
+        {token && (
+          // D02b: Settings → Design agent
+          <button
+            type="button"
+            className="icon-btn nav-settings"
+            onClick={() => {
+              void designSettings.reload();
+              setSettingsOpen(true);
+            }}
+          >
+            Settings
+          </button>
+        )}
       </aside>
 
       <main
@@ -386,202 +488,332 @@ export function App() {
         aria-label={
           root === 'architecture'
             ? `Architecture canvas${projection ? `: ${projection.title}` : ''}`
-            : 'Outputs & Audit canvas'
+            : root === 'design'
+              ? `System design canvas${projection ? `: ${projection.title}` : ''}`
+              : 'Outputs & Audit canvas'
         }
       >
-        <header className="canvas-header">
-          <div className="nav-buttons">
+        {root === 'design' && (
+          <nav className="design-tabs" aria-label="Design views">
             <button
               type="button"
-              className="icon-btn"
-              aria-label="Back"
-              disabled={history.index <= 0}
-              onClick={() => setHistory((h) => ({ ...h, index: Math.max(0, h.index - 1) }))}
+              aria-pressed={designTab === 'boards'}
+              onClick={() => setDesignTab('boards')}
             >
-              ←
+              Boards
             </button>
             <button
               type="button"
-              className="icon-btn"
-              aria-label="Forward"
-              disabled={history.index >= history.stack.length - 1}
-              onClick={() =>
-                setHistory((h) => ({ ...h, index: Math.min(h.stack.length - 1, h.index + 1) }))
-              }
+              aria-pressed={designTab === 'code'}
+              onClick={() => setDesignTab('code')}
             >
-              →
+              From code
             </button>
-          </div>
-          <nav className="crumbs" aria-label="Breadcrumbs">
-            {root === 'architecture' && projection ? (
-              projection.breadcrumbs.map((b, i) => (
-                <span key={`${b.canvasId}-${b.focus ?? ''}`}>
-                  {i > 0 && <span className="crumb-sep"> / </span>}
-                  {i === projection.breadcrumbs.length - 1 ? (
-                    <span aria-current="location">{b.title}</span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="crumb"
-                      onClick={() => navigate({ canvasId: b.canvasId, focus: b.focus })}
-                    >
-                      {b.title}
-                    </button>
-                  )}
-                </span>
-              ))
-            ) : (
-              <span>{root === 'architecture' ? 'Architecture' : 'Outputs & Audit'}</span>
-            )}
           </nav>
-          <div className="header-tools">
-            {root === 'architecture' && projection && projection.siblings.length > 0 && (
-              <label className="lens-switch">
-                <span className="sr-only">Switch lens</span>
-                <select
-                  aria-label="Switch lens"
-                  value=""
-                  onChange={(e) => e.target.value && navigate({ canvasId: e.target.value })}
-                >
-                  <option value="">Lens: {projection.lens}</option>
-                  {projection.siblings.map((s) => (
-                    <option key={s.canvasId} value={s.canvasId}>
-                      {s.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {root === 'architecture' && projection && (
-              <button
-                type="button"
-                className="icon-btn"
-                aria-pressed={listMode}
-                onClick={() => setListMode((m) => !m)}
-              >
-                {listMode ? 'Canvas' : 'List'}
-              </button>
-            )}
-            {root === 'architecture' && projection && !listMode && (
-              <button
-                type="button"
-                className="icon-btn"
-                title="Lay out unpinned nodes again. Nodes otherwise keep their place when the map changes."
-                onClick={() => editOverlay((o) => ({ ...o, autoPositions: {} }))}
-              >
-                Re-layout
-              </button>
-            )}
-            {viewSnapshotId && root === 'architecture' && (
-              <span className="badge historical" title={viewSnapshotId}>
-                viewing an earlier snapshot ({viewSnapshotId.slice(5, 13)}){' '}
-                <button type="button" className="link" onClick={() => setViewSnapshotId(undefined)}>
-                  back to latest
-                </button>
-              </span>
-            )}
-            {summary && summary.openIssues > 0 && (
-              <button
-                type="button"
-                className="badge issues"
-                aria-expanded={issuesOpen}
-                onClick={() => setIssuesOpen((o) => !o)}
-              >
-                {summary.openIssues} rename {summary.openIssues === 1 ? 'issue' : 'issues'} to
-                review
-              </button>
-            )}
-            {summary && (
-              <span className={`badge ${summary.snapshot.state}`} title={summary.snapshot.id}>
-                snapshot {summary.snapshot.state} ·{' '}
-                {summary.snapshot.dirty
-                  ? 'uncommitted changes'
-                  : `HEAD ${summary.snapshot.headCommit?.slice(0, 8) ?? ''}`}
-              </span>
-            )}
-          </div>
-        </header>
-        {issuesOpen && worktree && token && (
-          <IssuesPanel
-            token={token}
-            projectId={worktree.project.id}
-            onClose={() => setIssuesOpen(false)}
-            onChanged={() => {
-              void refreshSnapshot();
-              setRefreshKey((k) => k + 1);
-            }}
-          />
         )}
-        {root === 'outputs' ? (
-          worktree && token ? (
-            <OutputsView
-              token={token}
-              projectId={worktree.project.id}
-              latestSnapshotId={latestSnapshotId}
-              runId={runId}
-              refreshKey={outputsRefresh}
-              onOpenRun={openRun}
-              onOpenEntity={(sid, eid) => void openEntity(sid, eid)}
-            />
+        {root === 'design' && designTab === 'boards' ? (
+          projectId && token ? (
+            <BoardsRoot token={token} projectId={projectId} />
           ) : (
             <EmptyState
               title="No projects registered"
-              text="Run atlas open /path/to/repo to register one."
+              text="Run atlas open /path/to/folder (it can be empty) to own design boards."
             />
           )
-        ) : summary === null ? (
-          <EmptyState
-            title="No snapshot yet"
-            text="Register and scan a repository to generate its architecture canvases."
-            code="atlas scan /path/to/repo"
-          />
-        ) : !location || !snapshotId || !worktree ? (
-          <EmptyState
-            title={projects.length ? 'Loading…' : 'No projects registered'}
-            text={projects.length ? '' : 'Run atlas open /path/to/repo to register one.'}
-          />
         ) : (
-          <div className="canvas-body">
-            <ReactFlowProvider>
-              <CanvasView
-                token={token!}
-                snapshotId={snapshotId}
+          <>
+            <header className="canvas-header">
+              <div className="nav-buttons">
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label="Back"
+                  disabled={history.index <= 0}
+                  onClick={() => setHistory((h) => ({ ...h, index: Math.max(0, h.index - 1) }))}
+                >
+                  ←
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label="Forward"
+                  disabled={history.index >= history.stack.length - 1}
+                  onClick={() =>
+                    setHistory((h) => ({ ...h, index: Math.min(h.stack.length - 1, h.index + 1) }))
+                  }
+                >
+                  →
+                </button>
+              </div>
+              <nav className="crumbs" aria-label="Breadcrumbs">
+                {root !== 'outputs' && projection ? (
+                  projection.breadcrumbs.map((b, i) => (
+                    <span key={`${b.canvasId}-${b.focus ?? ''}`}>
+                      {i > 0 && <span className="crumb-sep"> / </span>}
+                      {i === projection.breadcrumbs.length - 1 ? (
+                        <span aria-current="location">{b.title}</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="crumb"
+                          onClick={() => navigate({ canvasId: b.canvasId, focus: b.focus })}
+                        >
+                          {b.title}
+                        </button>
+                      )}
+                    </span>
+                  ))
+                ) : (
+                  <span>{ROOTS.find((r) => r.id === root)?.label}</span>
+                )}
+              </nav>
+              <div className="header-tools">
+                {/* whiteboard tools of the design root (D02a adds palette and generation here) */}
+                {root === 'design' && (
+                  <DesignToolbar>
+                    {/* D02b */}
+                    {projection && (
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        aria-pressed={copilotOpen}
+                        onClick={() => setCopilotOpen((o) => !o)}
+                      >
+                        Copilot
+                      </button>
+                    )}
+                    {projection && latestSnapshotId && !viewSnapshotId && (
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        onClick={() => setGenerateOpen(true)}
+                      >
+                        Generate design…
+                      </button>
+                    )}
+                  </DesignToolbar>
+                )}
+                {root !== 'outputs' && projection && projection.siblings.length > 0 && (
+                  <label className="lens-switch">
+                    <span className="sr-only">Switch lens</span>
+                    <select
+                      aria-label="Switch lens"
+                      value=""
+                      onChange={(e) => e.target.value && navigate({ canvasId: e.target.value })}
+                    >
+                      <option value="">Lens: {projection.lens}</option>
+                      {projection.siblings.map((s) => (
+                        <option key={s.canvasId} value={s.canvasId}>
+                          {s.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {root !== 'outputs' && projection && (
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-pressed={listMode}
+                    onClick={() => setListMode((m) => !m)}
+                  >
+                    {listMode ? 'Canvas' : 'List'}
+                  </button>
+                )}
+                {root !== 'outputs' && projection && !listMode && (
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    title="Lay out unpinned nodes again. Nodes otherwise keep their place when the map changes."
+                    onClick={() => editOverlay((o) => ({ ...o, autoPositions: {} }))}
+                  >
+                    Re-layout
+                  </button>
+                )}
+                {viewSnapshotId && root !== 'outputs' && (
+                  <span className="badge historical" title={viewSnapshotId}>
+                    viewing an earlier snapshot ({viewSnapshotId.slice(5, 13)}){' '}
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => setViewSnapshotId(undefined)}
+                    >
+                      back to latest
+                    </button>
+                  </span>
+                )}
+                {summary && summary.openIssues > 0 && (
+                  <button
+                    type="button"
+                    className="badge issues"
+                    aria-expanded={issuesOpen}
+                    onClick={() => setIssuesOpen((o) => !o)}
+                  >
+                    {summary.openIssues} rename {summary.openIssues === 1 ? 'issue' : 'issues'} to
+                    review
+                  </button>
+                )}
+                {summary && (
+                  <span className={`badge ${summary.snapshot.state}`} title={summary.snapshot.id}>
+                    snapshot {summary.snapshot.state} ·{' '}
+                    {summary.snapshot.dirty
+                      ? 'uncommitted changes'
+                      : `HEAD ${summary.snapshot.headCommit?.slice(0, 8) ?? ''}`}
+                  </span>
+                )}
+              </div>
+            </header>
+            {issuesOpen && worktree && token && (
+              <IssuesPanel
+                token={token}
                 projectId={worktree.project.id}
-                location={location}
-                refreshKey={refreshKey}
-                onNavigate={navigate}
-                onSelect={setSelection}
-                selectedEntityId={selection?.type === 'node' ? selection.node.entityId : undefined}
-                selectedAncestors={selectedAncestors}
-                onProjection={onProjection}
-                overlayRef={overlayRef}
-                persist={persist}
-                overlayDirty={isDirty}
-              />
-            </ReactFlowProvider>
-            {listMode && projection && (
-              // the canvas stays mounted underneath: it owns projection loading and navigation
-              <ListView
-                projection={projection}
-                selectedEntityId={selection?.type === 'node' ? selection.node.entityId : undefined}
-                onSelect={(n) => setSelection({ type: 'node', node: n })}
-                onOpen={(n) =>
-                  n.focus !== undefined
-                    ? navigate({ canvasId: projection.canvasId, focus: n.focus })
-                    : n.openCanvasId && navigate({ canvasId: n.openCanvasId })
-                }
+                onClose={() => setIssuesOpen(false)}
+                onChanged={() => {
+                  void refreshSnapshot();
+                  setRefreshKey((k) => k + 1);
+                }}
               />
             )}
-          </div>
+            {root === 'outputs' ? (
+              worktree && token ? (
+                <OutputsView
+                  token={token}
+                  projectId={worktree.project.id}
+                  latestSnapshotId={latestSnapshotId}
+                  runId={runId}
+                  refreshKey={outputsRefresh}
+                  onOpenRun={openRun}
+                  onOpenEntity={(sid, eid) => void openEntity(sid, eid)}
+                />
+              ) : (
+                <EmptyState
+                  title="No projects registered"
+                  text="Run atlas open /path/to/repo to register one."
+                />
+              )
+            ) : summary === null ? (
+              <EmptyState
+                title="No snapshot yet"
+                text={
+                  root === 'design'
+                    ? 'Scan a repository to draw its system design: clients, services, workers, queues and stores, derived from detected code.'
+                    : 'Register and scan a repository to generate its architecture canvases.'
+                }
+                code="atlas scan /path/to/repo"
+              />
+            ) : root === 'design' &&
+              catalog &&
+              !catalog.canvases.some((c) => c.workspace === 'design') ? (
+              <EmptyState
+                title="No system design for this snapshot"
+                text="No deployables, packages, stores or queues were detected, so there are no boxes to draw. The Architecture root still shows what was scanned."
+              />
+            ) : !location || !snapshotId || !worktree ? (
+              <EmptyState
+                title={projects.length ? 'Loading…' : 'No projects registered'}
+                text={projects.length ? '' : 'Run atlas open /path/to/repo to register one.'}
+              />
+            ) : (
+              <div className="canvas-body">
+                <ReactFlowProvider>
+                  <CanvasView
+                    token={token!}
+                    snapshotId={snapshotId}
+                    projectId={worktree.project.id}
+                    location={location}
+                    refreshKey={refreshKey}
+                    onNavigate={navigate}
+                    onSelect={setSelection}
+                    selectedEntityId={
+                      selection?.type === 'node' ? selection.node.entityId : undefined
+                    }
+                    selectedAncestors={selectedAncestors}
+                    onProjection={onProjection}
+                    onRealizedBy={openRealizedBy}
+                    overlayRef={overlayRef}
+                    persist={persist}
+                    overlayDirty={isDirty}
+                  />
+                </ReactFlowProvider>
+                {listMode && projection && (
+                  // the canvas stays mounted underneath: it owns projection loading and navigation
+                  <ListView
+                    projection={projection}
+                    selectedEntityId={
+                      selection?.type === 'node' ? selection.node.entityId : undefined
+                    }
+                    onSelect={(n) => setSelection({ type: 'node', node: n })}
+                    onOpen={(n) =>
+                      n.focus !== undefined
+                        ? navigate({ canvasId: projection.canvasId, focus: n.focus })
+                        : n.openCanvasId && navigate({ canvasId: n.openCanvasId })
+                    }
+                  />
+                )}
+                {/* D02b: design copilot, docked right of the System design canvas */}
+                {root === 'design' && copilotOpen && token && (
+                  <CopilotPanel
+                    token={token}
+                    projectId={worktree.project.id}
+                    snapshotId={snapshotId}
+                    latestSnapshotId={latestSnapshotId}
+                    projection={projection}
+                    selection={selection}
+                    settings={designSettings.settings}
+                    jobs={designJobs}
+                    onSettingsChanged={designSettings.setSettings}
+                    onOpenRun={openRun}
+                    onChanged={() => void refreshSnapshot()}
+                    onClose={() => setCopilotOpen(false)}
+                  />
+                )}
+              </div>
+            )}
+          </>
         )}
       </main>
+      {/* D02b: Generate design… and Settings dialogs */}
+      {generateOpen && token && projectId && latestSnapshotId && (
+        <GenerateDialog
+          token={token}
+          projectId={projectId}
+          snapshotId={latestSnapshotId}
+          settings={designSettings.settings}
+          jobs={designJobs}
+          onSettingsChanged={designSettings.setSettings}
+          onOpenRun={(id) => {
+            setGenerateOpen(false);
+            openRun(id);
+          }}
+          onChanged={() => void refreshSnapshot()}
+          onClose={() => setGenerateOpen(false)}
+        />
+      )}
+      {settingsOpen && token && (
+        <SettingsDialog
+          token={token}
+          settings={designSettings.settings}
+          onSaved={designSettings.setSettings}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
 
-      {snapshotId ? (
+      {/* right panel: the Inspector; D02b's design copilot panel mounts beside it on the design root */}
+      {root === 'design' && designTab === 'boards' ? (
+        <aside className="inspector" aria-label="Inspector">
+          {/* an open board portals its inspector (BoardInspector) into this slot */}
+          <div id={BOARD_INSPECTOR_SLOT} className="board-inspector-slot" />
+          <div className="board-inspector-empty">
+            <h2>Inspector</h2>
+            <p className="empty-note">Open a board to edit its components and connections.</p>
+          </div>
+        </aside>
+      ) : snapshotId ? (
         <Inspector
           token={token!}
           snapshotId={snapshotId}
           rootPath={worktree?.rootPath}
-          projection={root === 'architecture' ? projection : null}
+          projection={root !== 'outputs' ? projection : null}
           spec={spec}
           coverageCanvasId={coverageCanvasId}
           summary={summary ?? null}
@@ -593,6 +825,10 @@ export function App() {
           claimsKey={claimsKey}
           worktreeId={worktreeId}
           enrichmentProvider={enrichmentProvider}
+          projectId={projectId}
+          latestSnapshotId={latestSnapshotId}
+          suppressedCanvases={catalog?.canvases.filter((c) => c.state === 'suppressed')}
+          onRealizedBy={openRealizedBy}
         />
       ) : (
         <aside className="inspector" aria-label="Inspector">
@@ -610,6 +846,21 @@ export function App() {
         )}
       </footer>
     </div>
+  );
+
+  // whiteboard edits (D02a): shared by the design toolbar, the canvas and the Inspector
+  return (
+    <DesignEditsProvider
+      token={token}
+      projectId={projectId}
+      snapshotId={latestSnapshotId}
+      historical={!!viewSnapshotId}
+      projection={root === 'design' ? projection : null}
+      reloadKey={refreshKey}
+      onChanged={() => void refreshSnapshot()}
+    >
+      {shell}
+    </DesignEditsProvider>
   );
 }
 

@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { access, mkdir, constants } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -98,6 +99,8 @@ export async function runDoctor(paths: AtlasPaths): Promise<Check[]> {
         ? { status: 'ok', detail: 'apps/web/dist present; daemon serves the UI' }
         : { status: 'warn', detail: 'UI not built; run: pnpm build (or use pnpm dev)' };
     }),
+    // design agent (D02c): only `claude --version` is run; Atlas never reads Claude Code's files
+    check('claude-code', () => claudeCode()),
     check('daemon', async () => {
       const d = await findDaemon(paths);
       return d
@@ -105,4 +108,24 @@ export async function runDoctor(paths: AtlasPaths): Promise<Check[]> {
         : { status: 'warn', detail: 'not running; `atlas open` or `atlas daemon start` starts it' };
     }),
   ]);
+}
+
+/** Whether the `claude` CLI is on PATH, with its version (optional: the design agent can use it). */
+export function claudeCode(
+  bin = 'claude',
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<Omit<Check, 'id'>> {
+  return new Promise((resolve) => {
+    execFile(bin, ['--version'], { timeout: 5_000, env }, (err, stdout) => {
+      if (err)
+        return resolve({
+          status: 'warn',
+          detail:
+            (err as NodeJS.ErrnoException).code === 'ENOENT'
+              ? `${bin} not on PATH (optional: the design agent's Claude Code runtime needs it)`
+              : `${bin} --version failed`,
+        });
+      resolve({ status: 'ok', detail: `${String(stdout).split('\n')[0]!.trim()} on PATH` });
+    });
+  });
 }

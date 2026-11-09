@@ -14,11 +14,15 @@ import {
   searchEntities,
   getWorktree,
   listProjects,
+  listOverrides,
   loadCatalog,
+  loadDesignInputs,
   loadPlannerGraph,
+  promoteSubsystem,
   registerRoot,
+  setOverride,
 } from '@atlas/graph';
-import { projectView, type Catalog, type PlannerGraph } from '@atlas/planner';
+import { planDesign, projectView, type Catalog, type PlannerGraph } from '@atlas/planner';
 import { defaultAnalyzers, type Analyzer } from '@atlas/analyzers';
 import { WatchManager, type WatchOptions } from './watcher.ts';
 import { Enricher } from './enrich.ts';
@@ -27,6 +31,12 @@ import { JobRunner } from './jobs.ts';
 import { canvasForEntity, entityDetails, readSource, relationDetails } from './routes/inspect.ts';
 import { getOverlay, putOverlay } from './routes/overlays.ts';
 import { registerRunRoutes, runScopedTarget } from './routes/runs.ts';
+import { DesignJobs, type DesignAgentOptions } from './design-jobs.ts';
+import { registerDesignJobRoutes } from './routes/design-jobs.ts';
+import { registerDesignElementRoutes } from './routes/design-elements.ts';
+import { registerBoardRoutes } from './routes/boards.ts';
+import { registerBoardAgentRoutes } from './routes/board-agent.ts';
+import { registerBoardExportRoutes } from './routes/board-exports.ts';
 import { ObjectStore } from '@atlas/evidence';
 import type { Db } from '@atlas/store';
 import { EventBus } from './events.ts';
@@ -57,6 +67,8 @@ export interface ServerOptions {
   watch?: WatchOptions;
   /** Model providers by settings name (tests inject instrumented mocks). No network provider ships. */
   providers?: Record<string, () => ModelProvider>;
+  /** Design-agent runtimes and key lookup (D02c; tests inject fakes, never a real model). */
+  designAgent?: DesignAgentOptions;
 }
 
 export interface AtlasServer {
@@ -65,6 +77,7 @@ export interface AtlasServer {
   jobs: JobRunner;
   watches: WatchManager;
   enricher: Enricher;
+  designJobs: DesignJobs;
   startedAt: string;
 }
 
@@ -269,7 +282,15 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     async (req, reply) => {
       const r = rejectClaim(opts.db, req.params.id, String(req.body?.reason ?? ''));
       if (!r.ok) return reply.code(r.status).send({ error: r.error });
-      bus.publish({ type: 'claims.reviewed', data: { claimId: req.params.id } });
+      const owner = opts.db
+        .prepare(
+          'SELECT s.project_id FROM claims c JOIN snapshots s ON s.id = c.snapshot_id WHERE c.id = ? LIMIT 1',
+        )
+        .get<{ project_id: string }>(req.params.id);
+      bus.publish({
+        type: 'claims.reviewed',
+        data: { claimId: req.params.id, projectId: owner?.project_id },
+      });
       return r;
     },
   );
@@ -399,16 +420,59 @@ export function buildServer(opts: ServerOptions): AtlasServer {
   );
 
   // Snapshot-scoped views (plan §8): catalogs are cheap rows; projections are computed on demand.
-  const viewCache = new Map<string, { graph: PlannerGraph; catalog: Catalog }>();
-  const views = (snapshotId: string) => {
+  // Architecture canvases are persisted at publish. Design canvases (D01) are never persisted: they
+  // depend on claims and view overrides, which change after publish, so they are planned here and
+  // replanned whenever the project's view revision moves.
+  const projectRevision = new Map<string, number>();
+  let globalRevision = 0;
+  const revisionKey = (projectId: string) =>
+    `${globalRevision}:${projectRevision.get(projectId) ?? 0}`;
+  const bumpViews = (projectId: unknown) => {
+    if (typeof projectId === 'string')
+      projectRevision.set(projectId, (projectRevision.get(projectId) ?? 0) + 1);
+    else globalRevision++;
+  };
+  bus.subscribe((m) => {
+    if (
+      m.type === 'claims.proposed' ||
+      m.type === 'claims.reviewed' ||
+      m.type === 'issue.resolved' ||
+      m.type === 'views.changed' ||
+      m.type === 'design.changed'
+    )
+      bumpViews(m.data.projectId);
+  });
+  interface ViewEntry {
+    base: PlannerGraph;
+    architecture: Catalog;
+    revision?: string;
+    graph: PlannerGraph;
+    catalog: Catalog;
+  }
+  const viewCache = new Map<string, ViewEntry>();
+  const views = (snapshotId: string): ViewEntry => {
     let hit = viewCache.get(snapshotId);
     if (!hit) {
-      hit = {
-        graph: loadPlannerGraph(opts.db, snapshotId),
-        catalog: loadCatalog(opts.db, snapshotId),
-      };
+      const base = loadPlannerGraph(opts.db, snapshotId);
+      const architecture = loadCatalog(opts.db, snapshotId);
+      hit = { base, architecture, graph: base, catalog: architecture };
       viewCache.set(snapshotId, hit);
       if (viewCache.size > 4) viewCache.delete(viewCache.keys().next().value!);
+    }
+    const revision = revisionKey(hit.base.projectId);
+    if (hit.revision !== revision) {
+      // first use: base already carries the design inputs; later: reload only claims/overrides
+      const graph =
+        hit.revision === undefined
+          ? hit.base
+          : { ...hit.base, ...loadDesignInputs(opts.db, snapshotId, hit.base.projectId) };
+      const design = planDesign(graph);
+      hit.graph = graph;
+      hit.catalog = {
+        canvases: [...hit.architecture.canvases, ...design.canvases],
+        links: [...hit.architecture.links, ...design.links],
+      };
+      hit.revision = revision;
     }
     return hit;
   };
@@ -540,6 +604,82 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     },
   );
 
+  const projectExists = (id: string) =>
+    !!opts.db.prepare('SELECT 1 AS ok FROM projects WHERE id = ?').get(id);
+
+  registerDesignElementRoutes(app, { db: opts.db, bus });
+  registerBoardRoutes(app, { db: opts.db, bus });
+  registerBoardExportRoutes(app, { db: opts.db, bus });
+
+  /** View overrides (plan §8, D01): pin/suppress/promote keyed on stable canvas ids. */
+  const OverrideBody = z
+    .object({
+      action: z.enum(['pin', 'suppress', 'promote']),
+      enabled: z.boolean(),
+      projectId: z.string().regex(/^proj_[0-9a-f]{16,64}$/),
+      snapshotId: z
+        .string()
+        .regex(/^snap_[0-9a-f]{16,64}$/)
+        .optional(),
+      subsystemPath: z.string().trim().min(1).max(80).optional(),
+    })
+    .strict();
+  app.put<{ Params: { viewId: string } }>(
+    `${API_PREFIX}/views/:viewId/override`,
+    async (req, reply) => {
+      const canvasId = req.params.viewId;
+      if (!/^cvs_[0-9a-f]{16,64}$/.test(canvasId))
+        return reply.code(400).send({ error: 'invalid_view' });
+      const body = OverrideBody.safeParse(req.body);
+      if (!body.success)
+        return reply.code(400).send({ error: 'invalid_body', issues: body.error.issues });
+      const { action, enabled, projectId, snapshotId, subsystemPath } = body.data;
+      if (!projectExists(projectId)) return reply.code(404).send({ error: 'unknown_project' });
+      if (action === 'promote' && enabled) {
+        if (!snapshotId || !subsystemPath)
+          return reply.code(400).send({ error: 'promote needs snapshotId and subsystemPath' });
+        const snap = getSnapshot(opts.db, snapshotId);
+        if (!snap) return reply.code(404).send({ error: 'unknown_snapshot' });
+        if (snap.projectId !== projectId)
+          return reply.code(400).send({ error: 'snapshot belongs to another project' });
+        const r = await promoteSubsystem(opts.db, { snapshotId, canvasId, subsystemPath });
+        if (!r.ok) return reply.code(r.status).send({ error: r.error });
+        if (r.accepted.length)
+          bus.publish({
+            type: 'claims.proposed',
+            data: {
+              proposalId: r.proposalIds.at(-1),
+              projectId,
+              worktreeId: snap.worktreeId,
+              accepted: r.accepted.length,
+              rejected: r.rejected.length,
+            },
+          });
+        bus.publish({ type: 'views.changed', data: { projectId } });
+        // the accepted part is stored; anything the validator refused is reported, never forced
+        if (r.rejected.length) return reply.code(409).send({ error: 'promotion_rejected', ...r });
+        return r;
+      }
+      setOverride(opts.db, projectId, canvasId, action, enabled);
+      bus.publish({ type: 'views.changed', data: { projectId } });
+      return {
+        projectId,
+        targetId: canvasId,
+        action,
+        enabled,
+        overrides: listOverrides(opts.db, projectId),
+      };
+    },
+  );
+
+  app.get<{ Params: { id: string } }>(
+    `${API_PREFIX}/projects/:id/overrides`,
+    async (req, reply) => {
+      if (!projectExists(req.params.id)) return reply.code(404).send({ error: 'unknown_project' });
+      return { projectId: req.params.id, overrides: listOverrides(opts.db, req.params.id) };
+    },
+  );
+
   app.get<{ Params: { id: string; eid: string } }>(
     `${API_PREFIX}/snapshots/:id/entities/:eid/canvas`,
     async (req, reply) => {
@@ -582,5 +722,18 @@ export function buildServer(opts: ServerOptions): AtlasServer {
     return reply.send(await readStatic(hit.file));
   });
 
-  return { app, bus, jobs, watches, enricher, startedAt };
+  // D02c design-agent jobs: their in-process Atlas tools call this daemon over loopback
+  const designJobs = new DesignJobs({
+    db: opts.db,
+    bus,
+    enricher,
+    dataDir: opts.dataDir,
+    daemon: () => ({ baseUrl: `http://127.0.0.1:${opts.port()}`, token: opts.token }),
+    catalog: (snapshotId) => views(snapshotId).catalog,
+    options: opts.designAgent,
+  });
+  registerDesignJobRoutes(app, designJobs);
+  registerBoardAgentRoutes(app, { db: opts.db, bus, designJobs });
+
+  return { app, bus, jobs, watches, enricher, designJobs, startedAt };
 }

@@ -54,7 +54,25 @@ The demo is local only and uses fake data. It does the following:
 1. Copies `fixtures/research-demo` into the Atlas data directory and scans it.
 2. Runs its report worker twice through `atlas run`. One run fails an assertion despite exit code 0.
 3. Captures a browser journey with real screenshots, including a failing step and a missing screenshot.
-4. Prints the UI link. Open it, choose **research-demo**, and explore **Architecture** and **Outputs & Audit**.
+4. Proposes one subsystem, "Research backend", as a mock agent through the claim API, citing the scan's evidence. No model is called.
+5. Prints the UI link. Open it, choose **research-demo**, and explore **Architecture**, **System design** and **Outputs & Audit**.
+
+## System design
+
+Besides the detailed architecture canvases, every scan gets a **System design** whiteboard: a few boxes (client, API service, worker, queue, datastore, cache, external API, library) with flows such as HTTP, enqueue and reads/writes. Every box states why it got its archetype and links to the architecture canvas that realizes it.
+
+- Coding agents can propose subsystems with `atlas_propose_view`. Proposals are labeled _proposed_ until you promote them.
+- You can pin or suppress subsystems.
+- These are views derived on demand, never new facts.
+- **Copilot** (in the design toolbar) suggests groupings, drift fixes and missing
+  responsibilities without a model, and runs Ask actions (propose a grouping, name a subsystem,
+  explain a flow with citations, suggest responsibilities) on your agent, only when you click.
+- **Generate design…** asks your agent for a full recursive design. It shows what leaves the
+  machine and the estimated tokens first, then a review sheet: nothing is accepted until you
+  accept it. Choose Claude Code (your Claude account), an Anthropic API key or the free mock in
+  **Settings → Design agent**; real runtimes need a one-time consent.
+
+See [`docs/views.md`](docs/views.md#system-design-lens-d01) and [`docs/design.md`](docs/design.md).
 
 ## Record your own runs
 
@@ -68,7 +86,7 @@ This records logs, exit code, declared outputs and any SDK assertions. See [`doc
 ## Export
 
 ```bash
-atlas export -o ./atlas-export            # every view as linked JSON Canvas files, plus a sidecar
+atlas export -o ./atlas-export            # every view (system design included) as linked JSON Canvas files, plus a sidecar
 atlas export -o ./run-export --run run_…  # a run with its screenshots and outputs
 ```
 
