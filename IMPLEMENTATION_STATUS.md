@@ -35,7 +35,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 | D01 | System-design lens (not in plan §17)                 | A06,M02     | done        | PRs #24, #27, #25, #29, #28; see D01 evidence       |
 | D02 | Whiteboard, design copilot, on-demand generation     | D01         | done        | PRs #26, #30, #31, #33, #34; see D02 evidence       |
 | D03 | Design boards (design-first whiteboard)              | D02         | done        | PRs #36, #40, #38, #39 and wave 2; see D03 evidence |
-| D04 | Recursive system design and user-flow mapping        | D03         | not started | plan: `docs/plan/D04-recursive-design-and-flows.md`                                       |
+| D04 | Recursive system design and user-flow mapping        | D03         | not started | plan: `docs/plan/D04-recursive-design-and-flows.md` |
 
 ## Phase acceptance checklists (plan §15)
 
