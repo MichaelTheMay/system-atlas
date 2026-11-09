@@ -6,7 +6,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 
 ## Next ticket
 
-**D04: recursive design boards and user-flow mapping** (not yet planned in detail). D03 is complete in `develop`. Known starting points, seen on Atlas's own repo on 2026-11-09: a from-code board is one flat frame (31 boxes, 82 connections, hard to read), internals sub-boards start empty and are created one at a time by hand, and scenarios (user flows) are written by hand only and stay on one board.
+**D04: recursive system design and user-flow mapping**, planned in `docs/plan/D04-recursive-design-and-flows.md`. Milestones M0 (baseline), M1 (detected hierarchy), M2 (recursive from-code boards), M3 (user-flow mapper), M4 (verification). Integration branch `feat/D04-recursive-design`; milestone PRs go into it, and nothing reaches `develop` without the owner's go-ahead. Revert point: tag `checkpoint-2026-11-09-d03` (= `main` `bb47ae0`).
 
 ## Tickets (plan §17)
 
@@ -35,6 +35,7 @@ Status values: `not started` · `in progress` · `done` (with PR and evidence) �
 | D01 | System-design lens (not in plan §17)                 | A06,M02     | done        | PRs #24, #27, #25, #29, #28; see D01 evidence       |
 | D02 | Whiteboard, design copilot, on-demand generation     | D01         | done        | PRs #26, #30, #31, #33, #34; see D02 evidence       |
 | D03 | Design boards (design-first whiteboard)              | D02         | done        | PRs #36, #40, #38, #39 and wave 2; see D03 evidence |
+| D04 | Recursive system design and user-flow mapping        | D03         | not started | plan: `docs/plan/D04-recursive-design-and-flows.md`                                       |
 
 ## Phase acceptance checklists (plan §15)
 
